@@ -41,8 +41,13 @@ export function parseCsv(input: string): { headers: string[]; rows: Row[] } {
   // trailing field/row, unless the file ended on a clean newline
   if (field !== "" || row.length) endRow();
 
-  // drop wholly blank lines
-  const clean = table.filter((r) => r.some((c) => c.trim() !== ""));
+  // Drop wholly blank lines, and lines whose first cell starts with "#".
+  // The downloadable templates carry a "#"-prefixed legend, and someone will
+  // forget to delete it; no real value in any of these files — a date, an email,
+  // a round id — begins with a hash, so skipping them is safe.
+  const clean = table.filter(
+    (r) => r.some((c) => c.trim() !== "") && !r[0]?.trim().startsWith("#"),
+  );
   if (!clean.length) return { headers: [], rows: [] };
 
   const headers = clean[0].map((h) => h.trim());

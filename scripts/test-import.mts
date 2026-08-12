@@ -16,7 +16,8 @@
  */
 
 import { parseCsv, toNumber, toDate } from "../lib/import/csv";
-import { mapColumns } from "../lib/import/sources";
+import { mapColumns, SOURCES } from "../lib/import/sources";
+import { buildTemplate } from "../lib/import/template";
 import { buildIndex, matchRow, normPhone, normEmail, stripPlus } from "../lib/import/identity";
 import { attributeLead, closeRoundFor, resolveProduct } from "../lib/import/attribute";
 import { planImport, ImportError } from "../lib/import/pipeline";
@@ -269,6 +270,32 @@ console.log("\nPipeline — idempotent re-import");
   const plan = await planImport(db, { source: "leads", clientId: "shely", fileName: "again.csv", text: csv });
   eq("re-importing the same row writes nothing", plan.ops.events.length, 0);
   eq("it is reported as already present", plan.counts.duplicates, 1);
+}
+
+/**
+ * The downloadable templates are a promise: "fill this in and it will import."
+ * Each one is checked against the real mapper, so the promise can't rot when a
+ * field is added to SOURCES and the example table isn't updated to match.
+ */
+console.log("\nTemplates");
+{
+  for (const source of ["ads", "leads", "attendance", "sales"] as const) {
+    const { headers, rows } = parseCsv(buildTemplate(source));
+    const { missing, unused } = mapColumns(source, headers);
+    eq(`${source}: every required field maps`, missing, []);
+    eq(`${source}: no stray columns`, unused, []);
+    eq(`${source}: the "#" legend is not read as data`, rows.length, 2);
+    ok(
+      `${source}: example rows fill every required field`,
+      SOURCES[source].fields
+        .filter((f) => f.required)
+        .every((f) => rows.every((r) => (r[f.field] ?? "").trim() !== "")),
+    );
+  }
+  // A hash in the first cell is what makes the legend skippable; prove it is
+  // scoped to that position and doesn't eat a real value elsewhere.
+  const withHash = parseCsv("email,note\na@b.sg,#1 priority\n");
+  eq("a hash inside a row is kept", withHash.rows[0]["note"], "#1 priority");
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

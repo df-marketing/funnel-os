@@ -5,12 +5,30 @@ import { SOURCES, type SourceKey } from "@/lib/import/sources";
 
 const ORDER: SourceKey[] = ["ads", "leads", "attendance", "sales"];
 
-const SOURCE_META: Record<string, { title: string; kind: string; cols: string }> = {
-  ads:        { title: "Ads performance", kind: "Meta export · CSV",      cols: "date · campaign · ad set · ad · spend · impressions · reach · clicks" },
-  leads:      { title: "Leads",           kind: "GoHighLevel · API",      cols: "email · phone · created · source · utm_* · tags" },
-  attendance: { title: "Attendance",      kind: "Webinar platform · CSV", cols: "session · email · joined at · minutes watched" },
-  sales:      { title: "Sales",           kind: "Payments · CSV",         cols: "date · email · product · amount · currency · refunded" },
+/**
+ * Why the four files go in this order.
+ *
+ * This isn't presentation: each step reads reference data the previous one
+ * wrote. Importing sales before attendance produces sales with no closing
+ * credit, and nothing in the diff would tell you that had happened.
+ */
+const WHY_HERE: Record<SourceKey, string> = {
+  ads:        "First, because ad_set is the bridge. A lead's utm_campaign is matched against these ad sets to work out which round's spend produced it.",
+  leads:      "Needs the ads file above — without it a lead has no ad set to match and falls back to date-window attribution, which is a guess.",
+  attendance: "Needs leads: attendance attaches to a person, and a person becomes known when their lead row lands.",
+  sales:      "Last, because a sale's closing credit goes to the most recent class the buyer attended. Attendance has to be in first or that credit is lost.",
 };
+
+/** The whole job, start to finish. Rendered above the dropzones. */
+const STRAIGHT_LINE = [
+  { n: "0", label: "Rounds exist", sub: "set up once per round" },
+  { n: "1", label: "Ads", sub: "Meta" },
+  { n: "2", label: "Leads", sub: "GoHighLevel" },
+  { n: "3", label: "Attendance", sub: "webinar" },
+  { n: "4", label: "Sales", sub: "payments" },
+  { n: "5", label: "Clear unmatched", sub: "accept or dismiss" },
+  { n: "6", label: "Read By round", sub: "the answer" },
+];
 
 const REASON_LABEL: Record<string, string> = {
   same_person_two_addresses: "Same person, two addresses",
@@ -31,22 +49,57 @@ const when = (iso: string) => {
 
 export function ImportPane({ imports, client }: { imports: ImportStatus[]; client: string }) {
   const stale = imports.filter((i) => i.is_stale);
+  // The next file to drop is the first in dependency order that has never landed;
+  // once they're all in, the job moves on to clearing the unmatched queue.
+  const nextUp = ORDER.find((k) => !imports.some((i) => i.source === k));
+
   return (
     <>
       <div className="pane-head">
         <h1>Import</h1>
         <p>
-          Four sources on their own cadences. Nothing lands automatically — drop the file, see what it
-          will do, then commit it.
+          Four files, in the order below. Each one reads what the one before it wrote, so the order
+          isn&rsquo;t a suggestion. Nothing lands automatically — drop a file, read the diff, then commit.
         </p>
       </div>
 
+      <ol className="line">
+        {STRAIGHT_LINE.map((s) => {
+          const done = ORDER.includes(s.label.toLowerCase() as SourceKey)
+            ? imports.some((i) => i.source === s.label.toLowerCase())
+            : false;
+          const here = nextUp && s.label.toLowerCase() === nextUp;
+          return (
+            <li key={s.n} className={`${done ? "done" : ""}${here ? " here" : ""}`}>
+              <span className="n">{done ? "✓" : s.n}</span>
+              <span className="l">{s.label}</span>
+              <span className="s">{s.sub}</span>
+            </li>
+          );
+        })}
+      </ol>
+
+      <div className="notice">
+        <span className="ico">!</span>
+        <div>
+          <b>Step 0 has no screen yet.</b> An import is refused outright if the round it belongs to
+          doesn&rsquo;t exist — attendance names a <span className="num">round_id</span> like{" "}
+          <span className="num">0826-01</span>, and there has to be a row to attach it to. Rounds are
+          currently created by SQL insert, not in the app. That&rsquo;s the one gap left in the straight
+          line.
+        </div>
+      </div>
+
       <div className="sources">
-        {ORDER.map((key) => {
+        {ORDER.map((key, idx) => {
           const spec = SOURCES[key];
           const status = imports.find((i) => i.source === key);
           return (
-            <div key={key}>
+            <div key={key} className={key === nextUp ? "src-wrap next" : "src-wrap"}>
+              <div className="step-h">
+                <span className="step-n">{idx + 1}</span>
+                <p>{WHY_HERE[key]}</p>
+              </div>
               <ImportUploader
                 source={key}
                 label={spec.label}
@@ -54,6 +107,9 @@ export function ImportPane({ imports, client }: { imports: ImportStatus[]; clien
                 client={client}
                 expects={spec.fields.map((f) => f.field).join(" · ")}
               />
+              <a className="tmpl" href={`/api/template/${key}`} download>
+                ↓ Download a filled-in {spec.label.toLowerCase()} template
+              </a>
               <dl className="src-status">
                 <dt>Last import</dt>
                 <dd>
@@ -92,10 +148,25 @@ export function ImportPane({ imports, client }: { imports: ImportStatus[]; clien
       <div className="notice info">
         <span className="ico">?</span>
         <div>
-          <b>Nothing lands automatically.</b> Dropping a file parses it, matches every row to a person,
-          works out which round produced the lead, and shows you the diff — including anything that
-          would restate a figure you have already reported. Only then is there a commit button.
-          Unmatched rows are parked, never guessed, and never counted.
+          <b>There is no fixed export format to match.</b> Column order doesn&rsquo;t matter, extra
+          columns are ignored and listed back to you, and the common header spellings are recognised
+          already — <span className="num">Amount spent (SGD)</span>, <span className="num">Day</span>{" "}
+          and <span className="num">Reporting starts</span> all resolve on their own. Only the required
+          fields have to be present under some recognisable name; if one is missing the import is
+          refused and the field is named, rather than importing blanks. The templates above are the
+          shortest way to see what each file needs.
+        </div>
+      </div>
+
+      <div className="notice info">
+        <span className="ico">→</span>
+        <div>
+          <b>Then what.</b> Dropping a file parses it, matches every row to a person, works out which
+          round produced the lead, and shows the diff — including anything that would restate a figure
+          you have already reported. Only then is there a commit button. Rows that couldn&rsquo;t be
+          tied to a person land in <b>Unmatched</b>, where you accept or dismiss them; they are never
+          guessed and never counted, so figures are understated by exactly that queue and never
+          overstated. When it&rsquo;s empty, <b>By round</b> is the answer.
         </div>
       </div>
     </>
