@@ -52,14 +52,33 @@ const NOTE: Partial<Record<SourceKey, string[]>> = {
   ],
 };
 
+/**
+ * Where a field means something different depending on the file it's in.
+ *
+ * Attendance is the one that matters: the note tells you a timestamp beats a
+ * bare date because it decides the closing credit, so the example has to show a
+ * timestamp — an example that contradicts its own advice teaches the wrong habit.
+ */
+const PER_SOURCE: Partial<Record<SourceKey, Record<string, [string, string]>>> = {
+  attendance: {
+    event_date: ["2026-08-05 20:04", "2026-08-05 20:31"],
+  },
+  sales: {
+    event_date: ["2026-08-05 21:12", "2026-08-06 09:40"],
+  },
+};
+
 const cell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
 
 export function buildTemplate(source: SourceKey): string {
   const spec = SOURCES[source];
   const fields = spec.fields.map((f) => f.field);
+  const override = PER_SOURCE[source] ?? {};
 
   const header = fields.map(cell).join(",");
-  const rows = [0, 1].map((i) => fields.map((f) => cell(EXAMPLE[f]?.[i] ?? "")).join(","));
+  const rows = [0, 1].map((i) =>
+    fields.map((f) => cell((override[f] ?? EXAMPLE[f])?.[i] ?? "")).join(","),
+  );
 
   // Comment lines start with # and are dropped as blank-ish by the parser's own
   // header handling only if removed first, so they go after the data as a legend

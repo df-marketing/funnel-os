@@ -292,6 +292,21 @@ console.log("\nTemplates");
         .every((f) => rows.every((r) => (r[f.field] ?? "").trim() !== "")),
     );
   }
+  // Every date in an example row has to survive the real converters, or the
+  // template teaches a format the importer would reject.
+  for (const source of ["ads", "leads", "attendance", "sales"] as const) {
+    const { rows } = parseCsv(buildTemplate(source));
+    for (const field of ["date", "event_date"]) {
+      const values = rows.map((r) => r[field]).filter((v) => v);
+      if (!values.length) continue;
+      ok(`${source}: example ${field} parses`, values.every((v) => toDate(v) !== null));
+    }
+  }
+  // Attendance advises a timestamp over a bare date because it decides the
+  // closing credit — so the example must actually carry one.
+  const att = parseCsv(buildTemplate("attendance")).rows[0]["event_date"];
+  ok("attendance example carries a time, as its own note advises", /\d:\d/.test(att));
+
   // A hash in the first cell is what makes the legend skippable; prove it is
   // scoped to that position and doesn't eat a real value elsewhere.
   const withHash = parseCsv("email,note\na@b.sg,#1 priority\n");
