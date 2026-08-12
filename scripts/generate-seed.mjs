@@ -113,11 +113,13 @@ const MIDDLE_SALES = [
   ["0526-02",   1400,  "Cold_BusinessOwners",        "Paid Ads"],
   ["0526-02",    197,  null,                         "Organic"],
   ["0526-02",    197,  null,                         "AOAI"],
-  ["0526-03",   2000,  "Cold_CoachesLifeCoaches",    "Paid Ads"],  // Round × source: 2,000
-  ["0526-03",   2800,  null,                         "Organic"],   // Round × source: 2,800
-  ["0526-03",   1700,  null,                         "AOAI"],      // Round × source: 3,400 over 2
+  // 0526-03 totals 8,200 over 5 sales, split exactly as the Round × source tab has it:
+  // Paid Ads 2,000 (1) · Organic 2,800 (2) · AOAI 3,400 (2)
+  ["0526-03",   2000,  "Cold_CoachesLifeCoaches",    "Paid Ads"],
+  ["0526-03",   1400,  null,                         "Organic"],
+  ["0526-03",   1400,  null,                         "Organic"],
   ["0526-03",   1700,  null,                         "AOAI"],
-  ["0526-03",   2000,  null,                         "Organic"],
+  ["0526-03",   1700,  null,                         "AOAI"],
   ["0726-01",   7000,  "Cold_CoachesLifeCoaches",    "Paid Ads"],
   ["0726-01",   2000,  null,                         "Organic"],
   ["0726-03",   9000,  "Cold_CourseCreators",        "Paid Ads"],
