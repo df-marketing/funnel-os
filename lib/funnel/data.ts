@@ -107,7 +107,20 @@ export async function getDashboard(clientId?: string): Promise<Dashboard> {
     return { ...EMPTY, error: "No clients configured. Run supabase/migrations/ALL.sql to load the schema and seed." };
   }
 
-  const client = clients.find((c) => c.client_id === clientId) ?? clients[0];
+  // Default to the client with the most history, so the app opens on an account
+  // with something to look at rather than on whichever name sorts first.
+  // Counted here rather than in the view so this works against a database that
+  // hasn't had the 0004 patch applied.
+  const { data: roundRows } = await supabase.from("rounds").select("client_id");
+  const rounds = new Map<string, number>();
+  for (const r of roundRows ?? []) rounds.set(r.client_id, (rounds.get(r.client_id) ?? 0) + 1);
+  const ordered = [...clients].sort(
+    (a, b) =>
+      (rounds.get(b.client_id) ?? 0) - (rounds.get(a.client_id) ?? 0) ||
+      a.client_id.localeCompare(b.client_id),
+  );
+
+  const client = ordered.find((c) => c.client_id === clientId) ?? ordered[0];
   const id = client.client_id;
 
   const [stages, strip, total, baseline, byRound, byAdset, imports, unmatched, reasons, rows] =
@@ -142,7 +155,7 @@ export async function getDashboard(clientId?: string): Promise<Dashboard> {
     ]);
 
   return {
-    clients,
+    clients: ordered,
     stages: stages.data ?? [],
     strip: strip.data ?? [],
     total: total.data ?? null,

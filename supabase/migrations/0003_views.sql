@@ -105,10 +105,16 @@ $$;
 -- ═══════════════════════════════════════════════════════════════════════════
 
 -- Configured unit prices, one row per client.
+-- A journey whose purchase stage is 'checkout' rather than 'preview' (ecommerce)
+-- still records its sales as product = 'preview' — the first purchase in the
+-- journey — so the checkout price stands in as the preview price for that client.
 create or replace view v_client_prices as
 select
   client_id,
-  max(unit_price) filter (where stage_slug = 'preview')  as preview_price,
+  coalesce(
+    max(unit_price) filter (where stage_slug = 'preview'),
+    max(unit_price) filter (where stage_slug = 'checkout')
+  ) as preview_price,
   max(unit_price) filter (where stage_slug = 'middle')   as middle_price,
   max(unit_price) filter (where stage_slug = 'checkout') as checkout_price
 from client_journey_config
@@ -116,15 +122,22 @@ group by client_id;
 
 -- Clients, for the switcher. Derived from the journey config — client is a
 -- dimension, and the journey is what makes a client real to this app.
+--
+-- Ordered by how much history each client has, so the app opens on the account
+-- with something to look at rather than on whichever name sorts first.
 create or replace view v_clients as
 select
-  client_id,
-  min(client_name) as client_name,
-  min(client_note) as client_note,
-  count(*)         as stage_count
-from client_journey_config
-group by client_id
-order by client_id;
+  j.client_id,
+  min(j.client_name)        as client_name,
+  min(j.client_note)        as client_note,
+  count(*)                  as stage_count,
+  coalesce(r.round_count, 0) as round_count
+from client_journey_config j
+left join (
+  select client_id, count(*) as round_count from rounds group by client_id
+) r on r.client_id = j.client_id
+group by j.client_id, r.round_count
+order by coalesce(r.round_count, 0) desc, j.client_id;
 
 -- Journey stages, in order. Drives the Customer Journey strip AND the Compare nav
 -- group — change a client's journey and the views change with it.
