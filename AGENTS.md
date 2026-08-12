@@ -13,6 +13,7 @@
 ## Decisions
 
 - Sprint 3: the import pipeline uses a drop, diff, commit strategy.
+- SUPABASE_SECRET_KEY and SUPABASE_SERVICE_ROLE_KEY are both accepted as env vars, providing flexibility in how the service role key is named.
 
 ## Architecture
 
