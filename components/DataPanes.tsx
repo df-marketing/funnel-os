@@ -1,4 +1,9 @@
 import type { ImportStatus, UnmatchedSummary, UnmatchedReason, UnmatchedRow } from "@/lib/funnel/data";
+import { ImportUploader } from "./ImportUploader";
+import { UnmatchedActions } from "./UnmatchedActions";
+import { SOURCES, type SourceKey } from "@/lib/import/sources";
+
+const ORDER: SourceKey[] = ["ads", "leads", "attendance", "sales"];
 
 const SOURCE_META: Record<string, { title: string; kind: string; cols: string }> = {
   ads:        { title: "Ads performance", kind: "Meta export · CSV",      cols: "date · campaign · ad set · ad · spend · impressions · reach · clicks" },
@@ -24,7 +29,7 @@ const when = (iso: string) => {
   return days === 1 ? "yesterday" : `${days} days ago`;
 };
 
-export function ImportPane({ imports }: { imports: ImportStatus[] }) {
+export function ImportPane({ imports, client }: { imports: ImportStatus[]; client: string }) {
   const stale = imports.filter((i) => i.is_stale);
   return (
     <>
@@ -37,31 +42,35 @@ export function ImportPane({ imports }: { imports: ImportStatus[] }) {
       </div>
 
       <div className="sources">
-        {imports.map((i) => {
-          const meta = SOURCE_META[i.source] ?? { title: i.source, kind: "—", cols: "—" };
+        {ORDER.map((key) => {
+          const spec = SOURCES[key];
+          const status = imports.find((i) => i.source === key);
           return (
-            <div className="src" key={i.source}>
-              <div className="src-h">
-                <h3>{meta.title}</h3>
-                <span className="kind">{meta.kind}</span>
-              </div>
-              <div className="src-b">
-                <dl>
-                  <dt>Last import</dt>
-                  <dd>
+            <div key={key}>
+              <ImportUploader
+                source={key}
+                label={spec.label}
+                kind={spec.kind}
+                client={client}
+                expects={spec.fields.map((f) => f.field).join(" · ")}
+              />
+              <dl className="src-status">
+                <dt>Last import</dt>
+                <dd>
+                  {status ? (
                     <span className="fresh">
-                      <span className={`dot ${i.is_stale ? "old" : "ok"}`} />
-                      {when(i.imported_at)}
+                      <span className={`dot ${status.is_stale ? "old" : "ok"}`} />
+                      {when(status.imported_at)}
                     </span>
-                  </dd>
-                  <dt>Covers</dt>
-                  <dd>
-                    {i.coverage_start ?? "—"} → {i.coverage_end ?? "—"}
-                  </dd>
-                  <dt>Rows</dt>
-                  <dd>{i.row_count?.toLocaleString("en-SG") ?? "—"}</dd>
-                </dl>
-              </div>
+                  ) : (
+                    <span className="fresh"><span className="dot miss" /> never</span>
+                  )}
+                </dd>
+                <dt>Covers</dt>
+                <dd>{status ? `${status.coverage_start ?? "—"} → ${status.coverage_end ?? "—"}` : "—"}</dd>
+                <dt>Rows</dt>
+                <dd>{status?.row_count?.toLocaleString("en-SG") ?? "—"}</dd>
+              </dl>
             </div>
           );
         })}
@@ -83,10 +92,10 @@ export function ImportPane({ imports }: { imports: ImportStatus[] }) {
       <div className="notice info">
         <span className="ico">?</span>
         <div>
-          <b>Upload and reconciliation are the next sprint.</b> The cards above are live —
-          <span className="num"> import_batches</span> drives the freshness dots, the staleness banner
-          and the header flag. Dropping a file, diffing it and committing it is deliberately not built
-          yet; today&rsquo;s scope is the reporting spine.
+          <b>Nothing lands automatically.</b> Dropping a file parses it, matches every row to a person,
+          works out which round produced the lead, and shows you the diff — including anything that
+          would restate a figure you have already reported. Only then is there a commit button.
+          Unmatched rows are parked, never guessed, and never counted.
         </div>
       </div>
     </>
@@ -137,6 +146,7 @@ export function UnmatchedPane({
               <th>Why it didn&rsquo;t match</th>
               <th>Best guess</th>
               <th>Holds</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -145,7 +155,7 @@ export function UnmatchedPane({
               return (
                 <tbody key={r.reason} style={{ display: "contents" }}>
                   <tr className="grp">
-                    <td colSpan={5}>
+                    <td colSpan={6}>
                       {REASON_LABEL[r.reason] ?? r.reason} — {r.rows_waiting} rows
                     </td>
                   </tr>
@@ -170,6 +180,9 @@ export function UnmatchedPane({
                         </td>
                         <td className="n">
                           {x.revenue_held && Number(x.revenue_held) > 0 ? `SGD ${sgd(x.revenue_held)}` : "—"}
+                        </td>
+                        <td>
+                          <UnmatchedActions rowId={x.row_id} hasGuess={Boolean(x.best_guess)} />
                         </td>
                       </tr>
                     );

@@ -90,7 +90,7 @@ export default async function Page({
         />
 
         <main className="main">
-          {view === "import" ? <ImportPane imports={data.imports} /> : null}
+          {view === "import" ? <ImportPane imports={data.imports} client={current.client_id} /> : null}
 
           {view === "unmatched" ? (
             <UnmatchedPane

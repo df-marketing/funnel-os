@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "seed": "node scripts/generate-seed.mjs",
+    "test:import": "npx --yes tsx@4 scripts/test-import.mts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.0",
