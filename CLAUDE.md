@@ -23,3 +23,7 @@
 
 - Client switcher defaults to opening on Shely, not the first alphabetically sorted client.
 - No objective is set for the project — milestones may lack a guiding north star.
+
+## Notes
+
+- diagnostic step added to measure Supabase latency from inside the function – indicates ongoing debugging or profiling of import pipeline performance.
