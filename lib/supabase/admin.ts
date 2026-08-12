@@ -13,7 +13,12 @@ import { createClient as createSupabaseClient, type SupabaseClient } from "@supa
  */
 export function createAdminClient(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  // Supabase's newer key system calls this a "secret key" (sb_secret_…) rather
+  // than service_role, so both names are accepted — naming it after what the
+  // dashboard shows you shouldn't produce a 503 with no explanation.
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ??
+    process.env.SUPABASE_SECRET_KEY;
   if (!url || !key) return null;
 
   return createSupabaseClient(url, key, {
@@ -22,8 +27,9 @@ export function createAdminClient(): SupabaseClient | null {
 }
 
 export const MISSING_KEY_MESSAGE =
-  "SUPABASE_SERVICE_ROLE_KEY isn't set. Add it in Supabase → Settings → API → service_role, " +
-  "then `vercel env add SUPABASE_SERVICE_ROLE_KEY` and redeploy. Reads work without it; imports don't.";
+  "SUPABASE_SERVICE_ROLE_KEY isn't set. Copy the secret key from Supabase → Settings → API " +
+  "(Secret keys → sb_secret_…, or the legacy service_role key), then run " +
+  "`vercel env add SUPABASE_SERVICE_ROLE_KEY` and redeploy. Reads work without it; imports don't.";
 
 /**
  * PostgREST caps a response at 1000 rows. The matching index needs every contact
