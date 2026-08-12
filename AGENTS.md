@@ -10,6 +10,10 @@
 - `lint`: `next lint`
 - `start`: `next start`
 
+## Decisions
+
+- Sprint 3: the import pipeline uses a drop, diff, commit strategy.
+
 ## Architecture
 
 - Schema includes 29 metric views built from seed generator (Sprint 1).
@@ -18,3 +22,4 @@
 ## Gotchas
 
 - Client switcher defaults to opening on Shely, not the first alphabetically sorted client.
+- No objective is set for the project — milestones may lack a guiding north star.
