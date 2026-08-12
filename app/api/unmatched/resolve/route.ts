@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
+import { FUNNEL_TAG } from "@/lib/supabase/read";
 import { createAdminClient, MISSING_KEY_MESSAGE } from "@/lib/supabase/admin";
 import { normEmail, normPhone } from "@/lib/import/identity";
 
@@ -40,6 +41,7 @@ export async function POST(request: Request) {
         .eq("row_id", rowId);
       if (e) return NextResponse.json({ error: e.message }, { status: 500 });
       revalidatePath("/");
+      revalidateTag(FUNNEL_TAG);
       return NextResponse.json({ ok: true, outcome: "dismissed" });
     }
 
@@ -81,6 +83,7 @@ export async function POST(request: Request) {
     if (e) return NextResponse.json({ error: e.message }, { status: 500 });
 
     revalidatePath("/");
+    revalidateTag(FUNNEL_TAG);
     return NextResponse.json({ ok: true, outcome: "accepted", contactId });
   } catch (err) {
     console.error("[unmatched/resolve]", err);

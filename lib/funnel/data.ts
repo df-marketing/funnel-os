@@ -1,4 +1,5 @@
-import { createClient } from "@/lib/supabase/server";
+import { unstable_cache } from "next/cache";
+import { createReadClient, FUNNEL_TAG } from "@/lib/supabase/read";
 import type { Metrics } from "./spine";
 
 export type Client = {
@@ -78,74 +79,136 @@ export type Dashboard = {
   unmatched: UnmatchedSummary | null;
   unmatchedReasons: UnmatchedReason[];
   unmatchedRows: UnmatchedRow[];
+  /** The tab actually rendered — may differ from the one asked for, see resolveView. */
+  view: string;
   error: string | null;
 };
 
-const EMPTY: Omit<Dashboard, "error"> = {
+const EMPTY: Omit<Dashboard, "error" | "view"> = {
   clients: [], stages: [], strip: [], total: null, baseline: null,
   byRound: [], byAdset: [], imports: [], unmatched: null,
   unmatchedReasons: [], unmatchedRows: [],
 };
 
-export async function getDashboard(clientId?: string): Promise<Dashboard> {
-  const supabase = await createClient();
+/** Which tabs actually read a metrics table. Everything else is chrome-only. */
+const NEEDS_ROUNDS = new Set(["round"]);
+const NEEDS_ADSETS = new Set(["targeting"]);
+const NEEDS_UNMATCHED_DETAIL = new Set(["unmatched"]);
 
-  const { data: clients, error: clientErr } = await supabase
-    .from("v_clients")
-    .select("client_id, client_name, client_note, stage_count");
+/** Tabs that belong to a journey stage, so they only exist for some clients. */
+const STAGE_TABS = ["targeting", "ads", "lp", "class", "preview", "middle", "product", "checkout"];
 
-  if (clientErr) {
+/**
+ * Switching client keeps the tab only if the new client's journey has it —
+ * Northsea has no class, so "Attend class" must not survive the switch.
+ */
+function resolveView(requested: string, slugs: Set<string>) {
+  return slugs.has(requested) || !STAGE_TABS.includes(requested) ? requested : "round";
+}
+
+/**
+ * The client list, with the default-client ordering already applied.
+ *
+ * Ordering by round count needs a count, and counting used to mean pulling every
+ * rounds row on every page load — a whole table across the wire to produce one
+ * integer per client. `head: true` with an exact count asks Postgres for the
+ * number and returns no rows at all.
+ *
+ * Cached hard: clients change when DriveFunnels signs one, not when data lands.
+ */
+const loadClients = unstable_cache(
+  async () => {
+    const db = createReadClient();
+    const { data, error } = await db
+      .from("v_clients")
+      .select("client_id, client_name, client_note, stage_count");
+
+    if (error) return { clients: null, error };
+    if (!data?.length) return { clients: [] as Client[], error: null };
+
+    const counts = await Promise.all(
+      data.map(async (c) => {
+        const { count } = await db
+          .from("rounds")
+          .select("round_id", { count: "exact", head: true })
+          .eq("client_id", c.client_id);
+        return [c.client_id, count ?? 0] as const;
+      }),
+    );
+    const byId = new Map(counts);
+
+    // Open on the account with the most history rather than whichever name sorts
+    // first, so the app lands on something worth looking at.
+    const clients = [...data].sort(
+      (a, b) =>
+        (byId.get(b.client_id) ?? 0) - (byId.get(a.client_id) ?? 0) ||
+        a.client_id.localeCompare(b.client_id),
+    );
+    return { clients, error: null };
+  },
+  ["funnel-clients"],
+  { tags: [FUNNEL_TAG], revalidate: 3600 },
+);
+
+/** Nav, header and journey strip — needed whatever tab is open. */
+const loadChrome = unstable_cache(
+  async (id: string) => {
+    const db = createReadClient();
+    const [stages, strip, imports, unmatched] = await Promise.all([
+      db.from("v_journey").select("*").eq("client_id", id).order("stage_order"),
+      db.from("v_journey_strip").select("*").eq("client_id", id).order("stage_order"),
+      db.from("v_import_status").select("*").eq("client_id", id),
+      db.from("v_unmatched_summary").select("*").eq("client_id", id).maybeSingle(),
+    ]);
     return {
-      ...EMPTY,
-      error:
-        clientErr.message.includes("does not exist") || clientErr.code === "42P01"
-          ? "The database isn't set up yet — run supabase/migrations/ALL.sql in the Supabase SQL editor."
-          : clientErr.message,
+      stages: stages.data ?? [],
+      strip: strip.data ?? [],
+      imports: imports.data ?? [],
+      unmatched: unmatched.data ?? null,
     };
-  }
-  if (!clients?.length) {
-    return { ...EMPTY, error: "No clients configured. Run supabase/migrations/ALL.sql to load the schema and seed." };
-  }
+  },
+  ["funnel-chrome"],
+  { tags: [FUNNEL_TAG], revalidate: 300 },
+);
 
-  // Default to the client with the most history, so the app opens on an account
-  // with something to look at rather than on whichever name sorts first.
-  // Counted here rather than in the view so this works against a database that
-  // hasn't had the 0004 patch applied.
-  const { data: roundRows } = await supabase.from("rounds").select("client_id");
-  const rounds = new Map<string, number>();
-  for (const r of roundRows ?? []) rounds.set(r.client_id, (rounds.get(r.client_id) ?? 0) + 1);
-  const ordered = [...clients].sort(
-    (a, b) =>
-      (rounds.get(b.client_id) ?? 0) - (rounds.get(a.client_id) ?? 0) ||
-      a.client_id.localeCompare(b.client_id),
-  );
+/**
+ * The spine columns for one comparison tab.
+ *
+ * Only the open tab's cut is fetched. The Import tab used to pull every round
+ * and every ad set to render four dropzones that display neither.
+ */
+const loadMetrics = unstable_cache(
+  async (id: string, cut: "round" | "adset") => {
+    const db = createReadClient();
+    // Order explicitly: PostgREST doesn't guarantee a view's own ORDER BY survives.
+    // Rounds read left-to-right in time; audiences by spend, biggest bet first.
+    const cuts =
+      cut === "round"
+        ? db.from("v_metrics_by_round")
+            .select("cut_key, cut_label, cut_sub, m, start_date")
+            .eq("client_id", id).order("start_date")
+        : db.from("v_metrics_by_adset")
+            .select("cut_key, cut_label, cut_sub, m, sort_spend")
+            .eq("client_id", id).order("sort_spend", { ascending: false });
 
-  const client = ordered.find((c) => c.client_id === clientId) ?? ordered[0];
-  const id = client.client_id;
+    const [total, baseline, columns] = await Promise.all([
+      db.from("v_metrics_total").select("cut_key, cut_label, cut_sub, m").eq("client_id", id).maybeSingle(),
+      db.from("v_metrics_baseline").select("cut_key, cut_label, cut_sub, m").eq("client_id", id).maybeSingle(),
+      cuts,
+    ]);
+    return { total: total.data ?? null, baseline: baseline.data ?? null, columns: columns.data ?? [] };
+  },
+  ["funnel-metrics"],
+  { tags: [FUNNEL_TAG], revalidate: 300 },
+);
 
-  const [stages, strip, total, baseline, byRound, byAdset, imports, unmatched, reasons, rows] =
-    await Promise.all([
-      supabase.from("v_journey").select("*").eq("client_id", id).order("stage_order"),
-      supabase.from("v_journey_strip").select("*").eq("client_id", id).order("stage_order"),
-      supabase.from("v_metrics_total").select("cut_key, cut_label, cut_sub, m").eq("client_id", id).maybeSingle(),
-      supabase.from("v_metrics_baseline").select("cut_key, cut_label, cut_sub, m").eq("client_id", id).maybeSingle(),
-      // Order explicitly: PostgREST doesn't guarantee a view's own ORDER BY survives.
-      // Rounds read left-to-right in time; audiences by spend, biggest bet first.
-      supabase
-        .from("v_metrics_by_round")
-        .select("cut_key, cut_label, cut_sub, m, start_date")
-        .eq("client_id", id)
-        .order("start_date"),
-      supabase
-        .from("v_metrics_by_adset")
-        .select("cut_key, cut_label, cut_sub, m, sort_spend")
-        .eq("client_id", id)
-        .order("sort_spend", { ascending: false }),
-      supabase.from("v_import_status").select("*").eq("client_id", id),
-      supabase.from("v_unmatched_summary").select("*").eq("client_id", id).maybeSingle(),
-      supabase.from("v_unmatched_by_reason").select("reason, rows_waiting, revenue_held").eq("client_id", id),
-      supabase
-        .from("unmatched_rows")
+/** The parked queue, only for the tab that shows it. */
+const loadUnmatchedDetail = unstable_cache(
+  async (id: string) => {
+    const db = createReadClient();
+    const [reasons, rows] = await Promise.all([
+      db.from("v_unmatched_by_reason").select("reason, rows_waiting, revenue_held").eq("client_id", id),
+      db.from("unmatched_rows")
         .select("row_id, source, reason, best_guess, guess_method, confidence, revenue_held, raw_data")
         .eq("client_id", id)
         .eq("auto_resolved", false)
@@ -153,19 +216,73 @@ export async function getDashboard(clientId?: string): Promise<Dashboard> {
         .order("revenue_held", { ascending: false })
         .limit(12),
     ]);
+    return { reasons: reasons.data ?? [], rows: rows.data ?? [] };
+  },
+  ["funnel-unmatched"],
+  { tags: [FUNNEL_TAG], revalidate: 60 },
+);
+
+export async function getDashboard(clientId?: string, requested = "round"): Promise<Dashboard> {
+  const { clients, error: clientErr } = await loadClients();
+
+  if (clientErr) {
+    return {
+      ...EMPTY,
+      view: requested,
+      error:
+        clientErr.message.includes("does not exist") || clientErr.code === "42P01"
+          ? "The database isn't set up yet — run supabase/migrations/ALL.sql in the Supabase SQL editor."
+          : clientErr.message,
+    };
+  }
+  if (!clients?.length) {
+    return {
+      ...EMPTY,
+      view: requested,
+      error: "No clients configured. Run supabase/migrations/ALL.sql to load the schema and seed.",
+    };
+  }
+
+  const client = clients.find((c) => c.client_id === clientId) ?? clients[0];
+  const id = client.client_id;
+
+  // Chrome and the requested tab's data go out together — one wave, not three.
+  // The tab is fetched speculatively: confirming it's valid for this client needs
+  // the journey stages, and waiting for those would put the waterfall back.
+  const [chrome, speculative, detail] = await Promise.all([
+    loadChrome(id),
+    NEEDS_ROUNDS.has(requested)
+      ? loadMetrics(id, "round")
+      : NEEDS_ADSETS.has(requested)
+        ? loadMetrics(id, "adset")
+        : null,
+    NEEDS_UNMATCHED_DETAIL.has(requested) ? loadUnmatchedDetail(id) : null,
+  ]);
+
+  const view = resolveView(requested, new Set(chrome.stages.map((s) => s.stage_slug)));
+
+  // Only when the guess was wrong — switching to a client whose journey lacks the
+  // open tab — does a second fetch happen, and it's usually a cache hit.
+  const metrics =
+    view === requested
+      ? speculative
+      : NEEDS_ROUNDS.has(view)
+        ? await loadMetrics(id, "round")
+        : null;
 
   return {
-    clients: ordered,
-    stages: stages.data ?? [],
-    strip: strip.data ?? [],
-    total: total.data ?? null,
-    baseline: baseline.data ?? null,
-    byRound: byRound.data ?? [],
-    byAdset: byAdset.data ?? [],
-    imports: imports.data ?? [],
-    unmatched: unmatched.data ?? null,
-    unmatchedReasons: reasons.data ?? [],
-    unmatchedRows: rows.data ?? [],
+    clients,
+    stages: chrome.stages,
+    strip: chrome.strip,
+    imports: chrome.imports,
+    unmatched: chrome.unmatched,
+    total: metrics?.total ?? null,
+    baseline: metrics?.baseline ?? null,
+    byRound: NEEDS_ROUNDS.has(view) ? (metrics?.columns ?? []) : [],
+    byAdset: NEEDS_ADSETS.has(view) ? (metrics?.columns ?? []) : [],
+    unmatchedReasons: detail?.reasons ?? [],
+    unmatchedRows: detail?.rows ?? [],
+    view,
     error: null,
   };
 }

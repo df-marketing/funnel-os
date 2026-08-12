@@ -43,7 +43,7 @@ export default async function Page({
   searchParams: Promise<{ client?: string; view?: string }>;
 }) {
   const params = await searchParams;
-  const data = await getDashboard(params.client);
+  const data = await getDashboard(params.client, params.view ?? "round");
 
   if (data.error) {
     return (
@@ -67,13 +67,7 @@ export default async function Page({
   }
 
   const current = data.clients.find((c) => c.client_id === params.client) ?? data.clients[0];
-  const slugs = new Set(data.stages.map((s) => s.stage_slug));
-  const requested = params.view ?? "round";
-  // Switching client keeps the tab only if the new client's journey has it.
-  const view = slugs.has(requested) || !["targeting", "ads", "lp", "class", "preview", "middle", "product", "checkout"].includes(requested)
-    ? requested
-    : "round";
-
+  const view = data.view;
   const [title, blurb] = TITLES[view] ?? [view, ""];
 
   return (

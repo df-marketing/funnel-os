@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
+import { FUNNEL_TAG } from "@/lib/supabase/read";
 import { createAdminClient, MISSING_KEY_MESSAGE } from "@/lib/supabase/admin";
 import { commitPlan, ImportError, type Plan } from "@/lib/import/pipeline";
 
@@ -38,6 +39,7 @@ export async function POST(request: Request) {
 
     await commitPlan(db, batchId, batch.staged_payload as unknown as Plan);
     revalidatePath("/");
+    revalidateTag(FUNNEL_TAG);
     return NextResponse.json({ ok: true });
   } catch (err) {
     if (err instanceof ImportError) return NextResponse.json({ error: err.message }, { status: 422 });
@@ -58,5 +60,6 @@ export async function DELETE(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   revalidatePath("/");
+  revalidateTag(FUNNEL_TAG);
   return NextResponse.json({ ok: true });
 }

@@ -36,10 +36,20 @@ export async function GET() {
     time("v_journey_strip", "v_journey_strip?select=*&client_id=eq.shely"),
   ]);
 
+  // The middleware calls auth.getUser() on every request. This app has no login,
+  // so the question is whether that costs a network round trip or short-circuits.
+  const authRuns: number[] = [];
+  for (let i = 0; i < 3; i++) {
+    const t = performance.now();
+    await fetch(`${url}/auth/v1/user`, { headers: h, cache: "no-store" }).then((r) => r.text());
+    authRuns.push(Math.round(performance.now() - t));
+  }
+
   return NextResponse.json({
     functionRegion: process.env.VERCEL_REGION ?? "unknown",
     supabaseHost: url.replace("https://", ""),
     cold,
     results,
+    authEndpoint: authRuns,
   });
 }
