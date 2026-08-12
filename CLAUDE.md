@@ -33,3 +33,4 @@
 - function was moved closer to the database (likely edge function or co-located query) to reduce latency, fetches only the open tab instead of all tabs, and caches results to minimize repeated work.
 - attendance example now carries a timestamp, aligning with its own prior advice
 - The walkthrough was moved into the app UI instead of being documented externally.
+- The 'How this works' walkthrough panel was reverted (recent commit). The walkthrough was previously opened by default on launch with persistent close state memory.
