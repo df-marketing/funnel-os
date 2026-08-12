@@ -260,11 +260,13 @@ footer b { color: var(--ink-2); }
 .how-b h4 { font-size: 12.5px; color: var(--ink); margin: 15px 0 7px;
   letter-spacing: .01em; font-weight: 600; }
 
-.how-steps { margin: 0 0 4px; padding: 0; list-style: none; counter-reset: how; max-width: 78ch; }
+/* Starts at -1 so the first step numbers 00 — it's the precondition, not a step
+   you perform in the app — and the rest run 01..07 without a gap. */
+.how-steps { margin: 0 0 4px; padding: 0; list-style: none; counter-reset: how -1; max-width: 78ch; }
 .how-steps li { counter-increment: how; position: relative; padding: 0 0 9px 27px; }
 .how-steps li::before { content: counter(how, decimal-leading-zero); position: absolute; left: 0; top: 1px;
   font-family: var(--mono); font-size: 10px; font-weight: 700; color: var(--ink-3); }
-.how-steps li:first-child::before { content: "00"; color: var(--warn); }
+.how-steps li:first-child::before { color: var(--warn); }
 
 .how-list { margin: 0 0 9px; padding-left: 17px; max-width: 78ch; }
 .how-list li { margin-bottom: 4px; }

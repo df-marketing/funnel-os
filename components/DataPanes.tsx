@@ -1,6 +1,7 @@
 import type { ImportStatus, UnmatchedSummary, UnmatchedReason, UnmatchedRow } from "@/lib/funnel/data";
 import { ImportUploader } from "./ImportUploader";
 import { UnmatchedActions } from "./UnmatchedActions";
+import { Collapsible } from "./Collapsible";
 import { SOURCES, type SourceKey } from "@/lib/import/sources";
 
 const ORDER: SourceKey[] = ["ads", "leads", "attendance", "sales"];
@@ -58,18 +59,22 @@ const NEEDS: Array<{ file: string; must: string; nice: string }> = [
 /**
  * The walkthrough a new user reads once.
  *
- * A <details> rather than a modal or a tour: it costs no JavaScript, it's here
- * when wanted and folded away when not, and it opens by itself for a client
- * that has never imported anything — which is exactly when someone is new.
+ * A <details> rather than a modal or a tour: it's here when wanted and folded
+ * away when not. Open by default — the seeded import history makes every client
+ * look experienced, so there's no honest signal for who is new — and closing it
+ * is remembered, so it asks once rather than every morning.
  */
-function HowThisWorks({ open }: { open: boolean }) {
+function HowThisWorks() {
   return (
-    <details className="how" open={open}>
-      <summary>
-        <b>How this works</b>
-        <span className="dim">seven steps, and what the files need — start here</span>
-      </summary>
-
+    <Collapsible
+      id="how-this-works"
+      summary={
+        <>
+          <b>How this works</b>
+          <span className="dim">eight steps, and what the files need — start here</span>
+        </>
+      }
+    >
       <div className="how-b">
         <ol className="how-steps">
           <li>
@@ -162,7 +167,7 @@ function HowThisWorks({ open }: { open: boolean }) {
           back in.
         </p>
       </div>
-    </details>
+    </Collapsible>
   );
 }
 
@@ -182,7 +187,7 @@ export function ImportPane({ imports, client }: { imports: ImportStatus[]; clien
         </p>
       </div>
 
-      <HowThisWorks open={imports.length === 0} />
+      <HowThisWorks />
 
       <ol className="line">
         {STRAIGHT_LINE.map((s) => {
