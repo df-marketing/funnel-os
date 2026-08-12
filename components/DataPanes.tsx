@@ -47,6 +47,125 @@ const when = (iso: string) => {
   return days === 1 ? "yesterday" : `${days} days ago`;
 };
 
+/** What each file has to contain, in words rather than column names. */
+const NEEDS: Array<{ file: string; must: string; nice: string }> = [
+  { file: "Ads",        must: "the date, how much you spent",              nice: "ad set name, impressions, reach, clicks" },
+  { file: "Leads",      must: "email, when they signed up",                nice: "phone, where they came from, utm_campaign" },
+  { file: "Attendance", must: "which class (0826-01), email",              nice: "join time, minutes watched" },
+  { file: "Sales",      must: "date, email, what they bought, how much",   nice: "refund amount and date" },
+];
+
+/**
+ * The walkthrough a new user reads once.
+ *
+ * A <details> rather than a modal or a tour: it costs no JavaScript, it's here
+ * when wanted and folded away when not, and it opens by itself for a client
+ * that has never imported anything — which is exactly when someone is new.
+ */
+function HowThisWorks({ open }: { open: boolean }) {
+  return (
+    <details className="how" open={open}>
+      <summary>
+        <b>How this works</b>
+        <span className="dim">seven steps, and what the files need — start here</span>
+      </summary>
+
+      <div className="how-b">
+        <ol className="how-steps">
+          <li>
+            <b>Make sure the round exists.</b> A round is one cycle — the ads you ran, the class you
+            taught, the offer you made. August&rsquo;s first is <span className="num">0826-01</span>.
+            Nothing imports without one, and there&rsquo;s no screen for it yet.
+          </li>
+          <li>
+            <b>Open the app.</b> No login. It lands on Shely, on <b>By round</b>.
+          </li>
+          <li>
+            <b>Glance at the strip along the top.</b> It tells you what&rsquo;s out of date before you
+            trust anything. &ldquo;Attendance 4d stale&rdquo; means that file hasn&rsquo;t been updated
+            in four days — so show-up rates, and everything after them, are <b>too low right now</b>,
+            not wrong forever.
+          </li>
+          <li>
+            <b>Drop four files here, in this order:</b> ads, leads, attendance, sales. The order
+            matters — each one needs the one before it. Drop sales first and the app can&rsquo;t tell
+            which class closed the sale.
+          </li>
+          <li>
+            <b>Read what it says it will do.</b> Nothing is saved yet. It shows how many rows are new,
+            how many changed, and warns you if anything would change a number you have already
+            reported to a client.
+          </li>
+          <li>
+            <b>Hit commit.</b> Now it&rsquo;s saved. Rows it couldn&rsquo;t confidently tie to a person
+            are set aside rather than counted.
+          </li>
+          <li>
+            <b>Check Unmatched.</b> Someone paid with a different email than they signed up with.
+            Accept the suggestion or leave it — the app won&rsquo;t decide for you. Because unsure rows
+            wait here, your figures are understated by exactly this queue and never overstated.
+          </li>
+          <li>
+            <b>Read By round.</b> That&rsquo;s the answer you came for.
+          </li>
+        </ol>
+
+        <h4>Is there a format I have to follow?</h4>
+        <p>
+          <b>No.</b> Export from Meta, GoHighLevel, your webinar tool and Stripe the way you normally
+          do, save as CSV, and drop it in. You don&rsquo;t need to rename columns, reorder them or
+          delete anything.
+        </p>
+        <ul className="how-list">
+          <li>It reads your top row of headings and works out which column is which.</li>
+          <li>
+            It already knows the usual names — <span className="num">Amount spent (SGD)</span>,{" "}
+            <span className="num">Day</span>, <span className="num">Reporting starts</span>,{" "}
+            <span className="num">Ad set name</span> all land correctly without being told.
+          </li>
+          <li>Extra columns are ignored, and it lists which ones it ignored so you can see nothing was missed.</li>
+          <li>
+            If something essential is missing it <b>stops and names it</b> — it will never quietly
+            import a column of blanks.
+          </li>
+          <li>
+            It handles the fiddly stuff: commas inside quotes, <span className="num">1,284</span>,{" "}
+            <span className="num">SGD 1,378.24</span>, brackets for negatives, and{" "}
+            <span className="num">05/06/2026</span> read day-first.
+          </li>
+        </ul>
+
+        <table className="how-t">
+          <thead>
+            <tr><th>File</th><th>Must have</th><th>Nice to have</th></tr>
+          </thead>
+          <tbody>
+            {NEEDS.map((n) => (
+              <tr key={n.file}>
+                <td><b>{n.file}</b></td>
+                <td>{n.must}</td>
+                <td className="dim">{n.nice}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        <p>
+          <b>One pairing matters more than it looks.</b> The ad set name in the ads file and{" "}
+          <span className="num">utm_campaign</span> in the leads file have to match each other. That
+          pairing is the only thing connecting money spent to people who showed up — without it the
+          app falls back to guessing by date.
+        </p>
+        <p>
+          <b>When in doubt, download a template</b> from under any box below. It&rsquo;s a working file
+          with example rows and notes at the bottom: replace the examples with your data, save, drop it
+          back in.
+        </p>
+      </div>
+    </details>
+  );
+}
+
 export function ImportPane({ imports, client }: { imports: ImportStatus[]; client: string }) {
   const stale = imports.filter((i) => i.is_stale);
   // The next file to drop is the first in dependency order that has never landed;
@@ -62,6 +181,8 @@ export function ImportPane({ imports, client }: { imports: ImportStatus[]; clien
           isn&rsquo;t a suggestion. Nothing lands automatically — drop a file, read the diff, then commit.
         </p>
       </div>
+
+      <HowThisWorks open={imports.length === 0} />
 
       <ol className="line">
         {STRAIGHT_LINE.map((s) => {
@@ -145,30 +266,6 @@ export function ImportPane({ imports, client }: { imports: ImportStatus[]; clien
         </div>
       ) : null}
 
-      <div className="notice info">
-        <span className="ico">?</span>
-        <div>
-          <b>There is no fixed export format to match.</b> Column order doesn&rsquo;t matter, extra
-          columns are ignored and listed back to you, and the common header spellings are recognised
-          already — <span className="num">Amount spent (SGD)</span>, <span className="num">Day</span>{" "}
-          and <span className="num">Reporting starts</span> all resolve on their own. Only the required
-          fields have to be present under some recognisable name; if one is missing the import is
-          refused and the field is named, rather than importing blanks. The templates above are the
-          shortest way to see what each file needs.
-        </div>
-      </div>
-
-      <div className="notice info">
-        <span className="ico">→</span>
-        <div>
-          <b>Then what.</b> Dropping a file parses it, matches every row to a person, works out which
-          round produced the lead, and shows the diff — including anything that would restate a figure
-          you have already reported. Only then is there a commit button. Rows that couldn&rsquo;t be
-          tied to a person land in <b>Unmatched</b>, where you accept or dismiss them; they are never
-          guessed and never counted, so figures are understated by exactly that queue and never
-          overstated. When it&rsquo;s empty, <b>By round</b> is the answer.
-        </div>
-      </div>
     </>
   );
 }

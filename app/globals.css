@@ -239,3 +239,38 @@ footer b { color: var(--ink-2); }
 .tmpl { display: inline-block; margin-top: 7px; font-size: 11.5px; color: var(--accent);
   text-decoration: none; border-bottom: 1px solid transparent; align-self: flex-start; }
 .tmpl:hover { border-bottom-color: var(--accent); }
+
+/* ── "How this works" ─────────────────────────────────────────────────────── */
+/* Opens by itself for a client with no imports; folded away once you know it. */
+.how { border: 1px solid var(--line); border-radius: var(--r); background: var(--surface);
+  margin-bottom: 14px; }
+.how > summary { padding: 9px 13px; cursor: pointer; display: flex; align-items: baseline; gap: 9px;
+  list-style: none; font-size: 12.5px; user-select: none; }
+.how > summary::-webkit-details-marker { display: none; }
+.how > summary::before { content: "▸"; color: var(--ink-3); font-size: 10px; line-height: 1.4; }
+.how[open] > summary::before { content: "▾"; }
+.how > summary:hover { background: var(--surface-2); }
+.how > summary b { color: var(--ink); font-weight: 600; }
+.how > summary span { font-size: 11.5px; }
+.how[open] > summary { border-bottom: 1px solid var(--line-soft); }
+
+.how-b { padding: 12px 15px 14px; font-size: 12.5px; line-height: 1.6; color: var(--ink-2); }
+.how-b p { margin: 0 0 9px; max-width: 74ch; }
+.how-b b { color: var(--ink); }
+.how-b h4 { font-size: 12.5px; color: var(--ink); margin: 15px 0 7px;
+  letter-spacing: .01em; font-weight: 600; }
+
+.how-steps { margin: 0 0 4px; padding: 0; list-style: none; counter-reset: how; max-width: 78ch; }
+.how-steps li { counter-increment: how; position: relative; padding: 0 0 9px 27px; }
+.how-steps li::before { content: counter(how, decimal-leading-zero); position: absolute; left: 0; top: 1px;
+  font-family: var(--mono); font-size: 10px; font-weight: 700; color: var(--ink-3); }
+.how-steps li:first-child::before { content: "00"; color: var(--warn); }
+
+.how-list { margin: 0 0 9px; padding-left: 17px; max-width: 78ch; }
+.how-list li { margin-bottom: 4px; }
+
+.how-t { border-collapse: collapse; margin: 4px 0 13px; font-size: 12px; width: 100%; max-width: 74ch; }
+.how-t th { text-align: left; font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-3); font-weight: 600; padding: 0 12px 4px 0; border-bottom: 1px solid var(--line-soft); }
+.how-t td { padding: 5px 12px 5px 0; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+.how-t tr:last-child td { border-bottom: 0; }
