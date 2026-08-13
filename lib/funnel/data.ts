@@ -75,6 +75,7 @@ export type Dashboard = {
   baseline: Cut | null;
   byRound: Cut[];
   byAdset: Cut[];
+  bySource: Cut[];
   imports: ImportStatus[];
   unmatched: UnmatchedSummary | null;
   unmatchedReasons: UnmatchedReason[];
@@ -86,14 +87,24 @@ export type Dashboard = {
 
 const EMPTY: Omit<Dashboard, "error" | "view"> = {
   clients: [], stages: [], strip: [], total: null, baseline: null,
-  byRound: [], byAdset: [], imports: [], unmatched: null,
+  byRound: [], byAdset: [], bySource: [], imports: [], unmatched: null,
   unmatchedReasons: [], unmatchedRows: [],
 };
 
 /** Which tabs actually read a metrics table. Everything else is chrome-only. */
 const NEEDS_ROUNDS = new Set(["round"]);
 const NEEDS_ADSETS = new Set(["targeting"]);
+const NEEDS_SOURCES = new Set(["source"]);
 const NEEDS_UNMATCHED_DETAIL = new Set(["unmatched"]);
+
+/** The cut a tab reads, or null if it reads none. */
+const cutFor = (view: string): Cut2 | null =>
+  NEEDS_ROUNDS.has(view) ? "round"
+  : NEEDS_ADSETS.has(view) ? "adset"
+  : NEEDS_SOURCES.has(view) ? "source"
+  : null;
+
+type Cut2 = "round" | "adset" | "source";
 
 /** Tabs that belong to a journey stage, so they only exist for some clients. */
 const STAGE_TABS = ["targeting", "ads", "lp", "class", "preview", "middle", "product", "checkout"];
@@ -178,15 +189,20 @@ const loadChrome = unstable_cache(
  * and every ad set to render four dropzones that display neither.
  */
 const loadMetrics = unstable_cache(
-  async (id: string, cut: "round" | "adset") => {
+  async (id: string, cut: Cut2) => {
     const db = createReadClient();
     // Order explicitly: PostgREST doesn't guarantee a view's own ORDER BY survives.
-    // Rounds read left-to-right in time; audiences by spend, biggest bet first.
+    // Rounds read left-to-right in time; audiences by spend, biggest bet first;
+    // sources in a fixed order, so a column doesn't slide sideways as rows land.
     const cuts =
       cut === "round"
         ? db.from("v_metrics_by_round")
             .select("cut_key, cut_label, cut_sub, m, start_date")
             .eq("client_id", id).order("start_date")
+        : cut === "source"
+        ? db.from("v_metrics_by_source")
+            .select("cut_key, cut_label, cut_sub, m, ord")
+            .eq("client_id", id).order("ord")
         : db.from("v_metrics_by_adset")
             .select("cut_key, cut_label, cut_sub, m, sort_spend")
             .eq("client_id", id).order("sort_spend", { ascending: false });
@@ -249,13 +265,10 @@ export async function getDashboard(clientId?: string, requested = "round"): Prom
   // Chrome and the requested tab's data go out together — one wave, not three.
   // The tab is fetched speculatively: confirming it's valid for this client needs
   // the journey stages, and waiting for those would put the waterfall back.
+  const wanted = cutFor(requested);
   const [chrome, speculative, detail] = await Promise.all([
     loadChrome(id),
-    NEEDS_ROUNDS.has(requested)
-      ? loadMetrics(id, "round")
-      : NEEDS_ADSETS.has(requested)
-        ? loadMetrics(id, "adset")
-        : null,
+    wanted ? loadMetrics(id, wanted) : null,
     NEEDS_UNMATCHED_DETAIL.has(requested) ? loadUnmatchedDetail(id) : null,
   ]);
 
@@ -263,12 +276,9 @@ export async function getDashboard(clientId?: string, requested = "round"): Prom
 
   // Only when the guess was wrong — switching to a client whose journey lacks the
   // open tab — does a second fetch happen, and it's usually a cache hit.
+  const settled = cutFor(view);
   const metrics =
-    view === requested
-      ? speculative
-      : NEEDS_ROUNDS.has(view)
-        ? await loadMetrics(id, "round")
-        : null;
+    view === requested ? speculative : settled ? await loadMetrics(id, settled) : null;
 
   return {
     clients,
@@ -280,6 +290,7 @@ export async function getDashboard(clientId?: string, requested = "round"): Prom
     baseline: metrics?.baseline ?? null,
     byRound: NEEDS_ROUNDS.has(view) ? (metrics?.columns ?? []) : [],
     byAdset: NEEDS_ADSETS.has(view) ? (metrics?.columns ?? []) : [],
+    bySource: NEEDS_SOURCES.has(view) ? (metrics?.columns ?? []) : [],
     unmatchedReasons: detail?.reasons ?? [],
     unmatchedRows: detail?.rows ?? [],
     view,

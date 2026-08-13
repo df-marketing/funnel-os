@@ -126,6 +126,38 @@ export default async function Page({
             </>
           ) : null}
 
+          {view === "source" ? (
+            <>
+              <div className="pane-head">
+                <h1>{title}</h1>
+                <p>{blurb}</p>
+              </div>
+              <SpineTable
+                title="Source comparison"
+                sub="one column per acquisition source · summed across every round"
+                baseline={data.baseline}
+                total={data.total}
+                cuts={data.bySource}
+                notice={
+                  <>
+                    <b>Only the paid column carries spend.</b> An AOAI member and an organic lead
+                    cost nothing to acquire, so their spend isn&rsquo;t zero — it doesn&rsquo;t exist,
+                    and every cost and ROAS row on those columns is blank rather than dividing by
+                    nothing. <b>Previous Paid Ads</b> is derived, not a source: a paid lead whose
+                    closing round isn&rsquo;t the round that produced them.
+                  </>
+                }
+                note={
+                  <>
+                    The columns sum to the total, and the total matches{" "}
+                    <b>By round</b> — the same events, cut a different way. A source with no leads
+                    yet has no column at all.
+                  </>
+                }
+              />
+            </>
+          ) : null}
+
           {view === "targeting" ? (
             <>
               <div className="pane-head">
