@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { fmtCount } from "@/lib/funnel/spine";
+import { RefreshButton } from "./RefreshButton";
 import type { Client, Stage, StripCard, ImportStatus } from "@/lib/funnel/data";
 
 const href = (client: string, view: string) => `/?client=${client}&view=${view}`;
@@ -66,6 +67,7 @@ export function TopBar({
       <span className="meta">
         through {span} · <b>SGD</b>
       </span>
+      <RefreshButton />
     </div>
   );
 }
