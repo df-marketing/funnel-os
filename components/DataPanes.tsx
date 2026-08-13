@@ -40,10 +40,28 @@ const REASON_LABEL: Record<string, string> = {
 const sgd = (n: number | null | undefined) =>
   n === null || n === undefined ? "—" : Number(n).toLocaleString("en-SG", { maximumFractionDigits: 0 });
 
+/**
+ * These panes render on the server, which runs in UTC — so a locale alone gets
+ * the number formatting right and the clock wrong. "today 10:19" for an import
+ * made at 18:19 reads like the page is broken. The zone has to be named.
+ */
+const SG = "Asia/Singapore";
+
+/** YYYY-MM-DD as it is in Singapore right now, whatever the server thinks. */
+const localDay = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: SG });
+
 const when = (iso: string) => {
   const d = new Date(iso);
-  const days = Math.floor((Date.now() - d.getTime()) / 86400000);
-  if (days <= 0) return `today ${d.toLocaleTimeString("en-SG", { hour: "2-digit", minute: "2-digit", hour12: false })}`;
+  // Compared as calendar days in SG, not as 24-hour blocks: an import at 23:00
+  // is "yesterday" the next morning, not "0 days ago" until 23:00 again.
+  const days = Math.round(
+    (Date.parse(localDay(new Date())) - Date.parse(localDay(d))) / 86400000,
+  );
+  if (days <= 0) {
+    return `today ${d.toLocaleTimeString("en-SG", {
+      hour: "2-digit", minute: "2-digit", hour12: false, timeZone: SG,
+    })}`;
+  }
   return days === 1 ? "yesterday" : `${days} days ago`;
 };
 

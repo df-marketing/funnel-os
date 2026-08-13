@@ -53,6 +53,40 @@ export class ImportError extends Error {
 const uuid = () => crypto.randomUUID();
 const dayOf = (s: string | null) => (s ? s.slice(0, 10) : null);
 
+/**
+ * Identity of a parked row, so the same bad row isn't parked twice.
+ *
+ * Keyed on the row's own values rather than a database id, because on a
+ * re-upload the row is a fresh object with a fresh uuid — nothing about it is
+ * stable except what it says. Keys are sorted so a reordered export still
+ * matches.
+ */
+const parkKey = (raw: unknown) => {
+  const o = (raw ?? {}) as Record<string, unknown>;
+  return JSON.stringify(
+    Object.keys(o).sort().map((k) => [k, String(o[k] ?? "").trim()]),
+  );
+};
+
+/**
+ * A file none of whose rows could be used is refused rather than staged.
+ *
+ * Meta exports an empty report as one row reading "No data available.", which
+ * parses cleanly, maps cleanly, and produces nothing — so the app would offer a
+ * commit button that writes zero rows and then mark the source freshly imported.
+ */
+function refuseIfNothingUsable(unusable: number, total: number, label: string) {
+  if (total > 0 && unusable === total) {
+    throw new ImportError(
+      `Nothing in that ${label} file could be used — all ${total} row${total === 1 ? "" : "s"} were skipped.`,
+      [
+        "Every row was missing a usable date, or fell outside every round's window.",
+        'An export with no rows in it — Meta writes "No data available." — looks like this.',
+      ],
+    );
+  }
+}
+
 export async function planImport(
   db: SupabaseClient,
   { source, clientId, fileName, text }: { source: SourceKey; clientId: string; fileName: string; text: string },
@@ -105,6 +139,11 @@ export async function planImport(
   const dates: string[] = [];
   const track = (d: string | null) => { if (d) dates.push(d); };
 
+  // Rows the file could not be used for at all — not written, not parked, not
+  // even recognised as something seen before. A file where EVERY row lands here
+  // isn't an import, and offering a commit button for it is a lie.
+  let unusable = 0;
+
   // ══ ADS — no person, so it skips match + attribute entirely ══════════════
   if (source === "ads") {
     const existing = await fetchAll<{ round_id: string; date: string; ad_set: string | null; ad: string | null }>(
@@ -113,13 +152,14 @@ export async function planImport(
 
     for (const r of rows) {
       const date = toDate(val(r, "date"));
-      if (!date) continue;
+      if (!date) { unusable++; continue; }
       track(date);
 
       // the round is the one whose window contains the spend date
       const round = rounds.find((x) => dayOf(x.start_date)! <= date && date <= dayOf(x.end_date)!);
       if (!round) {
         warnings.push(`No round covers ${date} — ${rows.length > 1 ? "some ads rows" : "that row"} would have no round.`);
+        unusable++;
         continue;
       }
       const adSet = val(r, "ad_set");
@@ -140,6 +180,8 @@ export async function planImport(
     }
 
     plan.coverage = { start: dates.sort()[0] ?? null, end: dates.sort().slice(-1)[0] ?? null };
+    refuseIfNothingUsable(unusable, rows.length, spec.label);
+    plan.warnings = [...new Set(plan.warnings)];
     return plan;
   }
 
@@ -192,7 +234,20 @@ export async function planImport(
     return id;
   };
 
+  // A row that's already sitting in the queue must not be parked again. Without
+  // this, re-uploading the same file doubles the queue every time — and the
+  // queue is the number every figure in the app is understated by, so it has to
+  // mean "rows waiting", not "times a row was seen".
+  const stillParked = await fetchAll<{ raw_data: unknown }>(
+    db, "unmatched_rows", "raw_data",
+    (q) => q.eq("client_id", clientId).eq("source", source).is("resolved_at", null),
+  );
+  const parked = new Set(stillParked.map((u) => parkKey(u.raw_data)));
+
   const park = (reason: string, raw: Row, bestGuess: string | null, guessMethod: string | null, confidence: string, held = 0) => {
+    const key = parkKey(raw);
+    if (parked.has(key)) { plan.counts.duplicates++; return; }
+    parked.add(key);
     plan.ops.unmatched.push({
       row_id: uuid(), source, client_id: clientId, raw_data: raw,
       reason, best_guess: bestGuess, guess_method: guessMethod, confidence,

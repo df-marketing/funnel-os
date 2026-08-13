@@ -74,23 +74,47 @@ export function toNumber(v: string | undefined | null): number | null {
 }
 
 /**
- * Dates arrive as ISO, DD/MM/YYYY and "5 Jun 2026" depending on the export.
- * Ambiguous D/M vs M/D is resolved as day-first: these are SG exports, and
- * guessing US order would silently move a lead into the wrong round.
+ * Every client, every webinar and every ad account here runs on UTC+8, and the
+ * app runs on a server that does not. A time with no zone on it is a LOCAL time
+ * — reading it as UTC moves an 8pm class to 4am the next morning.
  */
+const LOCAL_OFFSET = "+08:00";
+
+const hasZone = (s: string) => /(?:Z|[+-]\d{2}:?\d{2})$/.test(s);
+
+/**
+ * Y/M/D out of a date string, with ONE rule for dates and timestamps alike.
+ *
+ * Slash order is genuinely ambiguous and the two conventions disagree by up to
+ * eleven months. Where the numbers settle it — 05/19 has no nineteenth month —
+ * the file tells us its own order and we believe it. Where they don't (05/06),
+ * day-first wins: these are SG exports, and JavaScript's built-in parser would
+ * silently pick US order and move a lead into the wrong round.
+ */
+function ymd(s: string): [string, string, string] | null {
+  const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) return [iso[1], iso[2].padStart(2, "0"), iso[3].padStart(2, "0")];
+
+  const slash = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+  if (slash) {
+    const [, a, b, y] = slash;
+    const dayFirst = Number(a) > 12 ? true : Number(b) > 12 ? false : true;
+    const d = dayFirst ? a : b;
+    const m = dayFirst ? b : a;
+    if (Number(m) > 12 || Number(d) > 31) return null;
+    return [y, m.padStart(2, "0"), d.padStart(2, "0")];
+  }
+  return null;
+}
+
+/** Dates arrive as ISO, DD/MM/YYYY, MM/DD/YYYY and "5 Jun 2026". */
 export function toDate(v: string | undefined | null): string | null {
   if (!v) return null;
   const s = String(v).trim();
   if (!s) return null;
 
-  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
-
-  const slash = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
-  if (slash) {
-    const [, d, m, y] = slash;
-    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
-  }
+  const p = ymd(s);
+  if (p) return `${p[0]}-${p[1]}-${p[2]}`;
 
   const parsed = new Date(s);
   if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
@@ -98,20 +122,46 @@ export function toDate(v: string | undefined | null): string | null {
 }
 
 /**
- * Date-only values land at END of day, not midday.
+ * A full instant, in UTC, from whatever the export wrote.
  *
- * Payment exports routinely carry a date with no time. close_round_id is "the
- * most recent attendance BEFORE the purchase" — and the class that sold it ran
- * at 8pm on the same date. Timestamping such a sale at noon puts it before its
- * own class, so the closing credit silently vanishes and the class looks like it
- * converted nobody. End-of-day means "some time that day, after whatever else
- * happened", which is the only safe reading when the time is genuinely unknown.
+ * Three cases, and the middle one is where the bug lived:
+ *
+ *   carries a zone   trust it — GoHighLevel writes +08:00 and means it
+ *   time, no zone    it's UTC+8. Zoom's "05/19/2026 07:32:09 PM" is a 7:32pm
+ *                    Singapore class, not a 7:32pm UTC one.
+ *   no time at all   END of the local day, not midday.
+ *
+ * That last rule matters because close_round_id is "the most recent attendance
+ * BEFORE the purchase", and the class that sold it ran at 8pm on the same date.
+ * Timestamping such a sale at noon puts it before its own class, so the closing
+ * credit silently vanishes and the class looks like it converted nobody.
  */
 export function toTimestamp(v: string | undefined | null): string | null {
   if (!v) return null;
   const s = String(v).trim();
-  const direct = new Date(s);
-  if (!Number.isNaN(direct.getTime()) && /[:T]/.test(s)) return direct.toISOString();
+  if (!s) return null;
+
+  const time = s.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AaPp])?[Mm]?/);
+  if (!time) {
+    const d = toDate(s);
+    return d ? new Date(`${d}T23:59:59${LOCAL_OFFSET}`).toISOString() : null;
+  }
+
+  if (hasZone(s)) {
+    const direct = new Date(s);
+    return Number.isNaN(direct.getTime()) ? null : direct.toISOString();
+  }
+
   const d = toDate(s);
-  return d ? new Date(`${d}T23:59:59Z`).toISOString() : null;
+  if (!d) return null;
+
+  let h = Number(time[1]);
+  const half = time[4]?.toLowerCase();
+  if (half === "p" && h < 12) h += 12;
+  if (half === "a" && h === 12) h = 0;
+  if (h > 23) return null;
+
+  const clock = `${String(h).padStart(2, "0")}:${time[2]}:${time[3] ?? "00"}`;
+  const out = new Date(`${d}T${clock}${LOCAL_OFFSET}`);
+  return Number.isNaN(out.getTime()) ? null : out.toISOString();
 }

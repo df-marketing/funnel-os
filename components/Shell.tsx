@@ -24,7 +24,11 @@ export function TopBar({
     .filter(Boolean)
     .sort() as string[];
   const span = coverage.length
-    ? new Date(coverage[coverage.length - 1]).toLocaleDateString("en-SG", { month: "short", year: "numeric" })
+    // rendered on the server, so the zone is named rather than inherited — see
+    // the note on `when` in DataPanes
+    ? new Date(coverage[coverage.length - 1]).toLocaleDateString("en-SG", {
+        month: "short", year: "numeric", timeZone: "Asia/Singapore",
+      })
     : "—";
 
   return (

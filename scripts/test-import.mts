@@ -15,7 +15,7 @@
  * Run: npx tsx scripts/test-import.ts
  */
 
-import { parseCsv, toNumber, toDate } from "../lib/import/csv";
+import { parseCsv, toNumber, toDate, toTimestamp } from "../lib/import/csv";
 import { mapColumns, SOURCES } from "../lib/import/sources";
 import { buildTemplate } from "../lib/import/template";
 import { buildIndex, matchRow, normPhone, normEmail, stripPlus } from "../lib/import/identity";
@@ -44,6 +44,35 @@ console.log("\nCSV");
   eq("BOM stripped", parseCsv('﻿a,b\n1,2\n').headers[0], "a");
   eq("day-first dates", toDate("05/06/2026"), "2026-06-05");
   eq("negative in parens", toNumber("(45.00)"), -45);
+}
+
+// Every export here is written in UTC+8 and the server is not. A time with no
+// zone on it moved an 8pm webinar to 4am the next morning, which silently costs
+// a class its closing credit — so these are the tests that must not regress.
+console.log("\nTime zone");
+{
+  // Zoom writes the meeting's local clock with no offset at all
+  eq("zoom time is read as UTC+8", toTimestamp("05/19/2026 07:32:09 PM"), "2026-05-19T11:32:09.000Z");
+  eq("24h local time", toTimestamp("2026-08-05 20:04"), "2026-08-05T12:04:00.000Z");
+  eq("midnight is not noon", toTimestamp("05/19/2026 12:15:00 AM"), "2026-05-18T16:15:00.000Z");
+  eq("noon is not midnight", toTimestamp("05/19/2026 12:15:00 PM"), "2026-05-19T04:15:00.000Z");
+
+  // an explicit offset is the file telling us; never second-guess it
+  eq("GHL offset is trusted", toTimestamp("2026-05-19T00:00:24+08:00"), "2026-05-18T16:00:24.000Z");
+  eq("Z is trusted", toTimestamp("2026-05-19T09:00:00Z"), "2026-05-19T09:00:00.000Z");
+
+  // date with no time = end of the LOCAL day, so a same-day sale still lands
+  // after the class that closed it
+  eq("date only is end of the SG day", toTimestamp("2026-05-19"), "2026-05-19T15:59:59.000Z");
+
+  // one slash rule for dates and timestamps alike
+  eq("19 can't be a month, so month-first", toDate("05/19/2026"), "2026-05-19");
+  eq("19 first means day-first", toDate("19/05/2026"), "2026-05-19");
+  eq("ambiguous stays day-first", toDate("05/06/2026"), "2026-06-05");
+  eq("timestamp uses the same rule as the date", toTimestamp("05/06/2026 10:00")?.slice(0, 10), "2026-06-05");
+  eq("impossible date is refused, not coerced", toDate("19/19/2026"), null);
+
+  eq("junk is null, not epoch", toTimestamp("No data available."), null);
 }
 
 console.log("\nColumn mapping");
@@ -138,6 +167,7 @@ function fakeDb(tables: Tables) {
       eq: (c: string, v: any) => { out = out.filter((r) => r[c] === v); return api; },
       in: (c: string, v: any[]) => { out = out.filter((r) => v.includes(r[c])); return api; },
       not: (c: string, _op: string, _v: any) => { out = out.filter((r) => r[c] != null); return api; },
+      is: (c: string, v: any) => { out = out.filter((r) => (r[c] ?? null) === v); return api; },
       range: (from: number, to: number) => { out = out.slice(from, to + 1); return api; },
       order: () => api,
       maybeSingle: async () => ({ data: out[0] ?? null, error: null }),
@@ -193,7 +223,10 @@ console.log("\nPipeline — sales");
     ],
     events: [
       { event_id: "e1", contact_id: "c1", round_id: "0526-02", event_type: "lead", event_date: "2026-05-14T09:00:00Z", lead_round_id: "0526-02", source: "Paid Ads", product: null, amount: null, refund_amount: null },
-      { event_id: "e2", contact_id: "c1", round_id: "0526-03", event_type: "attendance", event_date: "2026-05-27T20:00:00Z", lead_round_id: "0526-02", source: "Paid Ads", product: null, amount: null, refund_amount: null },
+      // 8pm SG, which is 12:00Z. Written as 20:00Z this test used to pass for
+      // the wrong reason: the sale's date-only timestamp was landing at 23:59Z
+      // instead of end-of-day SG, so both sides were eight hours out together.
+      { event_id: "e2", contact_id: "c1", round_id: "0526-03", event_type: "attendance", event_date: "2026-05-27T12:00:00Z", lead_round_id: "0526-02", source: "Paid Ads", product: null, amount: null, refund_amount: null },
     ],
     ads_performance: [],
     v_column_map: [],
@@ -277,6 +310,73 @@ console.log("\nPipeline — idempotent re-import");
  * Each one is checked against the real mapper, so the promise can't rot when a
  * field is added to SOURCES and the example table isn't updated to match.
  */
+// Re-uploading the same file is normal — people re-drop a file to check they
+// committed it. The events dedupe; the parked rows have to as well, or the
+// queue doubles and stops meaning "rows waiting".
+console.log("\nRe-uploading the same file");
+{
+  const csv = [
+    "Session,Email,Join time",
+    "0526-02,known@example.sg,2026-05-19 20:04",
+    "0526-02,,2026-05-19 20:06",           // name only — parks
+  ].join("\n");
+
+  const tables = () => ({
+    rounds: ROUNDS,
+    contacts: [{ contact_id: "c1", email: "known@example.sg", phone: null, client_id: "shely" }],
+    events: [], ads_performance: [], v_column_map: [],
+    unmatched_rows: [] as any[],
+  });
+
+  const first = tables();
+  const p1 = await planImport(fakeDb(first), { source: "attendance", clientId: "shely", fileName: "a.csv", text: csv });
+  eq("first pass parks the nameless row", p1.counts.parked, 1);
+  eq("first pass writes the known one", p1.diff.newRows, 1);
+
+  // commit it, then drop the identical file again
+  const second = tables();
+  second.events = p1.ops.events as any[];
+  second.unmatched_rows = p1.ops.unmatched as any[];
+
+  const p2 = await planImport(fakeDb(second), { source: "attendance", clientId: "shely", fileName: "a.csv", text: csv });
+  eq("second pass writes nothing", p2.diff.newRows, 0);
+  eq("second pass parks NOTHING again", p2.counts.parked, 0);
+  eq("the re-seen rows are counted as duplicates", p2.counts.duplicates, 2);
+
+  // a row already dealt with must not come back either
+  const resolved = tables();
+  resolved.events = p1.ops.events as any[];
+  resolved.unmatched_rows = (p1.ops.unmatched as any[]).map((u) => ({ ...u, resolved_at: "2026-05-20T00:00:00Z" }));
+  const p3 = await planImport(fakeDb(resolved), { source: "attendance", clientId: "shely", fileName: "a.csv", text: csv });
+  ok("a resolved row can be parked again — it left the queue on purpose", p3.counts.parked === 1);
+}
+
+// Meta exports an empty report as one row reading "No data available.". It
+// parses, it maps, and it produces nothing — so it used to stage a commit
+// button for zero rows and then mark the source freshly imported.
+console.log("\nA file with nothing usable in it");
+{
+  const db = fakeDb({ rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [] });
+  const empty = ['"Reporting starts","Amount spent (SGD)"', '"No data available."'].join("\n");
+
+  let refused: ImportError | null = null;
+  try {
+    await planImport(db, { source: "ads", clientId: "shely", fileName: "ads.csv", text: empty });
+  } catch (e) { refused = e as ImportError; }
+
+  ok("an empty Meta export is refused, not staged", refused instanceof ImportError);
+  ok("and it says why", Boolean(refused?.message.includes("could be used")));
+
+  // but a file where only SOME rows are unusable still imports the rest
+  const partial = [
+    "Day,Amount spent (SGD),Ad set name",
+    "2026-05-14,412.50,Cold_Broad",
+    "not a date,99.00,Cold_Broad",
+  ].join("\n");
+  const plan = await planImport(db, { source: "ads", clientId: "shely", fileName: "ads.csv", text: partial });
+  eq("one good row still lands", plan.diff.newRows, 1);
+}
+
 console.log("\nTemplates");
 {
   for (const source of ["ads", "leads", "attendance", "sales"] as const) {
