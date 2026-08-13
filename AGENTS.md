@@ -20,6 +20,7 @@
 
 - Schema includes 29 metric views built from seed generator (Sprint 1).
 - App has a nav shell, journey strip, client switcher, and two wired tabs (Sprint 2).
+- A 'by source' tab was wired with a two-level column header structure.
 
 ## Gotchas
 
@@ -38,3 +39,4 @@
 - seeded demo data can now be wiped reversibly (likely a migration or seed reset)
 - A Refresh data button was added to force a re-read of data.
 - A 'By source' tab was wired, completing the tab wiring alongside the existing 'By metric' tab.
+- Both tabs — 'by source' and 'by metric' — are now wired in the app.
