@@ -27,6 +27,7 @@
 - Client switcher defaults to opening on Shely, not the first alphabetically sorted client.
 - No objective is set for the project — milestones may lack a guiding north star.
 - timestamp was added to an example (not production logic), fixing a self-referential doc inconsistency
+- five import bugs were discovered and fixed by testing against real exports, confirming the value of dry-run/real-export testing.
 
 ## Notes
 
