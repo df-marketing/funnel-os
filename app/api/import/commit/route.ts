@@ -33,14 +33,44 @@ export async function POST(request: Request) {
     if (batch.status === "committed") {
       return NextResponse.json({ error: "That batch is already committed. Committed batches are locked." }, { status: 409 });
     }
+    if (batch.status === "discarded") {
+      return NextResponse.json({
+        error:
+          "This file was planned before another import committed, so its diff is out of date — " +
+          "drop it again to see what it really does now.",
+      }, { status: 409 });
+    }
     if (!batch.staged_payload) {
       return NextResponse.json({ error: "That batch has no staged rows — re-upload the file." }, { status: 409 });
     }
 
-    await commitPlan(db, batchId, batch.staged_payload as unknown as Plan);
+    const plan = batch.staged_payload as unknown as Plan;
+    await commitPlan(db, batchId, plan);
+
+    /**
+     * Any OTHER file still staged was planned against the data as it stood
+     * before this commit — so its matches, its attribution and its diff are all
+     * out of date now.
+     *
+     * This is not hypothetical. Drop all four files, then commit them in order,
+     * and attendance was matched against a contacts table that was still empty:
+     * every attendee parks as an unknown person, the commit reports 0 rows
+     * written, and nothing anywhere says why. The order the Import tab insists
+     * on is the order of COMMITS, and the plan is deliberately frozen at preview
+     * so the diff you approved is the diff that gets applied — which means the
+     * only honest thing to do with a stale plan is throw it away and ask for the
+     * file again.
+     */
+    const { data: stale } = await db
+      .from("import_batches")
+      .update({ status: "discarded", staged_payload: null })
+      .eq("client_id", plan.clientId)
+      .eq("status", "staged")
+      .select("source");
+
     revalidatePath("/");
     revalidateTag(FUNNEL_TAG);
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, invalidated: (stale ?? []).map((s) => s.source) });
   } catch (err) {
     if (err instanceof ImportError) return NextResponse.json({ error: err.message }, { status: 422 });
     console.error("[import/commit]", err);

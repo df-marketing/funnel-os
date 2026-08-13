@@ -14,6 +14,8 @@
  * also returning how it got there.
  */
 
+import { localDay } from "./csv";
+
 export type Round = {
   round_id: string;
   client_id: string;
@@ -29,6 +31,7 @@ export type Attribution = {
   method: "utm" | "date_window" | null;
 };
 
+/** Rounds carry local calendar dates, so slicing one is already the local day. */
 const day = (d: string) => d.slice(0, 10);
 
 /**
@@ -43,7 +46,9 @@ export function attributeLead(
   rounds: Round[],
   adSetRuns: AdSetRun[],
 ): Attribution {
-  const d = day(optInDate);
+  // The opt-in is an INSTANT; the round window is a pair of local dates. Compare
+  // them on the same clock, or a 4am opt-in falls into the previous round.
+  const d = localDay(optInDate);
 
   if (utmCampaign) {
     const runs = adSetRuns

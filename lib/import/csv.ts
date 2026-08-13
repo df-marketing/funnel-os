@@ -83,6 +83,20 @@ const LOCAL_OFFSET = "+08:00";
 const hasZone = (s: string) => /(?:Z|[+-]\d{2}:?\d{2})$/.test(s);
 
 /**
+ * The calendar day an instant falls on HERE, not in UTC.
+ *
+ * Storing instants in UTC is right; bucketing them by their UTC day is not.
+ * Round windows are local calendar dates — 0526-03 runs "23–27 May" as read off
+ * a Singapore wall calendar — so a 4am opt-in on the 23rd is a 23rd opt-in. Its
+ * UTC day is the 22nd, which would file it under the previous round.
+ *
+ * UTC+8 has never observed DST, so the shift is a constant and this needs no
+ * timezone database.
+ */
+export const localDay = (iso: string): string =>
+  new Date(new Date(iso).getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
+
+/**
  * Y/M/D out of a date string, with ONE rule for dates and timestamps alike.
  *
  * Slash order is genuinely ambiguous and the two conventions disagree by up to

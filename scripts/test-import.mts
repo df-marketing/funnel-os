@@ -15,7 +15,7 @@
  * Run: npx tsx scripts/test-import.ts
  */
 
-import { parseCsv, toNumber, toDate, toTimestamp } from "../lib/import/csv";
+import { parseCsv, toNumber, toDate, toTimestamp, localDay } from "../lib/import/csv";
 import { mapColumns, SOURCES } from "../lib/import/sources";
 import { buildTemplate } from "../lib/import/template";
 import { buildIndex, matchRow, normPhone, normEmail, stripPlus } from "../lib/import/identity";
@@ -73,6 +73,22 @@ console.log("\nTime zone");
   eq("impossible date is refused, not coerced", toDate("19/19/2026"), null);
 
   eq("junk is null, not epoch", toTimestamp("No data available."), null);
+
+  // Instants are stored in UTC and bucketed by the LOCAL day. A 4am opt-in on
+  // the 23rd is a 23rd opt-in, even though its UTC day is the 22nd — and round
+  // windows are local calendar dates, so that is the clock they must share.
+  eq("early morning keeps its local day", localDay("2026-05-22T19:56:17Z"), "2026-05-23");
+  eq("late evening keeps its local day", localDay("2026-05-23T15:00:00Z"), "2026-05-23");
+  eq("just before local midnight", localDay("2026-05-23T15:59:59Z"), "2026-05-23");
+  eq("just after local midnight", localDay("2026-05-23T16:00:00Z"), "2026-05-24");
+
+  // the bug this actually caused: nine leads filed into the previous round
+  const rounds = [
+    { round_id: "0526-02", client_id: "shely", start_date: "2026-05-13", end_date: "2026-05-19", session_date: "2026-05-19" },
+    { round_id: "0526-03", client_id: "shely", start_date: "2026-05-23", end_date: "2026-05-27", session_date: "2026-05-27" },
+  ];
+  const dawn = attributeLead(toTimestamp("2026-05-23 03:56:17")!, null, rounds, []);
+  eq("a 4am opt-in belongs to the round that opened that morning", dawn.roundId, "0526-03");
 }
 
 console.log("\nColumn mapping");
@@ -259,7 +275,9 @@ console.log("\nPipeline — refunds restate");
     contacts: [{ contact_id: "c1", email: "buyer@example.sg", phone: null , client_id: "shely" }],
     events: [
       { event_id: "e1", contact_id: "c1", round_id: "0526-02", event_type: "lead", event_date: "2026-05-14T09:00:00Z", lead_round_id: "0526-02", source: "Paid Ads", product: null, amount: null, refund_amount: null },
-      { event_id: "s1", contact_id: "c1", round_id: "0526-02", event_type: "sale", event_date: "2026-05-19T21:00:00Z", lead_round_id: "0526-02", source: "Paid Ads", product: "preview", amount: "297", refund_amount: "0" },
+      // 9pm SG on the 19th = 13:00Z. Written as 21:00Z this is 5am on the 20th
+      // locally, and the refund row dated "2026-05-19" would no longer find it.
+      { event_id: "s1", contact_id: "c1", round_id: "0526-02", event_type: "sale", event_date: "2026-05-19T13:00:00Z", lead_round_id: "0526-02", source: "Paid Ads", product: "preview", amount: "297", refund_amount: "0" },
     ],
     ads_performance: [],
     v_column_map: [],

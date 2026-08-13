@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAll } from "@/lib/supabase/admin";
-import { parseCsv, toNumber, toDate, toTimestamp, type Row } from "./csv";
+import { parseCsv, toNumber, toDate, toTimestamp, localDay, type Row } from "./csv";
 import { SOURCES, mapColumns, type SourceKey } from "./sources";
 import { buildIndex, matchRow, normEmail, normPhone, type KnownContact } from "./identity";
 import { attributeLead, closeRoundFor, resolveRoundRef, resolveProduct, type Round, type AdSetRun } from "./attribute";
@@ -51,7 +51,10 @@ export class ImportError extends Error {
 }
 
 const uuid = () => crypto.randomUUID();
+/** For a plain date column — rounds carry local calendar dates already. */
 const dayOf = (s: string | null) => (s ? s.slice(0, 10) : null);
+/** For an INSTANT — the day it falls on locally, not in UTC. See localDay. */
+const sgDayOf = (s: string | null) => (s ? localDay(s) : null);
 
 /**
  * Identity of a parked row, so the same bad row isn't parked twice.
@@ -219,7 +222,7 @@ export async function planImport(
 
   // dedupe key per event type
   const eventKey = (t: string, contactId: string, roundId: string | null, date: string, product?: string | null) =>
-    `${t}|${contactId}|${roundId ?? ""}|${dayOf(date)}|${product ?? ""}`;
+    `${t}|${contactId}|${roundId ?? ""}|${sgDayOf(date)}|${product ?? ""}`;
   const seenEvents = new Set(
     events.map((e) => eventKey(e.event_type, e.contact_id ?? "", e.round_id, e.event_date, e.product)),
   );
@@ -274,7 +277,7 @@ export async function planImport(
       }
       const when = toTimestamp(val(r, "event_date"));
       if (!when) { park("name_only", r, null, "no usable opt-in date", "none"); continue; }
-      track(dayOf(when));
+      track(sgDayOf(when));
 
       const utm = val(r, "utm_campaign");
       const { roundId, method } = attributeLead(when, utm, rounds, adRuns);
@@ -310,8 +313,8 @@ export async function planImport(
       if (!roundId) { park("name_only", r, null, `no round matches session "${ref ?? ""}"`, "none"); continue; }
 
       const round = rounds.find((x) => x.round_id === roundId)!;
-      const when = toTimestamp(val(r, "event_date")) ?? new Date(`${dayOf(round.session_date ?? round.end_date)}T20:00:00Z`).toISOString();
-      track(dayOf(when));
+      const when = toTimestamp(val(r, "event_date")) ?? new Date(`${dayOf(round.session_date ?? round.end_date)}T20:00:00+08:00`).toISOString();
+      track(sgDayOf(when));
 
       const key = eventKey("attendance", contactId, roundId, when);
       if (seenEvents.has(key)) { plan.counts.duplicates++; continue; }
@@ -348,7 +351,7 @@ export async function planImport(
         park("name_only", r, null, `unrecognised product "${productRaw}"`, "none", amount);
         continue;
       }
-      track(dayOf(when));
+      track(sgDayOf(when));
 
       // Revenue with no person attached is held, never credited to a round.
       if (!contactId) {
@@ -364,7 +367,7 @@ export async function planImport(
       const purchaseRound =
         closeRound ??
         leadRound ??
-        rounds.find((x) => dayOf(x.start_date)! <= dayOf(when)! && dayOf(when)! <= dayOf(x.end_date)!)?.round_id ??
+        rounds.find((x) => dayOf(x.start_date)! <= sgDayOf(when)! && sgDayOf(when)! <= dayOf(x.end_date)!)?.round_id ??
         null;
 
       if (!purchaseRound) { park("bought_without_lead", r, null, "no round covers this purchase", "none", amount); continue; }
@@ -372,7 +375,7 @@ export async function planImport(
       // RESTATEMENT: this sale already exists and the file changes it.
       const prior = events.find(
         (e) => e.event_type === "sale" && e.contact_id === contactId &&
-               e.product === product && dayOf(e.event_date) === dayOf(when),
+               e.product === product && sgDayOf(e.event_date) === sgDayOf(when),
       );
       if (prior) {
         const priorRefund = Number(prior.refund_amount ?? 0);
