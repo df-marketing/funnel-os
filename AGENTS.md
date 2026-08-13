@@ -35,3 +35,4 @@
 - The walkthrough was moved into the app UI instead of being documented externally.
 - The 'How this works' walkthrough panel was reverted (recent commit). The walkthrough was previously opened by default on launch with persistent close state memory.
 - a dry run of the import pipeline was added, which runs against real exports without committing changes.
+- seeded demo data can now be wiped reversibly (likely a migration or seed reset)
