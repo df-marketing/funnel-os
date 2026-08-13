@@ -26,6 +26,15 @@ export type Cut = {
   cut_label: string;
   cut_sub: string | null;
   m: Metrics;
+  /**
+   * Set only by cross-tab cuts. Adjacent columns sharing a group_key are
+   * spanned by one header cell above them — rounds across the top, sources
+   * underneath. Absent on every one-dimensional cut, which is why the second
+   * header row only appears when there's something to put in it.
+   */
+  group_key?: string | null;
+  group_label?: string | null;
+  group_sub?: string | null;
 };
 
 export type ImportStatus = {
@@ -76,6 +85,7 @@ export type Dashboard = {
   byRound: Cut[];
   byAdset: Cut[];
   bySource: Cut[];
+  byRoundSource: Cut[];
   imports: ImportStatus[];
   unmatched: UnmatchedSummary | null;
   unmatchedReasons: UnmatchedReason[];
@@ -87,7 +97,7 @@ export type Dashboard = {
 
 const EMPTY: Omit<Dashboard, "error" | "view"> = {
   clients: [], stages: [], strip: [], total: null, baseline: null,
-  byRound: [], byAdset: [], bySource: [], imports: [], unmatched: null,
+  byRound: [], byAdset: [], bySource: [], byRoundSource: [], imports: [], unmatched: null,
   unmatchedReasons: [], unmatchedRows: [],
 };
 
@@ -95,6 +105,7 @@ const EMPTY: Omit<Dashboard, "error" | "view"> = {
 const NEEDS_ROUNDS = new Set(["round"]);
 const NEEDS_ADSETS = new Set(["targeting"]);
 const NEEDS_SOURCES = new Set(["source"]);
+const NEEDS_ROUND_SOURCE = new Set(["roundsource"]);
 const NEEDS_UNMATCHED_DETAIL = new Set(["unmatched"]);
 
 /** The cut a tab reads, or null if it reads none. */
@@ -102,9 +113,10 @@ const cutFor = (view: string): Cut2 | null =>
   NEEDS_ROUNDS.has(view) ? "round"
   : NEEDS_ADSETS.has(view) ? "adset"
   : NEEDS_SOURCES.has(view) ? "source"
+  : NEEDS_ROUND_SOURCE.has(view) ? "roundsource"
   : null;
 
-type Cut2 = "round" | "adset" | "source";
+type Cut2 = "round" | "adset" | "source" | "roundsource";
 
 /** Tabs that belong to a journey stage, so they only exist for some clients. */
 const STAGE_TABS = ["targeting", "ads", "lp", "class", "preview", "middle", "product", "checkout"];
@@ -199,6 +211,10 @@ const loadMetrics = unstable_cache(
         ? db.from("v_metrics_by_round")
             .select("cut_key, cut_label, cut_sub, m, start_date")
             .eq("client_id", id).order("start_date")
+        : cut === "roundsource"
+        ? db.from("v_metrics_by_round_source")
+            .select("cut_key, cut_label, cut_sub, m, group_key, group_label, group_sub, start_date, ord")
+            .eq("client_id", id).order("start_date").order("ord")
         : cut === "source"
         ? db.from("v_metrics_by_source")
             .select("cut_key, cut_label, cut_sub, m, ord")
@@ -291,6 +307,7 @@ export async function getDashboard(clientId?: string, requested = "round"): Prom
     byRound: NEEDS_ROUNDS.has(view) ? (metrics?.columns ?? []) : [],
     byAdset: NEEDS_ADSETS.has(view) ? (metrics?.columns ?? []) : [],
     bySource: NEEDS_SOURCES.has(view) ? (metrics?.columns ?? []) : [],
+    byRoundSource: NEEDS_ROUND_SOURCE.has(view) ? (metrics?.columns ?? []) : [],
     unmatchedReasons: detail?.reasons ?? [],
     unmatchedRows: detail?.rows ?? [],
     view,

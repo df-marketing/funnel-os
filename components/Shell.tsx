@@ -9,7 +9,7 @@ const href = (client: string, view: string) => `/?client=${client}&view=${view}`
 export const FIXED_VIEWS = ["import", "unmatched", "month", "round", "source", "roundsource", "analysis"];
 
 /** Which tabs are wired to real Supabase data today. Everything else says so. */
-export const WIRED = new Set(["round", "targeting", "source", "import", "unmatched"]);
+export const WIRED = new Set(["round", "targeting", "source", "roundsource", "import", "unmatched"]);
 
 export function TopBar({
   clients, current, imports,

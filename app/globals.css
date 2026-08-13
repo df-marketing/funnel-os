@@ -123,6 +123,16 @@ table.spine tr.grp td { background: var(--surface-3); color: var(--ink-3); font-
   letter-spacing: .13em; text-transform: uppercase; font-weight: 700; padding: 5px 10px;
   position: sticky; left: 0; }
 table.spine tr.grp td.lab { background: var(--surface-3); z-index: 2; }
+/* Cross-tab — rounds span their source columns above the metric header.
+   The metric row has to be pushed down by the height of the spanning row, or
+   the two sticky rows stack on top of each other when the table scrolls. */
+table.spine tr.grp-head th { top: 0; z-index: 4; padding: 6px 10px; height: 30px; }
+table.spine tr.grp-head th.lab { z-index: 6; }
+table.spine tr.grp-head th.span { text-align: center; color: var(--ink);
+  letter-spacing: .06em; border-left: 1px solid var(--line); }
+table.spine thead tr:nth-child(2) th { top: 30px; }
+table.spine .gsep { border-left: 1px solid var(--line); }
+
 col.base { background: var(--accent-wash); }
 col.total { background: var(--surface-2); }
 table.spine td.base { color: var(--ink-3); }

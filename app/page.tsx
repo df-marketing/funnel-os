@@ -158,6 +158,37 @@ export default async function Page({
             </>
           ) : null}
 
+          {view === "roundsource" ? (
+            <>
+              <div className="pane-head">
+                <h1>{title}</h1>
+                <p>{blurb}</p>
+              </div>
+              <SpineTable
+                title="Round × source"
+                sub="rounds across the top, each split by where the person came from"
+                baseline={data.baseline}
+                total={data.total}
+                cuts={data.byRoundSource}
+                notice={
+                  <>
+                    <b>Each round&rsquo;s Total is taken from By round, not re-added here.</b> The two
+                    tabs read the same number by construction, so they can&rsquo;t drift apart. A
+                    source column only exists in a round where that source actually has rows —
+                    an empty column would read as a zero that was measured.
+                  </>
+                }
+                note={
+                  <>
+                    Leads and attendance count on the round whose class it was; revenue counts on
+                    the round whose spend produced the lead. Splitting by source doesn&rsquo;t change
+                    which round a sale belongs to — that&rsquo;s what <b>Previous Paid Ads</b> is for.
+                  </>
+                }
+              />
+            </>
+          ) : null}
+
           {view === "targeting" ? (
             <>
               <div className="pane-head">
