@@ -16,6 +16,7 @@
 - SUPABASE_SECRET_KEY and SUPABASE_SERVICE_ROLE_KEY are both accepted as env vars, providing flexibility in how the service role key is named.
 - walkthrough is opened by default on app launch; app remembers when user closes it (via persistent state).
 - Bucket instants by the local day, and drop stale plans on commit.
+- Absent (null/missing values) is treated as distinct from zero for sales and for spend that has no named audience.
 
 ## Architecture
 
