@@ -204,10 +204,11 @@ export default async function Page({
                 notice={
                   <>
                     <b>Audiences are bridged from people to ads by</b>{" "}
-                    <span className="num">events.utm_campaign → ads_performance.ad_set</span>. Leads with
-                    no UTM — organic, and previous-round attendees — cost nothing, so they sit in the
-                    Total column and in none of the audience columns. That&rsquo;s why the columns
-                    don&rsquo;t sum to the total.
+                    <span className="num">events.utm_campaign → ads_performance.ad_set</span>. A paid
+                    lead whose UTM went missing still cost money, so it lands in{" "}
+                    <b>Unsplit spend</b> rather than nowhere — no ad set is not the same as no ad.
+                    Organic and community leads have no column at all, because for them there was no
+                    ad. That&rsquo;s why the columns don&rsquo;t sum to the total.
                   </>
                 }
                 note={

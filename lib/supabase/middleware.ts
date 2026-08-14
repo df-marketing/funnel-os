@@ -1,6 +1,12 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+
+/** The shape @supabase/ssr hands `setAll`. Spelled out so the callback is
+    typed rather than implicitly any — 10 errors that made `tsc --noEmit`
+    never clean, which is where a real one would have hidden. */
+type CookieToSet = { name: string; value: string; options?: Record<string, unknown> };
+
 export async function updateSession(request: NextRequest) {
   const supabaseResponse = NextResponse.next({ request });
 
@@ -22,7 +28,7 @@ export async function updateSession(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet: CookieToSet[]) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value),
           );

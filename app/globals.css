@@ -118,6 +118,22 @@ table.spine thead th .sub { display: block; font-size: 9.5px; font-weight: 400; 
   letter-spacing: .04em; text-transform: uppercase; }
 table.spine td.lab, table.spine th.lab { position: sticky; left: 0; z-index: 2; background: var(--surface);
   text-align: left; border-right: 1px solid var(--line); font-weight: 500; color: var(--ink-2); }
+
+/* Baseline and Total freeze beside the labels.
+   The legend under every table promises "Baseline — pinned, never scrolls
+   away", and it wasn't: only .lab was sticky, so both columns slid underneath
+   it and were CLIPPED — 2,531.46 rendered as 531.46, ALL ROUNDS as ROUNDS.
+   A truncated number that still parses as a number is worse than a hidden one.
+   The offsets are hard numbers because a sticky `left` cannot be a percentage
+   and the three widths are fixed here for exactly that reason. */
+table.spine td.lab, table.spine th.lab { width: 206px; min-width: 206px; }
+table.spine td.base, table.spine th.base,
+table.spine td.tot,  table.spine th.tot { position: sticky; z-index: 2;
+  background: var(--surface); width: 104px; min-width: 104px; }
+table.spine td.base, table.spine th.base { left: 206px; }
+table.spine td.tot,  table.spine th.tot  { left: 310px; border-right: 1px solid var(--line); }
+table.spine thead th.base, table.spine thead th.tot { z-index: 5; background: var(--surface-2); }
+table.spine tr.grp td.base, table.spine tr.grp td.tot { background: var(--surface-3); }
 table.spine tr:hover td, table.spine tr:hover td.lab { background: var(--surface-2); }
 table.spine tr.grp td { background: var(--surface-3); color: var(--ink-3); font-size: 10px;
   letter-spacing: .13em; text-transform: uppercase; font-weight: 700; padding: 5px 10px;
