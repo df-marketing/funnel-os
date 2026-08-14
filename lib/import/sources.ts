@@ -29,6 +29,14 @@ const f = (field: string, required: boolean, ...aliases: string[]): FieldSpec =>
   aliases: [field, ...aliases],
 });
 
+/**
+ * email is required on the three people sources and phone is not, deliberately:
+ * an export with no email column is almost certainly the wrong export, while a
+ * payments or webinar file that carries a phone and no address is ordinary. A
+ * phone is a full identity here — buyers exist in these files who have a number
+ * and no address, and matching them on it is exactly as sound as matching an
+ * email, because the same normalisation runs on both.
+ */
 export const SOURCES: Record<SourceKey, SourceSpec> = {
   ads: {
     key: "ads",
@@ -64,6 +72,7 @@ export const SOURCES: Record<SourceKey, SourceSpec> = {
     fields: [
       f("round_id", true, "session", "session id", "webinar", "round"),
       f("email", true, "email address", "attendee email"),
+      f("phone", false, "phone number", "mobile", "contact number"),
       f("event_date", false, "joined at", "join time", "date"),
       f("minutes_watched", false, "minutes", "duration", "time in session"),
     ],
@@ -75,6 +84,7 @@ export const SOURCES: Record<SourceKey, SourceSpec> = {
     fields: [
       f("event_date", true, "date", "created", "paid at", "charge date"),
       f("email", true, "email address", "customer email"),
+      f("phone", false, "phone number", "mobile", "contact number"),
       f("product", true, "plan", "item", "offer"),
       f("amount", true, "total", "gross", "amount (sgd)"),
       f("refund_amount", false, "refunded", "refund", "amount refunded"),

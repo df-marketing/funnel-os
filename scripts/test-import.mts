@@ -239,6 +239,57 @@ console.log("\nPipeline — leads");
   ok("nothing written during planning", plan.ops.events.every((e) => e.event_id));
 }
 
+// A buyer with a phone and no email is ordinary in a payments export, and the
+// same normalisation runs on both, so matching on one is as sound as the other.
+// Before this, those rows could only ever park.
+console.log("\nPhone is an identity in sales and attendance too");
+{
+  const KNOWN = { contact_id: "c9", email: null, phone: "+60122157534", client_id: "shely" };
+  const mk = (extra: any[] = []) => fakeDb({
+    rounds: ROUNDS, contacts: [KNOWN], ads_performance: [], v_column_map: [],
+    events: [{ event_id: "l9", contact_id: "c9", round_id: "0526-02", event_type: "lead",
+      event_date: "2026-05-14T02:00:00.000Z", product: null, amount: null, refund_amount: null,
+      lead_round_id: "0526-02", source: "Paid Ads" }, ...extra],
+  });
+
+  eq("sales takes a phone column", SOURCES.sales.fields.some((f) => f.field === "phone"), true);
+  eq("attendance takes one too", SOURCES.attendance.fields.some((f) => f.field === "phone"), true);
+
+  const sale = await planImport(mk(), {
+    source: "sales", clientId: "shely", fileName: "s.csv",
+    text: "event_date,email,phone,product,amount\n2026-05-20,,60122157534,Preview Offer,297",
+  });
+  eq("a buyer with no email still matches on their number", sale.counts.matchedExact, 1);
+  eq("and the sale is written, not held", sale.ops.events.length, 1);
+  eq("it belongs to the round that produced the lead", sale.ops.events[0].lead_round_id, "0526-02");
+
+  const att = await planImport(mk(), {
+    source: "attendance", clientId: "shely", fileName: "a.csv",
+    text: "round_id,email,phone\n0526-02,,+6012 215 7534",
+  });
+  eq("attendance matches a reformatted number", att.ops.events.length, 1);
+
+  // Re-uploading a file that was FIXED must not leave the old parked row
+  // holding revenue the app has just started counting.
+  const rawParked = { event_date: "2026-05-20", email: "", phone: "60122157534",
+    product: "Preview Offer", amount: "297" };
+  const withQueue = fakeDb({
+    rounds: ROUNDS, contacts: [KNOWN], ads_performance: [], v_column_map: [],
+    events: [{ event_id: "l9", contact_id: "c9", round_id: "0526-02", event_type: "lead",
+      event_date: "2026-05-14T02:00:00.000Z", product: null, amount: null, refund_amount: null,
+      lead_round_id: "0526-02", source: "Paid Ads" }],
+    unmatched_rows: [{ row_id: "u1", client_id: "shely", source: "sales",
+      raw_data: rawParked, resolved_at: null, revenue_held: 297 }],
+  });
+  const again = await planImport(withQueue, {
+    source: "sales", clientId: "shely", fileName: "s.csv",
+    text: "event_date,email,phone,product,amount\n2026-05-20,,60122157534,Preview Offer,297",
+  });
+  eq("the sale is now countable", again.ops.events.length, 1);
+  eq("and its parked row is retired, not left holding the same money",
+     again.ops.supersededParked, [{ row_id: "u1", contact_id: "c9" }]);
+}
+
 // Resolving a parked row used to stamp resolved_at and stop, so an accepted
 // sale left the queue, dropped out of "revenue held", and was still counted
 // nowhere — 297 of real money quietly stopped being tracked. Resolution now

@@ -43,6 +43,17 @@ export type Plan = {
     ads: Array<Record<string, unknown>>;
     unmatched: Array<Record<string, unknown>>;
     refundUpdates: Array<{ event_id: string; refund_amount: number; refund_date: string | null }>;
+    /**
+     * Parked rows this import has just made countable.
+     *
+     * Adding phone matching to sales means a row that parked last week matches
+     * this week. Without this, re-uploading the fixed file writes the event AND
+     * leaves the old row sitting in the queue holding its 297 — so the money is
+     * counted in revenue and still counted as missing. "Understated by exactly
+     * this queue" has to keep being true after a re-upload, not just after the
+     * first one.
+     */
+    supersededParked: Array<{ row_id: string; contact_id: string }>;
   };
 };
 
@@ -161,7 +172,7 @@ export async function planImport(
     attribution: { utm: 0, dateWindow: 0, none: 0 },
     diff: { newRows: 0, changedRows: 0, restatements: [] },
     warnings,
-    ops: { contacts: [], events: [], ads: [], unmatched: [], refundUpdates: [] },
+    ops: { contacts: [], events: [], ads: [], unmatched: [], refundUpdates: [], supersededParked: [] },
   };
 
   const dates: string[] = [];
@@ -266,11 +277,18 @@ export async function planImport(
   // this, re-uploading the same file doubles the queue every time — and the
   // queue is the number every figure in the app is understated by, so it has to
   // mean "rows waiting", not "times a row was seen".
-  const stillParked = await fetchAll<{ raw_data: unknown }>(
-    db, "unmatched_rows", "raw_data",
+  const stillParked = await fetchAll<{ row_id: string; raw_data: unknown }>(
+    db, "unmatched_rows", "row_id, raw_data",
     (q) => q.eq("client_id", clientId).eq("source", source).is("resolved_at", null),
   );
-  const parked = new Set(stillParked.map((u) => parkKey(u.raw_data)));
+  const parkedRowIds = new Map(stillParked.map((u) => [parkKey(u.raw_data), u.row_id]));
+  const parked = new Set(parkedRowIds.keys());
+
+  /** This exact row is in the queue, and this import can finally count it. */
+  const supersede = (raw: Row, contactId: string) => {
+    const rowId = parkedRowIds.get(parkKey(raw));
+    if (rowId) plan.ops.supersededParked.push({ row_id: rowId, contact_id: contactId });
+  };
 
   const park = (reason: ParkReason, raw: Row, bestGuess: string | null, guessMethod: string | null, confidence: string, held = 0) => {
     const key = parkKey(raw);
@@ -324,6 +342,7 @@ export async function planImport(
         event_date: when, lead_round_id: roundId, attribution_method: method,
         utm_campaign: utm || null, source: src, match_status: outcome.kind === "auto" ? "auto_resolved" : "matched",
       });
+      supersede(r, contactId);
       plan.diff.newRows++;
       continue;
     }
@@ -355,6 +374,7 @@ export async function planImport(
         minutes_watched: Math.round(toNumber(val(r, "minutes_watched")) ?? 0) || null,
         match_status: outcome.kind === "auto" ? "auto_resolved" : "matched",
       });
+      supersede(r, contactId);
       // attendance changes this contact's close_round_id for any later purchase
       const list = attendancesByContact.get(contactId) ?? [];
       list.push({ round_id: roundId, event_date: when });
@@ -437,6 +457,7 @@ export async function planImport(
         is_lead: Boolean(leadRound),
         match_status: outcome.kind === "auto" ? "auto_resolved" : "matched",
       });
+      supersede(r, contactId);
       plan.diff.newRows++;
       if (!leadRound) {
         warnings.push("At least one sale has no lead event — counted in revenue, excluded from ROAS.");
@@ -477,6 +498,19 @@ export async function commitPlan(db: SupabaseClient, batchId: string, plan: Plan
       .update({ refund_amount: u.refund_amount, refund_date: u.refund_date })
       .eq("event_id", u.event_id);
     if (error) throw new ImportError(`Applying a refund failed: ${error.message}`);
+  }
+
+  // Rows that were waiting in the queue and have just been written for real.
+  // Left alone they would hold revenue that is now counted, which would make
+  // the app overstate what it is missing — the one direction the queue is
+  // supposed to make impossible.
+  for (const sup of plan.ops.supersededParked) {
+    const { error } = await db.from("unmatched_rows").update({
+      resolved_at: new Date().toISOString(),
+      resolved_contact_id: sup.contact_id,
+      resolved_by: "superseded",
+    }).eq("row_id", sup.row_id).is("resolved_at", null);
+    if (error) throw new ImportError(`Clearing a superseded parked row failed: ${error.message}`);
   }
 
   const { error } = await db.from("import_batches").update({
