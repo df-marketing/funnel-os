@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { fmtCount } from "@/lib/funnel/spine";
 import { RefreshButton } from "./RefreshButton";
+import { SOURCES, type SourceKey } from "@/lib/import/sources";
 import type { Client, Stage, StripCard, ImportStatus } from "@/lib/funnel/data";
 
 const href = (client: string, view: string) => `/?client=${client}&view=${view}`;
@@ -19,6 +20,15 @@ export function TopBar({
   imports: ImportStatus[];
 }) {
   const stale = imports.filter((i) => i.is_stale);
+  /**
+   * A source that has NEVER been imported has no batch, so it has no last-import
+   * date, so it can't be stale — and the header used to read "All sources
+   * current" while Sales said "never" on the tab below it. Absence was passing
+   * as freshness. Missing is a louder problem than stale, so it's said first.
+   */
+  const missing = (Object.keys(SOURCES) as SourceKey[]).filter(
+    (k) => !imports.some((i) => i.source === k),
+  );
   const coverage = imports
     .map((i) => i.coverage_end)
     .filter(Boolean)
@@ -55,13 +65,21 @@ export function TopBar({
       <div className="spacer" />
 
       {/* Staleness is surfaced in the header and propagates to every view below */}
-      {stale.length ? (
-        stale.map((s) => (
-          <span className="meta fresh" key={s.source}>
-            <span className="dot old" />
-            {s.source[0].toUpperCase() + s.source.slice(1)} {s.days_since}d stale
-          </span>
-        ))
+      {missing.length || stale.length ? (
+        <>
+          {missing.map((k) => (
+            <span className="meta fresh" key={k}>
+              <span className="dot old" />
+              {SOURCES[k].label} never imported
+            </span>
+          ))}
+          {stale.map((s) => (
+            <span className="meta fresh" key={s.source}>
+              <span className="dot old" />
+              {s.source[0].toUpperCase() + s.source.slice(1)} {s.days_since}d stale
+            </span>
+          ))}
+        </>
       ) : (
         <span className="meta fresh">
           <span className="dot ok" />

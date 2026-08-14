@@ -229,6 +229,30 @@ console.log("\nPipeline — leads");
   ok("nothing written during planning", plan.ops.events.every((e) => e.event_id));
 }
 
+// An empty cell is absent, not an empty value. A Meta export with a blank Ad set
+// name wrote ad_set = '' — not null — so Targeted views grew an audience whose
+// name was the empty string: a column with no header holding every dollar.
+console.log("\nPipeline — a blank cell is null, not \"\"");
+{
+  const db = fakeDb({ rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [] });
+  const csv = [
+    "date,campaign,ad set name,ad,spend,impressions,reach,clicks",
+    "2026-05-14,,,,1378.24,30257,12672,479",
+    "2026-05-24, , , ,1153.22,22669,10131,377",   // whitespace is just as blank
+  ].join("\n");
+
+  const plan = await planImport(db, { source: "ads", clientId: "shely", fileName: "ads.csv", text: csv });
+  eq("both ads rows staged", plan.ops.ads.length, 2);
+  eq("blank ad set is null", plan.ops.ads[0].ad_set, null);
+  eq("whitespace ad set is null", plan.ops.ads[1].ad_set, null);
+  eq("blank campaign is null", plan.ops.ads[0].campaign, null);
+  eq("spend still read", plan.ops.ads[0].spend, 1378.24);
+  eq("the two rounds are still told apart", [plan.ops.ads[0].round_id, plan.ops.ads[1].round_id], ["0526-02", "0526-03"]);
+  // both rows key on `round|date|''|''` only because the nulls collapse the same
+  // way — they must still not be seen as duplicates of each other
+  eq("distinct rows are not deduped", plan.counts.duplicates, 0);
+}
+
 console.log("\nPipeline — sales");
 {
   const db = fakeDb({

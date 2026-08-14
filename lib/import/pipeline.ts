@@ -119,7 +119,19 @@ export async function planImport(
   const warnings: string[] = [];
   if (broken.length) warnings.push(`Column mapping changed since the last import — ${broken.join("; ")}`);
 
-  const val = (r: Row, field: string) => (map[field] ? r[map[field]] ?? null : null);
+  /**
+   * A mapped cell, or null.
+   *
+   * An empty cell is ABSENT, not an empty value. Returning "" put a Meta export
+   * with a blank Ad set name into ads_performance as ad_set = '', which is not
+   * null, so Targeted views grew an audience whose name was the empty string —
+   * a column with no header holding every dollar of spend.
+   */
+  const val = (r: Row, field: string) => {
+    const raw = map[field] ? r[map[field]] : undefined;
+    const s = raw?.trim();
+    return s ? s : null;
+  };
 
   // ── reference data ───────────────────────────────────────────────────────
   const rounds = await fetchAll<Round>(db, "rounds", "round_id, client_id, start_date, end_date, session_date",

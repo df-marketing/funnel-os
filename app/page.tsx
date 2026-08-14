@@ -17,14 +17,14 @@ const TITLES: Record<string, [string, string]> = {
   lp:          ["Landing page", "Only rounds where more than one page ran, so a page isn't credited for traffic it never saw."],
   class:       ["Attend class", "Attendance and closing by class variant — the view the old sheet protected at the cost of ROAS."],
   preview:     ["Preview offer", "The SGD 297 offer made in class."],
-  middle:      ["Middle offer", "The SGD 3,000 offer. Seven sales carry most of the revenue."],
+  middle:      ["Middle offer", "The back-end offer. Not one price — May closed at 1,197, 1,298.50, 1,400, 1,700 and 2,000."],
   product:     ["Product page", "Northsea Supply's journey has no class and no workshops."],
   checkout:    ["Checkout", "The last stage of Northsea's journey."],
   analysis:    ["This round", "What the round is doing while it runs."],
 };
 
 const NOT_WIRED_REASON: Record<string, string> = {
-  month:       "The cut is rounds.start_date grouped to a month — the view exists in SQL, the tab just isn't pointed at it yet.",
+  month:       "The cut is rounds.start_date grouped to a month. The view doesn't exist yet — it's the one unwired tab that needs SQL written, not just pointing at.",
   source:      "The cut is events.source plus the derived Previous Paid Ads column.",
   roundsource: "The cross-tab needs a two-level column header on the spine table.",
   ads:         "The cut is ads_performance.ad. It needs the utm_campaign bridge resolved to creative grain first — see the note on the Targeted views tab.",
