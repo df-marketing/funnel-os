@@ -185,9 +185,21 @@ export async function planImport(
 
   // ══ ADS — no person, so it skips match + attribute entirely ══════════════
   if (source === "ads") {
-    const existing = await fetchAll<{ round_id: string; date: string; ad_set: string | null; ad: string | null }>(
-      db, "ads_performance", "round_id, date, ad_set, ad", (q) => q.in("round_id", roundIds));
-    const seen = new Set(existing.map((e) => `${e.round_id}|${e.date}|${e.ad_set ?? ""}|${e.ad ?? ""}`));
+    /**
+     * The identity of an ads row is round + day + WHICH SLICE OF THE ACCOUNT.
+     *
+     * campaign belongs in that key. A campaign-level export has no ad set and no
+     * ad name, so without it every campaign running on the same day collapses to
+     * one key and all but the first are silently counted as duplicates. On a real
+     * 75-row export that landed 10 rows, discarded 50, and reported 0526-02's
+     * spend as 0.00 — a wrong number arrived at through a code path whose whole
+     * job is to stop the same row being counted twice.
+     */
+    const existing = await fetchAll<{ round_id: string; date: string; campaign: string | null; ad_set: string | null; ad: string | null }>(
+      db, "ads_performance", "round_id, date, campaign, ad_set, ad", (q) => q.in("round_id", roundIds));
+    const adsKey = (roundId: string, date: string, campaign: string | null, adSet: string | null, ad: string | null) =>
+      `${roundId}|${date}|${campaign ?? ""}|${adSet ?? ""}|${ad ?? ""}`;
+    const seen = new Set(existing.map((e) => adsKey(e.round_id, e.date, e.campaign, e.ad_set, e.ad)));
 
     for (const r of rows) {
       const date = toDate(val(r, "date"));
@@ -203,13 +215,14 @@ export async function planImport(
       }
       const adSet = val(r, "ad_set");
       const ad = val(r, "ad");
-      const key = `${round.round_id}|${date}|${adSet ?? ""}|${ad ?? ""}`;
+      const campaign = val(r, "campaign");
+      const key = adsKey(round.round_id, date, campaign, adSet, ad);
       if (seen.has(key)) { plan.counts.duplicates++; continue; }
       seen.add(key);
 
       plan.ops.ads.push({
         id: uuid(), round_id: round.round_id, date,
-        campaign: val(r, "campaign"), ad_set: adSet, ad,
+        campaign, ad_set: adSet, ad,
         spend: toNumber(val(r, "spend")) ?? 0,
         impressions: Math.round(toNumber(val(r, "impressions")) ?? 0),
         reach: Math.round(toNumber(val(r, "reach")) ?? 0),

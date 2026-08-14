@@ -239,6 +239,46 @@ console.log("\nPipeline — leads");
   ok("nothing written during planning", plan.ops.events.every((e) => e.event_id));
 }
 
+// A campaign-level Meta export has no ad set and no ad name, so every campaign
+// running on the same day used to collapse to one dedupe key and all but the
+// first were counted as duplicates. On a real 75-row export that landed 10 rows,
+// discarded 50, and reported a round's spend as 0.00 — a wrong number produced
+// by the code path whose entire job is to stop double-counting.
+console.log("\nAds — two campaigns on one day are two rows, not a duplicate");
+{
+  const db = fakeDb({ rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [] });
+  const plan = await planImport(db, {
+    source: "ads", clientId: "shely", fileName: "campaigns.csv",
+    text: [
+      "Reporting starts,Campaign name,Amount spent (SGD),Impressions,Reach",
+      "2026-05-15,DF_SG_Preview_Sprint1_0526_02,273.90,5237,3574",
+      "2026-05-15,DF_SG_Preview_Sprint1AI_0526_02,84.20,1566,900",
+      "2026-05-15,Dormant campaign,0,0,0",
+    ].join("\n"),
+  });
+  eq("all three campaigns are kept", plan.ops.ads.length, 3);
+  eq("none is mistaken for a repeat", plan.counts.duplicates, 0);
+  eq("the spend is the sum, not the first row",
+     Number(plan.ops.ads.reduce((s, a) => s + Number(a.spend), 0).toFixed(2)), 358.1);
+  eq("the campaign name is stored", plan.ops.ads[1].campaign, "DF_SG_Preview_Sprint1AI_0526_02");
+
+  // re-uploading the same file must still be a no-op
+  const again = await planImport(fakeDb({
+    rounds: ROUNDS, contacts: [], events: [], v_column_map: [],
+    ads_performance: plan.ops.ads.map((a) => ({ ...a })),
+  }), {
+    source: "ads", clientId: "shely", fileName: "campaigns.csv",
+    text: [
+      "Reporting starts,Campaign name,Amount spent (SGD),Impressions,Reach",
+      "2026-05-15,DF_SG_Preview_Sprint1_0526_02,273.90,5237,3574",
+      "2026-05-15,DF_SG_Preview_Sprint1AI_0526_02,84.20,1566,900",
+      "2026-05-15,Dormant campaign,0,0,0",
+    ].join("\n"),
+  });
+  eq("re-uploading the same campaigns writes nothing", again.ops.ads.length, 0);
+  eq("...and says all three were seen before", again.counts.duplicates, 3);
+}
+
 // A buyer with a phone and no email is ordinary in a payments export, and the
 // same normalisation runs on both, so matching on one is as sound as the other.
 // Before this, those rows could only ever park.
