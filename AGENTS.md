@@ -48,3 +48,4 @@
 - Both tabs — 'by source' and 'by metric' — are now wired in the app.
 - the dry-run stub now supports the .is() filter, matching the real pipeline's filtering capability.
 - Columns that claim to be pinned are now actually pinned in the UI.
+- Phone is now treated as an identity field in sales and attendance, not just in membership — plus a fixed re-upload.
