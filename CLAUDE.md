@@ -43,3 +43,4 @@
 - A Refresh data button was added to force a re-read of data.
 - A 'By source' tab was wired, completing the tab wiring alongside the existing 'By metric' tab.
 - Both tabs — 'by source' and 'by metric' — are now wired in the app.
+- the dry-run stub now supports the .is() filter, matching the real pipeline's filtering capability.
