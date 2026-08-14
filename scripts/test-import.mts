@@ -239,6 +239,30 @@ console.log("\nPipeline — leads");
   ok("nothing written during planning", plan.ops.events.every((e) => e.event_id));
 }
 
+// A Meta ad-set export has no clicks column at all. Storing the blank as 0 made
+// every audience read "Outbound CTR 0.00%" and "Reach 0" — measurements, both
+// false. Null sums away, so a round total built from one row that HAS clicks and
+// sixty that don't still comes to the right number.
+console.log("\nAds — a blank count is absent, not zero");
+{
+  const db = fakeDb({ rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [] });
+  const plan = await planImport(db, {
+    source: "ads", clientId: "shely", fileName: "adsets.csv",
+    text: [
+      "date,ad_set,spend,impressions,reach,clicks",
+      "2026-05-15,Cold_Broad,273.90,5237,,",          // the export gave no reach or clicks
+      "2026-05-15,,84.20,1566,12672,479",             // the round-level correction row
+      "2026-05-16,Cold_Broad,0,0,,",                  // Meta writes an explicit 0 for spend
+    ].join("\n"),
+  });
+  eq("a blank clicks cell stays absent", plan.ops.ads[0].clicks, null);
+  eq("a blank reach cell stays absent", plan.ops.ads[0].reach, null);
+  eq("a stated impressions figure is kept", plan.ops.ads[0].impressions, 5237);
+  eq("a stated clicks figure is kept", plan.ops.ads[1].clicks, 479);
+  eq("spend 0 is a measurement and stays 0", plan.ops.ads[2].spend, 0);
+  eq("an explicit 0 impressions stays 0", plan.ops.ads[2].impressions, 0);
+}
+
 // A campaign-level Meta export has no ad set and no ad name, so every campaign
 // running on the same day used to collapse to one dedupe key and all but the
 // first were counted as duplicates. On a real 75-row export that landed 10 rows,

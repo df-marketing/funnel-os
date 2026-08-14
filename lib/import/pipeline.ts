@@ -62,6 +62,8 @@ export class ImportError extends Error {
 }
 
 const uuid = () => crypto.randomUUID();
+/** Round a count, but keep "the export didn't say" distinct from "zero". */
+const round0 = (n: number | null) => (n === null ? null : Math.round(n));
 /** For a plain date column — rounds carry local calendar dates already. */
 const dayOf = (s: string | null) => (s ? s.slice(0, 10) : null);
 /** For an INSTANT — the day it falls on locally, not in UTC. See localDay. */
@@ -223,10 +225,17 @@ export async function planImport(
       plan.ops.ads.push({
         id: uuid(), round_id: round.round_id, date,
         campaign, ad_set: adSet, ad,
+        // spend is required, and Meta writes an explicit 0 for a day that spent
+        // nothing — so 0 there is a measurement. The other three are optional:
+        // a blank cell means the export didn't say, and storing that as 0 makes
+        // every audience in an export without a clicks column read "Outbound CTR
+        // 0.00%" and "Reach 0" — measurements, both false. Null sums away
+        // cleanly, so a round total built from one row that HAS clicks and sixty
+        // that don't still comes to the right number.
         spend: toNumber(val(r, "spend")) ?? 0,
-        impressions: Math.round(toNumber(val(r, "impressions")) ?? 0),
-        reach: Math.round(toNumber(val(r, "reach")) ?? 0),
-        clicks: Math.round(toNumber(val(r, "clicks")) ?? 0),
+        impressions: round0(toNumber(val(r, "impressions"))),
+        reach: round0(toNumber(val(r, "reach"))),
+        clicks: round0(toNumber(val(r, "clicks"))),
       });
       plan.diff.newRows++;
     }
