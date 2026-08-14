@@ -17,6 +17,8 @@
 - walkthrough is opened by default on app launch; app remembers when user closes it (via persistent state).
 - Bucket instants by the local day, and drop stale plans on commit.
 - Absent (null/missing values) is treated as distinct from zero for sales and for spend that has no named audience.
+- Stripe integration/dependency was dropped from the project.
+- The middle pricing offer was removed (no longer displayed/priced).
 
 ## Architecture
 
@@ -44,3 +46,4 @@
 - A 'By source' tab was wired, completing the tab wiring alongside the existing 'By metric' tab.
 - Both tabs — 'by source' and 'by metric' — are now wired in the app.
 - the dry-run stub now supports the .is() filter, matching the real pipeline's filtering capability.
+- Columns that claim to be pinned are now actually pinned in the UI.
