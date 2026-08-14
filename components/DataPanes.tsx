@@ -26,7 +26,7 @@ const STRAIGHT_LINE = [
   { n: "2", label: "Leads", sub: "GoHighLevel" },
   { n: "3", label: "Attendance", sub: "webinar" },
   { n: "4", label: "Sales", sub: "payments" },
-  { n: "5", label: "Clear unmatched", sub: "accept or dismiss" },
+  { n: "5", label: "Clear unmatched", sub: "assign or dismiss" },
   { n: "6", label: "Read By round", sub: "the answer" },
 ];
 
@@ -185,7 +185,7 @@ export function ImportPane({ imports, client }: { imports: ImportStatus[]; clien
           <b>Then what.</b> Dropping a file parses it, matches every row to a person, works out which
           round produced the lead, and shows the diff — including anything that would restate a figure
           you have already reported. Only then is there a commit button. Rows that couldn&rsquo;t be
-          tied to a person land in <b>Unmatched</b>, where you accept or dismiss them; they are never
+          tied to a person land in <b>Unmatched</b>, where you say who they are or dismiss them; they are never
           guessed and never counted, so figures are understated by exactly that queue and never
           overstated. When it&rsquo;s empty, <b>By round</b> is the answer.
         </div>
@@ -207,7 +207,9 @@ export function UnmatchedPane({
         <h1>Unmatched</h1>
         <p>
           Rows that couldn&rsquo;t be tied to a person with certainty. None are counted anywhere — so
-          every figure in this app is understated by exactly this queue, and never overstated.
+          every figure in this app is understated by exactly this queue, and never overstated. Type
+          who a row belongs to and it is replayed through the importer, landing with the same round
+          and closing credit it would have had if the export had carried the address.
         </p>
       </div>
 

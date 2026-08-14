@@ -60,6 +60,23 @@ export function parseCsv(input: string): { headers: string[]; rows: Row[] } {
   return { headers, rows };
 }
 
+/**
+ * Rows back out to CSV — the inverse of parseCsv, and it has to be exact.
+ *
+ * Resolving a parked row replays it through the real import pipeline, and the
+ * pipeline reads CSV. A row that survived parseCsv can hold commas, quotes and
+ * newlines, so writing it back with join(",") would corrupt on the way out the
+ * exact values this parser was careful about on the way in.
+ */
+export function writeCsv(headers: string[], rows: Row[]): string {
+  const cell = (v: string) =>
+    /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+  return [
+    headers.map(cell).join(","),
+    ...rows.map((r) => headers.map((h) => cell(r[h] ?? "")).join(",")),
+  ].join("\n");
+}
+
 /** Numbers arrive as "1,284", "SGD 1,378.24", "12.5%", "(45.00)" for negatives. */
 export function toNumber(v: string | undefined | null): number | null {
   if (v === undefined || v === null) return null;

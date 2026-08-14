@@ -233,6 +233,14 @@ footer b { color: var(--ink-2); }
 .refresh:disabled { opacity: .7; }
 
 .row-actions { display: inline-flex; gap: 5px; align-items: center; justify-content: flex-end; }
+/* The field that makes the queue two-way. Narrow on purpose — it takes an
+   address, not a note — and monospace so a mistyped digit is visible. */
+.row-actions input.assign { width: 168px; padding: 3px 7px; font-size: 11.5px;
+  font-family: var(--mono); color: var(--ink); background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: 5px; }
+.row-actions input.assign::placeholder { color: var(--ink-3); font-family: var(--sans); }
+.row-actions input.assign:focus { outline: none; border-color: var(--accent); }
+.ok-note { font-size: 11px; color: var(--good); font-variant-numeric: tabular-nums; }
 .err { color: var(--bad); font-size: 11px; }
 .src-status { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 6px 0 0;
   font-size: 11.5px; padding: 0 2px; }

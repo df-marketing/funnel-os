@@ -15,7 +15,7 @@
  * Run: npx tsx scripts/test-import.ts
  */
 
-import { parseCsv, toNumber, toDate, toTimestamp, localDay } from "../lib/import/csv";
+import { parseCsv, writeCsv, toNumber, toDate, toTimestamp, localDay } from "../lib/import/csv";
 import { mapColumns, SOURCES } from "../lib/import/sources";
 import { buildTemplate } from "../lib/import/template";
 import { buildIndex, matchRow, normPhone, normEmail, stripPlus } from "../lib/import/identity";
@@ -44,6 +44,16 @@ console.log("\nCSV");
   eq("BOM stripped", parseCsv('﻿a,b\n1,2\n').headers[0], "a");
   eq("day-first dates", toDate("05/06/2026"), "2026-06-05");
   eq("negative in parens", toNumber("(45.00)"), -45);
+
+  // Resolving a parked row replays it as CSV, so writeCsv has to survive
+  // everything parseCsv was careful about. A join(",") here would corrupt on
+  // the way out the exact values that were protected on the way in.
+  const nasty = { a: 'Cold_Broad, 25-45', b: 'say "hi"', c: "line one\nline two", d: "" };
+  const back = parseCsv(writeCsv(Object.keys(nasty), [nasty])).rows[0];
+  eq("csv round-trips a comma", back.a, nasty.a);
+  eq("csv round-trips a quote", back.b, nasty.b);
+  eq("csv round-trips a newline", back.c, nasty.c);
+  eq("csv round-trips a blank", back.d, "");
 }
 
 // Every export here is written in UTC+8 and the server is not. A time with no
@@ -227,6 +237,73 @@ console.log("\nPipeline — leads");
   eq("utm lead is Paid Ads", plan.ops.events[0].source, "Paid Ads");
   eq("non-utm lead is Organic", plan.ops.events[1].source, "Organic");
   ok("nothing written during planning", plan.ops.events.every((e) => e.event_id));
+}
+
+// Resolving a parked row used to stamp resolved_at and stop, so an accepted
+// sale left the queue, dropped out of "revenue held", and was still counted
+// nowhere — 297 of real money quietly stopped being tracked. Resolution now
+// replays the row through this same pipeline with the identity supplied, so it
+// has to produce exactly the event an ordinary import would have.
+console.log("\nUnmatched — resolving replays the real import");
+{
+  const ATTENDED = { event_id: "e1", contact_id: "c1", round_id: "0526-02", event_type: "attendance",
+    event_date: "2026-05-19T12:00:00.000Z", product: null, amount: null, refund_amount: null,
+    lead_round_id: "0526-02", source: "Paid Ads" };
+  const LEAD = { event_id: "e0", contact_id: "c1", round_id: "0526-02", event_type: "lead",
+    event_date: "2026-05-14T02:00:00.000Z", product: null, amount: null, refund_amount: null,
+    lead_round_id: "0526-02", source: "Paid Ads" };
+  const db = () => fakeDb({
+    rounds: ROUNDS,
+    contacts: [{ contact_id: "c1", email: "known@example.sg", phone: null, client_id: "shely" }],
+    events: [LEAD, ATTENDED],
+    ads_performance: [],
+    v_column_map: [],
+  });
+
+  // the parked row exactly as it sat in the queue: no email in the export
+  const parked = "event_date,email,product,amount,name\n2026-05-20,,Preview Offer,297,Someone";
+
+  const asIs = await planImport(db(), { source: "sales", clientId: "shely", fileName: "r.csv", text: parked });
+  eq("without an identity it parks, as it did on import", asIs.counts.parked, 1);
+  eq("and holds the money", asIs.ops.unmatched[0].revenue_held, 297);
+
+  const resolved = await planImport(db(), {
+    source: "sales", clientId: "shely", fileName: "r.csv", text: parked, asContactId: "c1",
+  });
+  eq("naming the person produces the event", resolved.ops.events.length, 1);
+  eq("nothing is left parked", resolved.counts.parked, 0);
+  eq("the money is real now, not held", resolved.ops.events[0].amount, 297);
+  // the whole reason to replay rather than just stamp the row: attribution
+  eq("revenue lands on the round that produced the lead", resolved.ops.events[0].lead_round_id, "0526-02");
+  eq("closing credit goes to the class actually attended", resolved.ops.events[0].close_round_id, "0526-02");
+  eq("it counts as a lead-backed sale", resolved.ops.events[0].is_lead, true);
+
+  // resolving the same row twice must not double-count the money
+  const already = await planImport(db2(), {
+    source: "sales", clientId: "shely", fileName: "r.csv", text: parked, asContactId: "c1",
+  });
+  eq("a sale already imported is a duplicate, not a second 297", already.ops.events.length, 0);
+  eq("...and is reported as such", already.counts.duplicates, 1);
+
+  function db2() {
+    return fakeDb({
+      rounds: ROUNDS,
+      contacts: [{ contact_id: "c1", email: "known@example.sg", phone: null, client_id: "shely" }],
+      events: [LEAD, ATTENDED, { event_id: "e2", contact_id: "c1", round_id: "0526-02", event_type: "sale",
+        event_date: "2026-05-20T15:59:59.000Z", product: "preview", amount: 297, refund_amount: 0,
+        lead_round_id: "0526-02", source: "Paid Ads" }],
+      ads_performance: [],
+      v_column_map: [],
+    });
+  }
+
+  // naming the person does not fix a row that was ALSO missing something else
+  const stillBroken = await planImport(db(), {
+    source: "sales", clientId: "shely", fileName: "r.csv", asContactId: "c1",
+    text: "event_date,email,product,amount,name\n,,Preview Offer,297,Someone",
+  });
+  eq("a row with no date stays parked even once the person is known", stillBroken.ops.events.length, 0);
+  eq("and says what is still wrong", stillBroken.ops.unmatched[0].guess_method, "missing date or amount");
 }
 
 // "Name only, no contact detail" was grouping rows that had contact detail —

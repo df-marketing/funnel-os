@@ -92,7 +92,20 @@ function refuseIfNothingUsable(unusable: number, total: number, label: string) {
 
 export async function planImport(
   db: SupabaseClient,
-  { source, clientId, fileName, text }: { source: SourceKey; clientId: string; fileName: string; text: string },
+  { source, clientId, fileName, text, asContactId }: {
+    source: SourceKey; clientId: string; fileName: string; text: string;
+    /**
+     * Resolving a parked row: the human has said who this is, so skip matching
+     * and use this contact for every row.
+     *
+     * Resolution has to produce the SAME event an ordinary import would have —
+     * same round attribution, same closing credit, same dedupe, same
+     * restatement check. The only thing that was ever missing is the identity,
+     * so that is the only thing supplied. Everything downstream is the real
+     * import path, which is why the queue can't drift away from the importer.
+     */
+    asContactId?: string;
+  },
 ): Promise<Plan> {
   const spec = SOURCES[source];
   if (!spec) throw new ImportError(`Unknown source "${source}".`);
@@ -274,7 +287,9 @@ export async function planImport(
   for (const r of rows) {
     const email = normEmail(val(r, "email"));
     const phone = normPhone(val(r, "phone"));
-    const outcome = matchRow(index, val(r, "email"), val(r, "phone"), source === "leads");
+    const outcome = asContactId
+      ? ({ kind: "exact", contactId: asContactId } as const)
+      : matchRow(index, val(r, "email"), val(r, "phone"), source === "leads");
 
     let contactId: string | null = null;
     if (outcome.kind === "exact") { contactId = outcome.contactId; plan.counts.matchedExact++; }
