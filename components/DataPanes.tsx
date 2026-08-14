@@ -35,6 +35,9 @@ const REASON_LABEL: Record<string, string> = {
   phone_format: "Phone format",
   name_only: "Name only, no contact detail",
   bought_without_lead: "Bought without ever being a lead",
+  incomplete_row: "Row is missing something — fix the file",
+  no_matching_round: "No round to attach it to — create the round",
+  unknown_person: "Contact detail we have, a person we don't",
 };
 
 const sgd = (n: number | null | undefined) =>

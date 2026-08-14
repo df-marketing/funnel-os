@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAll } from "@/lib/supabase/admin";
 import { parseCsv, toNumber, toDate, toTimestamp, localDay, type Row } from "./csv";
 import { SOURCES, mapColumns, type SourceKey } from "./sources";
-import { buildIndex, matchRow, normEmail, normPhone, type KnownContact } from "./identity";
+import { buildIndex, matchRow, normEmail, normPhone, type KnownContact, type ParkReason } from "./identity";
 import { attributeLead, closeRoundFor, resolveRoundRef, resolveProduct, type Round, type AdSetRun } from "./attribute";
 
 /**
@@ -259,7 +259,7 @@ export async function planImport(
   );
   const parked = new Set(stillParked.map((u) => parkKey(u.raw_data)));
 
-  const park = (reason: string, raw: Row, bestGuess: string | null, guessMethod: string | null, confidence: string, held = 0) => {
+  const park = (reason: ParkReason, raw: Row, bestGuess: string | null, guessMethod: string | null, confidence: string, held = 0) => {
     const key = parkKey(raw);
     if (parked.has(key)) { plan.counts.duplicates++; return; }
     parked.add(key);
@@ -288,7 +288,7 @@ export async function planImport(
         continue;
       }
       const when = toTimestamp(val(r, "event_date"));
-      if (!when) { park("name_only", r, null, "no usable opt-in date", "none"); continue; }
+      if (!when) { park("incomplete_row", r, null, "no usable opt-in date", "none"); continue; }
       track(sgDayOf(when));
 
       const utm = val(r, "utm_campaign");
@@ -297,7 +297,7 @@ export async function planImport(
       else if (method === "date_window") plan.attribution.dateWindow++;
       else plan.attribution.none++;
 
-      if (!roundId) { park("name_only", r, null, "no round covers this opt-in date", "none"); continue; }
+      if (!roundId) { park("no_matching_round", r, null, "no round covers this opt-in date", "none"); continue; }
 
       const key = eventKey("lead", contactId, roundId, when);
       if (seenEvents.has(key)) { plan.counts.duplicates++; continue; }
@@ -322,7 +322,7 @@ export async function planImport(
       }
       const ref = val(r, "round_id");
       const roundId = ref ? resolveRoundRef(ref, rounds) : null;
-      if (!roundId) { park("name_only", r, null, `no round matches session "${ref ?? ""}"`, "none"); continue; }
+      if (!roundId) { park("no_matching_round", r, null, `no round matches session "${ref ?? ""}"`, "none"); continue; }
 
       const round = rounds.find((x) => x.round_id === roundId)!;
       const when = toTimestamp(val(r, "event_date")) ?? new Date(`${dayOf(round.session_date ?? round.end_date)}T20:00:00+08:00`).toISOString();
@@ -357,10 +357,10 @@ export async function planImport(
       const refund = toNumber(val(r, "refund_amount")) ?? 0;
       const refundDate = toDate(val(r, "refund_date"));
 
-      if (!when || amount === null) { park("name_only", r, null, "missing date or amount", "none"); continue; }
+      if (!when || amount === null) { park("incomplete_row", r, null, "missing date or amount", "none"); continue; }
       if (!product) {
         warnings.push(`Product "${productRaw}" isn't recognised as preview or middle — that row was parked.`);
-        park("name_only", r, null, `unrecognised product "${productRaw}"`, "none", amount);
+        park("incomplete_row", r, null, `unrecognised product "${productRaw}"`, "none", amount);
         continue;
       }
       track(sgDayOf(when));
@@ -368,7 +368,10 @@ export async function planImport(
       // Revenue with no person attached is held, never credited to a round.
       if (!contactId) {
         const o = outcome as Extract<typeof outcome, { kind: "park" }>;
-        park(o.reason, r, o.bestGuess, o.guessMethod, o.confidence, amount);
+        // Revenue from someone with no lead behind it is the one the Unmatched
+        // tab calls out by name, so it keeps its own reason.
+        const why: ParkReason = o.reason === "unknown_person" ? "bought_without_lead" : o.reason;
+        park(why, r, o.bestGuess, o.guessMethod, o.confidence, amount);
         continue;
       }
 

@@ -17,11 +17,22 @@ export type MatchOutcome =
   | { kind: "new" }
   | { kind: "park"; reason: ParkReason; bestGuess: string | null; guessMethod: string | null; confidence: "low" | "none" };
 
+/**
+ * Why a row was parked — and these are four different problems with four
+ * different fixes, so they are four different values.
+ *
+ * `name_only` means we know the row and not the person. It must NOT be reused
+ * for a row we couldn't use at all: a lead with an email but no opt-in date was
+ * being filed under "no contact detail" with its address right there in the row.
+ */
 export type ParkReason =
   | "same_person_two_addresses"
   | "phone_format"
   | "name_only"
-  | "bought_without_lead";
+  | "bought_without_lead"
+  | "incomplete_row"      // missing a field the app needs — fix the file
+  | "no_matching_round"   // the row is fine; no round exists to attach it to
+  | "unknown_person";     // has contact detail, but nobody here matches it
 
 export const normEmail = (raw: string | null | undefined): string | null => {
   if (!raw) return null;
@@ -135,9 +146,14 @@ export function matchRow(
       return { kind: "park", reason: "phone_format", bestGuess: phone, guessMethod: "same digits", confidence: "low" };
     }
   }
+  // We have contact detail and nobody here matches it. What that MEANS depends
+  // on the file — a sale from a stranger is revenue with no spend behind it,
+  // an attendance from a stranger is someone who showed up without ever opting
+  // in. matchRow doesn't know which file it's reading, so it doesn't guess: the
+  // pipeline names it, because the pipeline knows the source.
   return {
     kind: "park",
-    reason: "bought_without_lead",
+    reason: "unknown_person",
     bestGuess: null,
     guessMethod: null,
     confidence: "none",

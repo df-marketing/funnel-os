@@ -219,9 +219,12 @@ const loadMetrics = unstable_cache(
         ? db.from("v_metrics_by_source")
             .select("cut_key, cut_label, cut_sub, m, ord")
             .eq("client_id", id).order("ord")
+        // audiences by spend, biggest bet first — but ordered on `ord`, not on
+        // spend itself. When no spend is attributable to an audience the sort
+        // key ties at 0 for every column and they shuffle between page loads.
         : db.from("v_metrics_by_adset")
-            .select("cut_key, cut_label, cut_sub, m, sort_spend")
-            .eq("client_id", id).order("sort_spend", { ascending: false });
+            .select("cut_key, cut_label, cut_sub, m, ord")
+            .eq("client_id", id).order("ord");
 
     const [total, baseline, columns] = await Promise.all([
       db.from("v_metrics_total").select("cut_key, cut_label, cut_sub, m").eq("client_id", id).maybeSingle(),

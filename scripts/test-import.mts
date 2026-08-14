@@ -229,6 +229,44 @@ console.log("\nPipeline — leads");
   ok("nothing written during planning", plan.ops.events.every((e) => e.event_id));
 }
 
+// "Name only, no contact detail" was grouping rows that had contact detail —
+// a lead with an email but no opt-in date was filed under "no contact detail"
+// with its address right there in the row. Four problems, four fixes, four
+// reasons.
+console.log("\nPipeline — a parked row says why it was parked");
+{
+  const db = fakeDb({ rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [] });
+
+  const leads = await planImport(db, {
+    source: "leads", clientId: "shely", fileName: "leads.csv",
+    text: ["Email,Created", "dated@example.sg,2026-05-14", "nodate@example.sg,", ",2026-05-14"].join("\n"),
+  });
+  const by = (reason: string) => leads.ops.unmatched.filter((u) => u.reason === reason);
+  eq("an email with no date is an incomplete row", by("incomplete_row").length, 1);
+  eq("...and it is NOT filed as having no contact detail", by("name_only").length, 1);
+  eq("the row with no contact detail still is", by("name_only")[0].guess_method, null);
+  eq("the incomplete row says what is missing", by("incomplete_row")[0].guess_method, "no usable opt-in date");
+
+  // A stranger in an attendance file is a stranger, not a buyer. matchRow used
+  // to call every unmatched-but-contactable row "bought_without_lead" whatever
+  // file it came from, so a Zoom export with real emails would have filled the
+  // queue with people who bought nothing.
+  const att = await planImport(db, {
+    source: "attendance", clientId: "shely", fileName: "att.csv",
+    text: ["Session,Email", "0526-02,stranger@example.sg"].join("\n"),
+  });
+  eq("a stranger who attended did not buy anything",
+     att.ops.unmatched.map((u) => u.reason), ["unknown_person"]);
+
+  const sale = await planImport(db, {
+    source: "sales", clientId: "shely", fileName: "sales.csv",
+    text: ["event_date,email,product,amount", "2026-05-20,stranger@example.sg,Preview Offer,297"].join("\n"),
+  });
+  eq("...but a stranger who paid is revenue with no lead behind it",
+     sale.ops.unmatched.map((u) => u.reason), ["bought_without_lead"]);
+  eq("and the money is held", sale.ops.unmatched[0].revenue_held, 297);
+}
+
 // An empty cell is absent, not an empty value. A Meta export with a blank Ad set
 // name wrote ad_set = '' — not null — so Targeted views grew an audience whose
 // name was the empty string: a column with no header holding every dollar.
