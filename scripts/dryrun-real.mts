@@ -31,6 +31,8 @@ function fakeDb(tables: Tables) {
       eq: (c: string, v: any) => { out = out.filter((r) => r[c] === v); return api; },
       in: (c: string, v: any[]) => { out = out.filter((r) => v.includes(r[c])); return api; },
       not: (c: string) => { out = out.filter((r) => r[c] != null); return api; },
+      // the unmatched-dedupe query filters on `.is("resolved_at", null)`
+      is: (c: string, v: any) => { out = out.filter((r) => (r[c] ?? null) === v); return api; },
       range: (f: number, t: number) => { out = out.slice(f, t + 1); return api; },
       order: () => api,
       maybeSingle: async () => ({ data: out[0] ?? null, error: null }),
