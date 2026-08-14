@@ -19,6 +19,7 @@
 - Absent (null/missing values) is treated as distinct from zero for sales and for spend that has no named audience.
 - Stripe integration/dependency was dropped from the project.
 - The middle pricing offer was removed (no longer displayed/priced).
+- Campaign is included in the ads dedupe key.
 
 ## Architecture
 
