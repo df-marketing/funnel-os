@@ -202,7 +202,7 @@ function Diff({ plan }: { plan: Summary }) {
           <>
             <dt>Attributed</dt>
             <dd>
-              {attribution.utm} by utm_campaign · {attribution.dateWindow} by date window
+              {attribution.utm} by ad set · {attribution.dateWindow} by date window
               {attribution.none ? ` · ${attribution.none} unattributable` : ""}
             </dd>
           </>

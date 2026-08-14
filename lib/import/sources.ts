@@ -62,7 +62,22 @@ export const SOURCES: Record<SourceKey, SourceSpec> = {
       f("phone", false, "phone number", "mobile"),
       f("event_date", true, "created", "created at", "date created", "opt-in date", "date"),
       f("source", false, "lead source", "channel"),
-      f("utm_campaign", false, "utm campaign", "utm_campaign", "campaign"),
+      /**
+       * GoHighLevel writes three tracking tags and they mean different things.
+       * Named here after what they HOLD, not after what the app once called
+       * them, so a raw GHL export works with no hand-editing:
+       *
+       *   utm_term     the AUDIENCE   Cold_BusinessOwners     -> ad_set
+       *   utm_content  the AD         Static_LetAISell...     -> ad
+       *   utm_campaign the ROUND      DF_SG_Preview_..._0526_02
+       *
+       * utm_campaign is last in the ad_set alias list on purpose. Files built
+       * before this change carry the audience in a column called utm_campaign;
+       * they keep working, because utm_term wins wherever it is present.
+       */
+      f("ad_set", false, "utm_term", "ad set name", "adset", "audience", "utm_campaign"),
+      f("ad", false, "utm_content", "ad name", "creative"),
+      f("utm_campaign", false, "utm campaign", "campaign"),
     ],
   },
   attendance: {

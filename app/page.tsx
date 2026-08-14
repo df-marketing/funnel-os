@@ -27,7 +27,7 @@ const NOT_WIRED_REASON: Record<string, string> = {
   month:       "The cut is rounds.start_date grouped to a month. The view doesn't exist yet — it's the one unwired tab that needs SQL written, not just pointing at.",
   source:      "The cut is events.source plus the derived Previous Paid Ads column.",
   roundsource: "The cross-tab needs a two-level column header on the spine table.",
-  ads:         "The cut is ads_performance.ad. It needs the utm_campaign bridge resolved to creative grain first — see the note on the Targeted views tab.",
+  ads:         "The cut is ads_performance.ad, bridged from events.ad — which now comes in from GoHighLevel's utm_content. The people side is ready; this waits on a Meta export at ad level, since no ad names exist in ads_performance yet.",
   lp:          "Deliberately parked: the landing-page dimension source is still an open decision and needs Anis. Guessing it would put a wrong number on screen.",
   class:       "The cut is rounds.session_label, with every cost row blank — a class doesn't buy traffic.",
   preview:     "The cut is rounds, filtered to product = 'preview'.",
@@ -204,7 +204,7 @@ export default async function Page({
                 notice={
                   <>
                     <b>Audiences are bridged from people to ads by</b>{" "}
-                    <span className="num">events.utm_campaign → ads_performance.ad_set</span>. A paid
+                    <span className="num">events.ad_set → ads_performance.ad_set</span>. A paid
                     lead whose UTM went missing still cost money, so it lands in{" "}
                     <b>Unsplit spend</b> rather than nowhere — no ad set is not the same as no ad.
                     Organic and community leads have no column at all, because for them there was no

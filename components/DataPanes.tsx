@@ -13,7 +13,7 @@ const ORDER: SourceKey[] = ["ads", "leads", "attendance", "sales"];
  * credit, and nothing in the diff would tell you that had happened.
  */
 const WHY_HERE: Record<SourceKey, string> = {
-  ads:        "First, because ad_set is the bridge. A lead's utm_campaign is matched against these ad sets to work out which round's spend produced it.",
+  ads:        "First, because ad_set is the bridge. A lead's ad set — GoHighLevel's utm_term — is matched against these to work out which round's spend produced it.",
   leads:      "Needs the ads file above — without it a lead has no ad set to match and falls back to date-window attribution, which is a guess.",
   attendance: "Needs leads: attendance attaches to a person, and a person becomes known when their lead row lands.",
   sales:      "Last, because a sale's closing credit goes to the most recent class the buyer attended. Attendance has to be in first or that credit is lost.",

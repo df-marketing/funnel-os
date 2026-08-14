@@ -239,6 +239,59 @@ console.log("\nPipeline — leads");
   ok("nothing written during planning", plan.ops.events.every((e) => e.event_id));
 }
 
+// GoHighLevel writes three tracking tags and they mean three different things.
+// The app used to read one column called utm_campaign and expect the AUDIENCE in
+// it — so a raw GHL export imported perfectly and attributed nothing, because
+// every lead arrived carrying a round name where an ad set was expected. The only
+// reason the numbers were right was a hand-edited file.
+console.log("\nLeads — a raw GoHighLevel export attributes correctly");
+{
+  const ROUND_ADS = [{ ad_set: "Cold_Broad", round_id: "0526-02", date: "2026-05-14" }];
+  const db = () => fakeDb({
+    rounds: ROUNDS, contacts: [], events: [], ads_performance: ROUND_ADS, v_column_map: [],
+  });
+
+  // exactly what GHL exports, untouched
+  const raw = await planImport(db(), {
+    source: "leads", clientId: "shely", fileName: "ghl.csv",
+    text: [
+      "Email,Phone,Created,utm_medium,utm_content,utm_source,utm_term,utm_campaign",
+      "a@example.sg,,2026-05-14,df,Static_LetAISell,META,Cold_Broad,DF_SG_Preview_Sprint1_0526_02",
+    ].join("\n"),
+  });
+  const lead = raw.ops.events[0];
+  eq("the audience comes from utm_term", lead.ad_set, "Cold_Broad");
+  eq("the ad comes from utm_content", lead.ad, "Static_LetAISell");
+  eq("utm_campaign stays the round's campaign", lead.utm_campaign, "DF_SG_Preview_Sprint1_0526_02");
+  eq("so attribution is known, not inferred", lead.attribution_method, "utm");
+  eq("and it is Paid Ads", lead.source, "Paid Ads");
+
+  // files built before this change put the audience in a column called
+  // utm_campaign — they must keep working, so utm_campaign is the last alias
+  const legacy = await planImport(db(), {
+    source: "leads", clientId: "shely", fileName: "leads.csv",
+    text: ["email,phone,event_date,source,utm_campaign", "b@example.sg,,2026-05-14,Paid Ads,Cold_Broad"].join("\n"),
+  });
+  eq("an older file still finds its audience", legacy.ops.events[0].ad_set, "Cold_Broad");
+  eq("and is still attributed by utm", legacy.ops.events[0].attribution_method, "utm");
+
+  // a lead with no audience at all is organic and stays out of every audience column
+  const none = await planImport(db(), {
+    source: "leads", clientId: "shely", fileName: "x.csv",
+    text: ["email,event_date", "c@example.sg,2026-05-14"].join("\n"),
+  });
+  eq("no audience means no ad set", none.ops.events[0].ad_set, null);
+  eq("and organic, attributed by date window", none.ops.events[0].source, "Organic");
+  eq("...which is recorded as such", none.ops.events[0].attribution_method, "date_window");
+
+  // 17 real leads carry a raw Meta Ad ID in utm_content instead of a name
+  const byId = await planImport(db(), {
+    source: "leads", clientId: "shely", fileName: "ghl.csv",
+    text: ["Email,Created,utm_term,utm_content", "d@example.sg,2026-05-14,Cold_Broad,120249101765580425"].join("\n"),
+  });
+  eq("an Ad ID in utm_content is kept as-is", byId.ops.events[0].ad, "120249101765580425");
+}
+
 // A Meta ad-set export has no clicks column at all. Storing the blank as 0 made
 // every audience read "Outbound CTR 0.00%" and "Reach 0" — measurements, both
 // false. Null sums away, so a round total built from one row that HAS clicks and

@@ -346,8 +346,12 @@ export async function planImport(
       if (!when) { park("incomplete_row", r, null, "no usable opt-in date", "none"); continue; }
       track(sgDayOf(when));
 
+      // The audience is what bridges a person to spend, so it is what decides
+      // the round. utm_campaign names the round's campaign, not an ad set.
+      const adSet = val(r, "ad_set");
+      const adName = val(r, "ad");
       const utm = val(r, "utm_campaign");
-      const { roundId, method } = attributeLead(when, utm, rounds, adRuns);
+      const { roundId, method } = attributeLead(when, adSet, rounds, adRuns);
       if (method === "utm") plan.attribution.utm++;
       else if (method === "date_window") plan.attribution.dateWindow++;
       else plan.attribution.none++;
@@ -358,11 +362,12 @@ export async function planImport(
       if (seenEvents.has(key)) { plan.counts.duplicates++; continue; }
       seenEvents.add(key);
 
-      const src = val(r, "source") || (utm ? "Paid Ads" : "Organic");
+      const src = val(r, "source") || (adSet ? "Paid Ads" : "Organic");
       plan.ops.events.push({
         event_id: uuid(), contact_id: contactId, round_id: roundId, event_type: "lead",
         event_date: when, lead_round_id: roundId, attribution_method: method,
-        utm_campaign: utm || null, source: src, match_status: outcome.kind === "auto" ? "auto_resolved" : "matched",
+        utm_campaign: utm || null, ad_set: adSet, ad: adName,
+        source: src, match_status: outcome.kind === "auto" ? "auto_resolved" : "matched",
       });
       supersede(r, contactId);
       plan.diff.newRows++;

@@ -22,13 +22,13 @@ const EXAMPLE: Record<string, [string, string]> = {
   phone:           ["+6591234567", "91234568"],
   event_date:      ["2026-08-01", "2026-08-02"],
   source:          ["Paid Ads", "Organic"],
-  utm_campaign:    ["Cold_Broad", ""],
+  utm_campaign:    ["DF_SG_Preview_Sprint1_0526_02", ""],
   // attendance
   round_id:        ["0826-01", "0826-01"],
   minutes_watched: ["74", "12"],
   // sales
   product:         ["preview", "middle"],
-  amount:          ["297.00", "3000.00"],
+  amount:          ["297.00", "1197.00"],
   refund_amount:   ["", "0.00"],
   refund_date:     ["", ""],
 };
@@ -36,10 +36,10 @@ const EXAMPLE: Record<string, [string, string]> = {
 /** Fields whose meaning isn't obvious from the name alone. */
 const NOTE: Partial<Record<SourceKey, string[]>> = {
   ads: [
-    "ad_set is what bridges spend to people: it must match the leads file's utm_campaign exactly.",
+    "ad_set is what bridges spend to people: it must match the leads file's ad_set (GoHighLevel's utm_term) exactly.",
   ],
   leads: [
-    "utm_campaign must match an ad_set in the ads file, or the lead falls back to date-window attribution.",
+    "ad_set comes from GoHighLevel's utm_term and must match an ad_set in the ads file, or the lead falls back to date-window attribution. ad comes from utm_content.",
     "phone may be local or E.164 — both are normalised. Leave blank rather than writing 'n/a'.",
   ],
   attendance: [
