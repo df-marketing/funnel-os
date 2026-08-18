@@ -24,14 +24,9 @@ const TITLES: Record<string, [string, string]> = {
 };
 
 const NOT_WIRED_REASON: Record<string, string> = {
-  ads:         "The cut is ads_performance.ad, bridged from events.ad — which now comes in from GoHighLevel's utm_content. The people side is ready; this waits on a Meta export at ad level, since no ad names exist in ads_performance yet.",
-  lp:          "Deliberately parked: the landing-page dimension source is still an open decision and needs Anis. Guessing it would put a wrong number on screen.",
-  class:       "The cut is rounds.session_label, with every cost row blank — a class doesn't buy traffic.",
-  preview:     "The cut is rounds, filtered to product = 'preview'.",
-  middle:      "The cut is rounds, filtered to product = 'middle'.",
-  product:     "Northsea's product-page stage. Same engine, different journey.",
-  checkout:    "Northsea's checkout stage. This tab does not exist in Shely's account at all.",
-  analysis:    "The live round is rounds filtered to the open window, plus period-on-period comparison.",
+  lp:       "Deliberately parked. Every other stage tab reads the cut named in its journey config; this one's compare_dimension is null — no landing-page dimension has been decided and no column exists to hold one. Guessing it would put a number on screen that nobody chose. Needs Anis.",
+  product:  "Northsea Supply's product-page stage. Same engine, different journey — it appears when that account has rounds.",
+  checkout: "Northsea's checkout stage. This tab does not exist in Shely's account at all.",
 };
 
 export default async function Page({
@@ -252,6 +247,139 @@ export default async function Page({
                     that looks worst on cost per attendee. In the sheet
                     those sit in different column blocks on different tabs at different spend levels —
                     the gap only becomes visible once rounds are summed.
+                  </>
+                }
+              />
+            </>
+          ) : null}
+
+          {view === "ads" ? (
+            <>
+              <div className="pane-head">
+                <h1>{title}</h1>
+                <p>{blurb}</p>
+              </div>
+              <SpineTable
+                title="Creative comparison"
+                sub="one column per ad · ordered by the leads it produced"
+                baseline={data.baseline}
+                total={data.total}
+                cuts={data.byAd}
+                notice={
+                  <>
+                    <b>The people half is real and the money half is not, yet.</b> Which ad produced
+                    a lead comes in from GoHighLevel&rsquo;s{" "}
+                    <span className="num">utm_content</span>, so leads, attendance and revenue are
+                    per creative. Spend is not: the Meta export we have is at ad-set level and its ad
+                    column is empty on every row, so every dollar sits in{" "}
+                    <b>Unsplit spend</b> until an ad-level export lands. Cost per lead by creative is
+                    the one question this tab cannot answer today.
+                  </>
+                }
+                note={
+                  <>
+                    Columns headed by a long number are ads whose{" "}
+                    <span className="num">utm_content</span> carried an Ad ID instead of a name,
+                    because a second tracking template writes{" "}
+                    <span className="num">{"{{ad.id}}"}</span>. They are kept as they arrived rather
+                    than merged away — an ID is a better join key than a name, and this is where they
+                    resolve when ad-level spend arrives.
+                  </>
+                }
+              />
+            </>
+          ) : null}
+
+          {view === "class" ? (
+            <>
+              <div className="pane-head">
+                <h1>{title}</h1>
+                <p>{blurb}</p>
+              </div>
+              <SpineTable
+                title="Class comparison"
+                sub="rounds grouped by session label · Class A against Class B"
+                baseline={data.baseline}
+                total={data.total}
+                cuts={data.bySession}
+                notice={
+                  <>
+                    <b>Spend is kept here, not blanked.</b> A class format doesn&rsquo;t buy traffic,
+                    but the rounds that ran it did — and cost per attendee by class is the whole
+                    reason to compare them. The old sheet protected the class format and could not
+                    see what it cost.
+                  </>
+                }
+                note={
+                  <>
+                    Both of May&rsquo;s rounds ran the same class, so this reads one column today and
+                    splits the moment a round with a different{" "}
+                    <span className="num">session_label</span> is imported. One column is the true
+                    answer, not a broken one.
+                  </>
+                }
+              />
+            </>
+          ) : null}
+
+          {view === "preview" || view === "middle" ? (
+            <>
+              <div className="pane-head">
+                <h1>{title}</h1>
+                <p>{blurb}</p>
+              </div>
+              <SpineTable
+                title={view === "preview" ? "Preview offer by round" : "Middle offer by round"}
+                sub="the same rounds as By round, with one offer's numbers filled in"
+                baseline={data.baseline}
+                total={data.total}
+                cuts={data.byOffer}
+                notice={
+                  <>
+                    <b>The other offer&rsquo;s rows are blank, not zero.</b> A round that sold no{" "}
+                    {view === "preview" ? "preview" : "middle"} offer and a round whose{" "}
+                    {view === "preview" ? "middle" : "preview"} numbers simply aren&rsquo;t this
+                    tab&rsquo;s subject are different things, and only one of them is a measurement.
+                    Spend, leads and attendance are the round&rsquo;s own and are shown in full.
+                  </>
+                }
+                note={
+                  <>
+                    Both offer tabs read one view told apart by a product filter, so a metric
+                    can&rsquo;t mean one thing here and another on the other tab. The numbers are the
+                    same rows as <b>By round</b>, filtered rather than recomputed.
+                  </>
+                }
+              />
+            </>
+          ) : null}
+
+          {view === "analysis" ? (
+            <>
+              <div className="pane-head">
+                <h1>{title}</h1>
+                <p>{blurb}</p>
+              </div>
+              <SpineTable
+                title="This round against the last"
+                sub="the newest round that has started, beside the one before it"
+                baseline={data.baseline}
+                total={data.total}
+                cuts={data.thisRound}
+                notice={
+                  <>
+                    <b>&ldquo;This round&rdquo; is the newest round that has started</b> — the live
+                    one while a round is running, and the one just finished otherwise. A tab that
+                    empties itself the day a round ends is a tab nobody checks. Rounds that
+                    haven&rsquo;t started are left out: a scheduled round has no figures, and showing
+                    it would answer &ldquo;how is it going&rdquo; with a blank.
+                  </>
+                }
+                note={
+                  <>
+                    Two columns, because a single number with nothing beside it isn&rsquo;t analysis.
+                    Reading them against <b>Baseline</b> on the left gives the same comparison every
+                    other tab uses.
                   </>
                 }
               />

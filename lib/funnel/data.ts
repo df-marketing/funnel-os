@@ -84,6 +84,10 @@ export type Dashboard = {
   baseline: Cut | null;
   byMonth: Cut[];
   byRound: Cut[];
+  byAd: Cut[];
+  bySession: Cut[];
+  byOffer: Cut[];
+  thisRound: Cut[];
   byAdset: Cut[];
   bySource: Cut[];
   byRoundSource: Cut[];
@@ -98,7 +102,9 @@ export type Dashboard = {
 
 const EMPTY: Omit<Dashboard, "error" | "view"> = {
   clients: [], stages: [], strip: [], total: null, baseline: null,
-  byMonth: [], byRound: [], byAdset: [], bySource: [], byRoundSource: [], imports: [], unmatched: null,
+  byMonth: [], byRound: [], byAdset: [], bySource: [], byRoundSource: [],
+  byAd: [], bySession: [], byOffer: [], thisRound: [],
+  imports: [], unmatched: null,
   unmatchedReasons: [], unmatchedRows: [],
 };
 
@@ -108,6 +114,10 @@ const NEEDS_ROUNDS = new Set(["round"]);
 const NEEDS_ADSETS = new Set(["targeting"]);
 const NEEDS_SOURCES = new Set(["source"]);
 const NEEDS_ROUND_SOURCE = new Set(["roundsource"]);
+const NEEDS_ADS = new Set(["ads"]);
+const NEEDS_SESSION = new Set(["class"]);
+const NEEDS_OFFER = new Set(["preview", "middle"]);
+const NEEDS_THIS_ROUND = new Set(["analysis"]);
 const NEEDS_UNMATCHED_DETAIL = new Set(["unmatched"]);
 
 /** The cut a tab reads, or null if it reads none. */
@@ -117,9 +127,18 @@ const cutFor = (view: string): Cut2 | null =>
   : NEEDS_ADSETS.has(view) ? "adset"
   : NEEDS_SOURCES.has(view) ? "source"
   : NEEDS_ROUND_SOURCE.has(view) ? "roundsource"
+  : NEEDS_ADS.has(view) ? "ad"
+  : NEEDS_SESSION.has(view) ? "session"
+  // the two offer tabs share one view, told apart by a product filter, so a
+  // metric cannot mean one thing on Preview and another on Middle
+  : view === "preview" ? "preview"
+  : view === "middle" ? "middle"
+  : NEEDS_THIS_ROUND.has(view) ? "thisround"
   : null;
 
-type Cut2 = "month" | "round" | "adset" | "source" | "roundsource";
+type Cut2 =
+  | "month" | "round" | "adset" | "source" | "roundsource"
+  | "ad" | "session" | "preview" | "middle" | "thisround";
 
 /** Tabs that belong to a journey stage, so they only exist for some clients. */
 const STAGE_TABS = ["targeting", "ads", "lp", "class", "preview", "middle", "product", "checkout"];
@@ -231,6 +250,22 @@ const loadMetrics = unstable_cache(
         // audiences by spend, biggest bet first — but ordered on `ord`, not on
         // spend itself. When no spend is attributable to an audience the sort
         // key ties at 0 for every column and they shuffle between page loads.
+        : cut === "ad"
+        ? db.from("v_metrics_by_ad")
+            .select("cut_key, cut_label, cut_sub, m, ord")
+            .eq("client_id", id).order("ord")
+        : cut === "session"
+        ? db.from("v_metrics_by_session")
+            .select("cut_key, cut_label, cut_sub, m, ord")
+            .eq("client_id", id).order("ord")
+        : cut === "preview" || cut === "middle"
+        ? db.from("v_metrics_by_offer")
+            .select("cut_key, cut_label, cut_sub, m, start_date")
+            .eq("client_id", id).eq("product", cut).order("start_date")
+        : cut === "thisround"
+        ? db.from("v_metrics_this_round")
+            .select("cut_key, cut_label, cut_sub, m, ord")
+            .eq("client_id", id).order("ord")
         : db.from("v_metrics_by_adset")
             .select("cut_key, cut_label, cut_sub, m, ord")
             .eq("client_id", id).order("ord");
@@ -317,6 +352,10 @@ export async function getDashboard(clientId?: string, requested = "round"): Prom
     total: metrics?.total ?? null,
     baseline: metrics?.baseline ?? null,
     byMonth: NEEDS_MONTHS.has(view) ? (metrics?.columns ?? []) : [],
+    byAd: NEEDS_ADS.has(view) ? (metrics?.columns ?? []) : [],
+    bySession: NEEDS_SESSION.has(view) ? (metrics?.columns ?? []) : [],
+    byOffer: NEEDS_OFFER.has(view) ? (metrics?.columns ?? []) : [],
+    thisRound: NEEDS_THIS_ROUND.has(view) ? (metrics?.columns ?? []) : [],
     byRound: NEEDS_ROUNDS.has(view) ? (metrics?.columns ?? []) : [],
     byAdset: NEEDS_ADSETS.has(view) ? (metrics?.columns ?? []) : [],
     bySource: NEEDS_SOURCES.has(view) ? (metrics?.columns ?? []) : [],
