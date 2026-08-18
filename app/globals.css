@@ -149,6 +149,15 @@ table.spine tr.grp-head th.span { text-align: center; color: var(--ink);
 table.spine thead tr:nth-child(2) th { top: 30px; }
 table.spine .gsep { border-left: 1px solid var(--line); }
 
+/* The slack column. `width: 100%` on one cell of a table that is itself 100%
+   wide makes every OTHER column collapse to its content — so a nine-column
+   view is unchanged, and a one-column view stops spreading that column across
+   the whole panel. It carries no border, so the table still ends in a clean
+   edge rather than an empty cell. */
+table.spine th.filler, table.spine td.filler {
+  width: 100%; padding: 0; border-bottom: 1px solid var(--line-soft); }
+table.spine thead th.filler { border-bottom: 1px solid var(--line); }
+
 col.base { background: var(--accent-wash); }
 col.total { background: var(--surface-2); }
 table.spine td.base { color: var(--ink-3); }
