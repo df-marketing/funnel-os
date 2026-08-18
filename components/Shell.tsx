@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { fmtCount, fmtDay } from "@/lib/funnel/spine";
+import { fmtCount } from "@/lib/funnel/spine";
 import { RefreshButton } from "./RefreshButton";
 import { SOURCES, type SourceKey } from "@/lib/import/sources";
 import type { Client, Stage, StripCard, ImportStatus } from "@/lib/funnel/data";
@@ -77,18 +77,10 @@ export function TopBar({
               {SOURCES[k].label} never imported
             </span>
           ))}
-          {/*
-            Stale used to mean "imported a while ago", so the pill counted days
-            since. It now means "this source stops before the rounds do", and
-            days-since is the wrong number for that — a file uploaded a minute
-            ago that only covers half the rounds read "Sales 0d stale". Say
-            where the coverage runs out instead, which is the actionable half.
-          */}
           {stale.map((s) => (
             <span className="meta fresh" key={s.source}>
               <span className="dot old" />
-              {s.source[0].toUpperCase() + s.source.slice(1)}{" "}
-              {fmtDay(s.coverage_end) ? `stops ${fmtDay(s.coverage_end)}` : "has no dates"}
+              {s.source[0].toUpperCase() + s.source.slice(1)} {s.days_since}d stale
             </span>
           ))}
         </>

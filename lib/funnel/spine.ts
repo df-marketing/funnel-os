@@ -81,21 +81,6 @@ export function fmt(value: string | number | null | undefined, f: Fmt): string |
   }
 }
 
-/**
- * A coverage date, short: "2026-05-20" -> "20 May".
- *
- * Rendered on the server, so the zone is named rather than inherited — a bare
- * date string parses as UTC midnight, and formatting that in a zone behind UTC
- * would show the day before.
- */
-export function fmtDay(iso: string | null | undefined): string | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime())
-    ? null
-    : d.toLocaleDateString("en-SG", { day: "numeric", month: "short", timeZone: "Asia/Singapore" });
-}
-
 /** Compact form for the journey strip cards. */
 export function fmtCount(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return "—";

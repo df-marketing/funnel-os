@@ -2,7 +2,6 @@ import type { ImportStatus, UnmatchedSummary, UnmatchedReason, UnmatchedRow } fr
 import { ImportUploader } from "./ImportUploader";
 import { UnmatchedActions } from "./UnmatchedActions";
 import { SOURCES, type SourceKey } from "@/lib/import/sources";
-import { fmtDay } from "@/lib/funnel/spine";
 
 const ORDER: SourceKey[] = ["ads", "leads", "attendance", "sales"];
 
@@ -159,18 +158,10 @@ export function ImportPane({ imports, client }: { imports: ImportStatus[]; clien
           <span className="ico">!</span>
           <div>
             <b>
-              {stale
-                .map((s) =>
-                  s.coverage_end
-                    ? `${s.source} covers only to ${fmtDay(s.coverage_end)}`
-                    : `${s.source} has no coverage dates`,
-                )
-                .join(", ")}
-              , and there are rounds past that.
+              {stale.map((s) => `${s.source} is ${s.days_since} days stale`).join(", ")}.
             </b>{" "}
-            Every figure downstream of that file is understated for those rounds — not wrong, just
-            short, and short by an amount nobody can see. Views built on it carry the same flag as
-            the header.
+            Until it lands, this round&rsquo;s figures downstream of it are understated. Views built on
+            it carry the same flag as the header.
           </div>
         </div>
       ) : null}
