@@ -36,6 +36,7 @@
 - The unmatched queue was made two-way, and Accept no longer loses money (fixing a bug where accepting an unmatched item would discard funds).
 - The test pack size is measured directly rather than predicted, avoiding prediction inaccuracies.
 - the commit message 'Say which file was needed first, instead of letting the counts imply it' is a prose/readability improvement, not a code change that adds durable technical facts
+- A discarded import is not treated as an import, and a single column does not represent the whole table — likely a bug fix around partial/stale data.
 
 ## Notes
 
@@ -54,3 +55,4 @@
 - Phone is now treated as an identity field in sales and attendance, not just in membership — plus a fixed re-upload.
 - audience and ad are read from the tags GoHighLevel actually writes, not from arbitrary/assumed tags
 - Unsplit spend has no CTR because it is not an audience — CTR is only meaningful for audience-tagged lines.
+- No objective is set for this project — milestones may lack a guiding north star.
