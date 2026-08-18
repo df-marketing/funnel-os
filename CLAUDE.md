@@ -56,3 +56,4 @@
 - audience and ad are read from the tags GoHighLevel actually writes, not from arbitrary/assumed tags
 - Unsplit spend has no CTR because it is not an audience — CTR is only meaningful for audience-tagged lines.
 - No objective is set for this project — milestones may lack a guiding north star.
+- coverage note says 'Say where the coverage runs out, not how long ago the file landed' — a commit message convention or lint rule.
