@@ -94,6 +94,30 @@ export function closeRoundFor(
   return before.length ? before[0].round_id : null;
 }
 
+/**
+ * The round named inside a campaign name, if one is.
+ *
+ * A period-level Meta export dates every row to the START of the reporting
+ * window — "1 May 2026" for a 1-31 May report — and that date falls inside no
+ * round, so the date-window rule finds nothing and the whole file is refused.
+ * The campaign name carries the answer: DF_SG_Preview_Sprint1_0526_02 is round
+ * 0526-02, and DF_SG_Preview_Sprint1_0526_03_AI is 0526-03.
+ *
+ * Matched against rounds that EXIST rather than parsed out of the string, so
+ * this can only ever pick a real round — a campaign naming a round nobody has
+ * created still resolves to nothing, which is the correct answer. Underscores
+ * and hyphens are treated alike because Meta's naming convention uses one and
+ * round ids use the other.
+ *
+ * Longest id first, so 0526-031 can never be matched by 0526-03.
+ */
+export function roundFromCampaign(campaign: string | null, rounds: Round[]): Round | null {
+  if (!campaign) return null;
+  const hay = campaign.toLowerCase().replace(/_/g, "-");
+  const candidates = [...rounds].sort((a, b) => b.round_id.length - a.round_id.length);
+  return candidates.find((r) => hay.includes(r.round_id.toLowerCase().replace(/_/g, "-"))) ?? null;
+}
+
 /** Which round's class this attendance row belongs to, given a session label or id. */
 export function resolveRoundRef(ref: string, rounds: Round[]): string | null {
   const s = ref.trim();

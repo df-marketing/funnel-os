@@ -44,6 +44,17 @@ export const SOURCES: Record<SourceKey, SourceSpec> = {
     kind: "Meta export · CSV",
     fields: [
       f("date", true, "day", "reporting starts", "reporting_start"),
+      /**
+       * The far end of a period-level export's window.
+       *
+       * A report with no day breakdown carries one row per ad set for the whole
+       * period, and "Reporting starts" is then the START of that period, not the
+       * day the spend happened. Without this the batch records a file covering
+       * 1-31 May as covering 1 May only, and the staleness flag — which compares
+       * coverage against the rounds — fires immediately on a file that is
+       * complete.
+       */
+      f("date_end", false, "reporting ends", "reporting_end", "date stop", "day stop"),
       f("campaign", false, "campaign name"),
       f("ad_set", false, "ad set name", "adset", "adset name", "ad set"),
       f("ad", false, "ad name"),

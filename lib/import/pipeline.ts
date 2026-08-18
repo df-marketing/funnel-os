@@ -3,7 +3,7 @@ import { fetchAll } from "@/lib/supabase/admin";
 import { parseCsv, toNumber, toDate, toTimestamp, localDay, type Row } from "./csv";
 import { SOURCES, mapColumns, type SourceKey } from "./sources";
 import { buildIndex, matchRow, normEmail, normPhone, type KnownContact, type ParkReason } from "./identity";
-import { attributeLead, closeRoundFor, resolveRoundRef, resolveProduct, type Round, type AdSetRun } from "./attribute";
+import { attributeLead, closeRoundFor, resolveRoundRef, resolveProduct, roundFromCampaign, type Round, type AdSetRun } from "./attribute";
 
 /**
  * The pass, as the workflow doc specifies it:
@@ -226,17 +226,32 @@ export async function planImport(
       const date = toDate(val(r, "date"));
       if (!date) { unusable++; continue; }
       track(date);
+      // a period-level export's window ends later than its start date, and the
+      // batch's coverage should say so
+      track(toDate(val(r, "date_end")));
 
-      // the round is the one whose window contains the spend date
-      const round = rounds.find((x) => dayOf(x.start_date)! <= date && date <= dayOf(x.end_date)!);
-      if (!round) {
-        warnings.push(`No round covers ${date} — ${rows.length > 1 ? "some ads rows" : "that row"} would have no round.`);
-        unusable++;
-        continue;
-      }
       const adSet = val(r, "ad_set");
       const ad = val(r, "ad");
       const campaign = val(r, "campaign");
+
+      /**
+       * The round is the one whose window contains the spend date — unless the
+       * date belongs to no round, which is what a period-level export looks
+       * like: every row dated to the first day of the reporting window. The
+       * campaign name then carries the round, and using it is not a fallback so
+       * much as the better key, since it is what the ad account itself records.
+       */
+      const round =
+        rounds.find((x) => dayOf(x.start_date)! <= date && date <= dayOf(x.end_date)!) ??
+        roundFromCampaign(campaign, rounds);
+      if (!round) {
+        warnings.push(
+          `No round covers ${date}${campaign ? ` and no round is named in "${campaign}"` : ""} — ` +
+          `${rows.length > 1 ? "some ads rows" : "that row"} would have no round.`,
+        );
+        unusable++;
+        continue;
+      }
       const key = adsKey(round.round_id, date, campaign, adSet, ad);
       if (seen.has(key)) { plan.counts.duplicates++; continue; }
       seen.add(key);

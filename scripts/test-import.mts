@@ -19,7 +19,7 @@ import { parseCsv, writeCsv, toNumber, toDate, toTimestamp, localDay } from "../
 import { mapColumns, SOURCES } from "../lib/import/sources";
 import { buildTemplate } from "../lib/import/template";
 import { buildIndex, matchRow, normPhone, normEmail, stripPlus } from "../lib/import/identity";
-import { attributeLead, closeRoundFor, resolveProduct } from "../lib/import/attribute";
+import { attributeLead, closeRoundFor, resolveProduct, roundFromCampaign } from "../lib/import/attribute";
 import { planImport, ImportError } from "../lib/import/pipeline";
 
 let pass = 0, fail = 0;
@@ -797,6 +797,43 @@ console.log("\nPipeline — import order");
   });
   eq("in order: the lead attributes by ad set", leadsOk.attribution.utm, 1);
   ok("in order: no warning", leadsOk.prerequisite === null);
+}
+
+// ── A period-level Meta export dates every row to the window's first day ───
+// 1-31 May falls inside no round, so the date rule finds nothing and the whole
+// file used to be refused. The campaign name carries the round.
+console.log("\nAds — period-level export");
+{
+  eq("campaign names the round", roundFromCampaign("DF_SG_Preview_Sprint1_0526_02", ROUNDS)?.round_id, "0526-02");
+  eq("underscores match hyphens", roundFromCampaign("DF_SG_Preview_Sprint1_0526_03_AI", ROUNDS)?.round_id, "0526-03");
+  ok("a campaign naming no round resolves to nothing", roundFromCampaign("New Leads campaign", ROUNDS) === null);
+  ok("no campaign, no round", roundFromCampaign(null, ROUNDS) === null);
+  // longest id first, so a shorter id can never swallow a longer one
+  const both = [...ROUNDS, { round_id: "0526-0", client_id: "shely", start_date: "2026-05-01", end_date: "2026-05-02", session_date: null }];
+  eq("longest round id wins", roundFromCampaign("camp_0526_02", both)?.round_id, "0526-02");
+
+  const db = fakeDb({ rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [] });
+  const plan = await planImport(db, {
+    source: "ads", clientId: "shely", fileName: "ads.csv",
+    text: [
+      "Reporting starts,Reporting ends,Campaign name,Ad set name,Amount spent (SGD),Impressions,Reach",
+      "2026-05-01,2026-05-31,DF_SG_Preview_Sprint1_0526_02,Cold_Broad,259.95,5825,4083",
+      "2026-05-01,2026-05-31,DF_SG_Preview_Sprint1_0526_03_AI,Cold_Broad,44.83,1044,969",
+    ].join("\n"),
+  });
+  eq("both rows land", plan.ops.ads.length, 2);
+  eq("first row routed by campaign", (plan.ops.ads[0] as any).round_id, "0526-02");
+  eq("the _AI campaign routes to the same round", (plan.ops.ads[1] as any).round_id, "0526-03");
+  // coverage spans the reporting window, not just its first day
+  eq("coverage starts at the window start", plan.coverage.start, "2026-05-01");
+  eq("coverage ends at the window end", plan.coverage.end, "2026-05-31");
+
+  // a date that DOES fall in a round still wins — the campaign is the fallback
+  const dated = await planImport(fakeDb({ rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [] }), {
+    source: "ads", clientId: "shely", fileName: "ads.csv",
+    text: "date,campaign,ad_set,spend\n2026-05-14,DF_SG_Preview_Sprint1_0526_03,Cold_Broad,10",
+  });
+  eq("a date inside a round beats the campaign name", (dated.ops.ads[0] as any).round_id, "0526-02");
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
