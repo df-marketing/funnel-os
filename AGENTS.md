@@ -34,6 +34,7 @@
 - timestamp was added to an example (not production logic), fixing a self-referential doc inconsistency
 - five import bugs were discovered and fixed by testing against real exports, confirming the value of dry-run/real-export testing.
 - The unmatched queue was made two-way, and Accept no longer loses money (fixing a bug where accepting an unmatched item would discard funds).
+- The test pack size is measured directly rather than predicted, avoiding prediction inaccuracies.
 
 ## Notes
 
