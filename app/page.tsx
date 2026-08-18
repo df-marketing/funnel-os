@@ -274,6 +274,14 @@ export default async function Page({
                     column is empty on every row, so every dollar sits in{" "}
                     <b>Unsplit spend</b> until an ad-level export lands. Cost per lead by creative is
                     the one question this tab cannot answer today.
+                    <br />
+                    <br />
+                    Attendance here comes to <b>37</b>, not the 40 on <b>By round</b>. Three of those
+                    attendees belong to two people who are known by email but have no lead — their
+                    opt-in row had no date and parked, so nothing records an ad for them. They
+                    can&rsquo;t be credited to a creative that may not exist, so they appear on every
+                    tab cut by round and on none cut by ad. <b>Targeted views</b> is short by the
+                    same three, for the same reason.
                   </>
                 }
                 note={
