@@ -11,6 +11,7 @@ type Summary = {
   attribution: { utm: number; dateWindow: number; none: number };
   diff: { newRows: number; changedRows: number; restatements: string[] };
   warnings: string[];
+  prerequisite: string | null;
   willWrite: { contacts: number; events: number; ads: number; unmatched: number; refunds: number };
 };
 
@@ -178,6 +179,17 @@ function Diff({ plan }: { plan: Summary }) {
           {plan.rowCount} rows · {plan.coverage.start ?? "—"} → {plan.coverage.end ?? "—"}
         </span>
       </div>
+
+      {/* Above the counts, not below them: the counts are the symptom and this
+          is the cause, and reading them in that order is the whole point. */}
+      {plan.prerequisite && (
+        <div className="notice" style={{ margin: "0 0 8px" }}>
+          <span className="ico">!</span>
+          <div>
+            <b>Out of order.</b> {plan.prerequisite}
+          </div>
+        </div>
+      )}
 
       <dl>
         <dt>Will write</dt>

@@ -738,5 +738,66 @@ console.log("\nTemplates");
   eq("a hash inside a row is kept", withHash.rows[0]["note"], "#1 priority");
 }
 
+// ── Dropping all four files before committing any of them ──────────────────
+// The bug this catches is not in the arithmetic — every preview below is
+// correct. It is that all three previews are computed against an EMPTY
+// database, because a preview reads what has been committed and not what is
+// sitting on the next dropzone. Committing in that state attributes every lead
+// by date window and parks every attendee and every buyer.
+console.log("\nPipeline — import order");
+{
+  const empty = () => fakeDb({
+    rounds: ROUNDS, contacts: [], events: [], ads_performance: [], unmatched_rows: [], v_column_map: [],
+  });
+
+  const leads = await planImport(empty(), {
+    source: "leads", clientId: "shely", fileName: "2-leads.csv",
+    text: "Email,Phone,Created,utm_term\na@x.sg,,2026-05-14,Cold_Broad\nb@x.sg,,2026-05-15,Cold_Broad\n",
+  });
+  eq("no ads committed: nothing attributes by ad set", leads.attribution.utm, 0);
+  eq("no ads committed: everything falls to the date window", leads.attribution.dateWindow, 2);
+  ok("no ads committed: leads name the missing file", !!leads.prerequisite?.includes("ads file"));
+
+  const att = await planImport(empty(), {
+    source: "attendance", clientId: "shely", fileName: "3-attendance.csv",
+    text: "round_id,email,event_date,minutes_watched\n0526-02,a@x.sg,2026-05-19 20:04,74\n",
+  });
+  eq("no leads committed: every attendee parks", att.counts.parked, 1);
+  eq("no leads committed: nothing is written", att.ops.events.length, 0);
+  ok("no leads committed: attendance names the missing file", !!att.prerequisite?.includes("leads file"));
+
+  const sale = await planImport(empty(), {
+    source: "sales", clientId: "shely", fileName: "4-sales.csv",
+    text: "event_date,email,product,amount\n2026-05-20,a@x.sg,preview,297\n",
+  });
+  eq("no leads committed: every buyer parks", sale.counts.parked, 1);
+  ok("no leads committed: sales names the missing file", !!sale.prerequisite?.includes("leads file"));
+
+  // ...and once the file it depends on IS in, the warning goes away rather
+  // than nagging forever.
+  const withPeople = fakeDb({
+    rounds: ROUNDS,
+    contacts: [{ contact_id: "c1", email: "a@x.sg", phone: null, client_id: "shely" }],
+    events: [{ event_id: "e1", contact_id: "c1", round_id: "0526-02", event_type: "lead",
+               event_date: "2026-05-14", lead_round_id: "0526-02", product: null, amount: null,
+               refund_amount: null, source: "Paid Ads" }],
+    ads_performance: [{ ad_set: "Cold_Broad", round_id: "0526-02", date: "2026-05-14" }],
+    unmatched_rows: [], v_column_map: [],
+  });
+  const ok2 = await planImport(withPeople, {
+    source: "attendance", clientId: "shely", fileName: "3-attendance.csv",
+    text: "round_id,email,event_date,minutes_watched\n0526-02,a@x.sg,2026-05-19 20:04,74\n",
+  });
+  eq("in order: the attendee is counted", ok2.ops.events.length, 1);
+  ok("in order: no warning", ok2.prerequisite === null);
+
+  const leadsOk = await planImport(withPeople, {
+    source: "leads", clientId: "shely", fileName: "2-leads.csv",
+    text: "Email,Phone,Created,utm_term\nc@x.sg,,2026-05-14,Cold_Broad\n",
+  });
+  eq("in order: the lead attributes by ad set", leadsOk.attribution.utm, 1);
+  ok("in order: no warning", leadsOk.prerequisite === null);
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

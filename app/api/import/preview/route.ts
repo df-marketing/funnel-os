@@ -47,7 +47,7 @@ export async function POST(request: Request) {
       staged_payload: plan as unknown as Record<string, unknown>,
       diff_summary: {
         counts: plan.counts, attribution: plan.attribution,
-        diff: plan.diff, warnings: plan.warnings,
+        diff: plan.diff, warnings: plan.warnings, prerequisite: plan.prerequisite,
       },
       expected_cadence: "1 day",
     }).select("batch_id").single();
@@ -70,6 +70,7 @@ function summarise(p: Plan) {
     source: p.source, fileName: p.fileName, rowCount: p.rowCount,
     coverage: p.coverage, columnMap: p.columnMap, unusedColumns: p.unusedColumns,
     counts: p.counts, attribution: p.attribution, diff: p.diff, warnings: p.warnings,
+    prerequisite: p.prerequisite,
     willWrite: {
       contacts: p.ops.contacts.length,
       events: p.ops.events.length,

@@ -37,6 +37,24 @@ export type Plan = {
   attribution: { utm: number; dateWindow: number; none: number };
   diff: { newRows: number; changedRows: number; restatements: string[] };
   warnings: string[];
+  /**
+   * The file this one needed committed first, if it hasn't been.
+   *
+   * A preview is computed against what is IN the database, not against the
+   * other files sitting on the same screen. Drop all four at once on an empty
+   * database and every preview is honest and every one is wrong: leads have no
+   * ad sets to match, so all of them fall back to date-window attribution;
+   * attendance and sales have no people to attach to, so every row parks.
+   *
+   * The counts already say so — "0 by ad set", "169 parked" — but they read as
+   * a fact about the file rather than about the order it was dropped in, and
+   * the Commit button sits there either way. This names the cause.
+   *
+   * A warning rather than a refusal: importing attendance for people who never
+   * came through a form is a real thing to want, and re-importing after the
+   * missing file lands supersedes the parked rows rather than duplicating them.
+   */
+  prerequisite: string | null;
   ops: {
     contacts: Array<{ contact_id: string; email: string | null; phone: string | null; client_id: string }>;
     events: Array<Record<string, unknown>>;
@@ -174,6 +192,7 @@ export async function planImport(
     attribution: { utm: 0, dateWindow: 0, none: 0 },
     diff: { newRows: 0, changedRows: 0, restatements: [] },
     warnings,
+    prerequisite: null,
     ops: { contacts: [], events: [], ads: [], unmatched: [], refundUpdates: [], supersededParked: [] },
   };
 
@@ -261,6 +280,26 @@ export async function planImport(
 
   const adRuns = await fetchAll<AdSetRun>(db, "ads_performance", "ad_set, round_id, date",
     (q) => q.in("round_id", roundIds).not("ad_set", "is", null));
+
+  // ── Was the file this one depends on actually committed? ─────────────────
+  // Skipped for the unmatched-queue replay, which imports one already-known
+  // person and legitimately has no interest in what else is in the database.
+  if (!asContactId) {
+    if (source === "leads" && !adRuns.length) {
+      plan.prerequisite =
+        "No ads have been committed yet, so there are no ad sets to match a lead against. " +
+        "Every row here will be attributed by date window — the round whose dates happen to " +
+        "contain the opt-in — which is a guess, and Targeted views will be empty. " +
+        "Commit the ads file first, then drop this one again.";
+    } else if ((source === "attendance" || source === "sales") && !contacts.length) {
+      plan.prerequisite =
+        "No people exist yet. " +
+        (source === "attendance" ? "An attendee" : "A buyer") +
+        " is attached to a person, and a person only becomes known when their lead row lands — " +
+        "so every row here will park instead of being counted. " +
+        "Commit the leads file first, then drop this one again.";
+    }
+  }
 
   const attendancesByContact = new Map<string, Array<{ round_id: string | null; event_date: string }>>();
   const leadRoundByContact = new Map<string, string>();
