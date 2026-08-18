@@ -37,6 +37,7 @@
 - The test pack size is measured directly rather than predicted, avoiding prediction inaccuracies.
 - the commit message 'Say which file was needed first, instead of letting the counts imply it' is a prose/readability improvement, not a code change that adds durable technical facts
 - A discarded import is not treated as an import, and a single column does not represent the whole table — likely a bug fix around partial/stale data.
+- Ads tab counts 37 attendees while By round tab counts 40 — likely due to different deduplication or filtering rules between the two views.
 
 ## Notes
 
