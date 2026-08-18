@@ -53,3 +53,4 @@
 - Columns that claim to be pinned are now actually pinned in the UI.
 - Phone is now treated as an identity field in sales and attendance, not just in membership — plus a fixed re-upload.
 - audience and ad are read from the tags GoHighLevel actually writes, not from arbitrary/assumed tags
+- Unsplit spend has no CTR because it is not an audience — CTR is only meaningful for audience-tagged lines.
