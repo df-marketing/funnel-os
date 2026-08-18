@@ -38,6 +38,8 @@
 - the commit message 'Say which file was needed first, instead of letting the counts imply it' is a prose/readability improvement, not a code change that adds durable technical facts
 - A discarded import is not treated as an import, and a single column does not represent the whole table — likely a bug fix around partial/stale data.
 - Ads tab counts 37 attendees while By round tab counts 40 — likely due to different deduplication or filtering rules between the two views.
+- audience and ad are read from tags GoHighLevel actually writes, not from assumed tags
+- the staleness pill was put back the way it read, with every number source documented
 
 ## Notes
 
@@ -58,3 +60,7 @@
 - Unsplit spend has no CTR because it is not an audience — CTR is only meaningful for audience-tagged lines.
 - No objective is set for this project — milestones may lack a guiding north star.
 - coverage note says 'Say where the coverage runs out, not how long ago the file landed' — a commit message convention or lint rule.
+- phone is an identity field in sales and attendance, not just membership
+- bucket instants by local day, drop stale plans on commit
+- the middle pricing offer was removed from the project
+- absent (null/missing) is distinct from zero for sales and un-named-audience spend
