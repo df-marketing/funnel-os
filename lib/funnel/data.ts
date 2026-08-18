@@ -82,6 +82,7 @@ export type Dashboard = {
   strip: StripCard[];
   total: Cut | null;
   baseline: Cut | null;
+  byMonth: Cut[];
   byRound: Cut[];
   byAdset: Cut[];
   bySource: Cut[];
@@ -97,11 +98,12 @@ export type Dashboard = {
 
 const EMPTY: Omit<Dashboard, "error" | "view"> = {
   clients: [], stages: [], strip: [], total: null, baseline: null,
-  byRound: [], byAdset: [], bySource: [], byRoundSource: [], imports: [], unmatched: null,
+  byMonth: [], byRound: [], byAdset: [], bySource: [], byRoundSource: [], imports: [], unmatched: null,
   unmatchedReasons: [], unmatchedRows: [],
 };
 
 /** Which tabs actually read a metrics table. Everything else is chrome-only. */
+const NEEDS_MONTHS = new Set(["month"]);
 const NEEDS_ROUNDS = new Set(["round"]);
 const NEEDS_ADSETS = new Set(["targeting"]);
 const NEEDS_SOURCES = new Set(["source"]);
@@ -110,13 +112,14 @@ const NEEDS_UNMATCHED_DETAIL = new Set(["unmatched"]);
 
 /** The cut a tab reads, or null if it reads none. */
 const cutFor = (view: string): Cut2 | null =>
-  NEEDS_ROUNDS.has(view) ? "round"
+  NEEDS_MONTHS.has(view) ? "month"
+  : NEEDS_ROUNDS.has(view) ? "round"
   : NEEDS_ADSETS.has(view) ? "adset"
   : NEEDS_SOURCES.has(view) ? "source"
   : NEEDS_ROUND_SOURCE.has(view) ? "roundsource"
   : null;
 
-type Cut2 = "round" | "adset" | "source" | "roundsource";
+type Cut2 = "month" | "round" | "adset" | "source" | "roundsource";
 
 /** Tabs that belong to a journey stage, so they only exist for some clients. */
 const STAGE_TABS = ["targeting", "ads", "lp", "class", "preview", "middle", "product", "checkout"];
@@ -207,7 +210,13 @@ const loadMetrics = unstable_cache(
     // Rounds read left-to-right in time; audiences by spend, biggest bet first;
     // sources in a fixed order, so a column doesn't slide sideways as rows land.
     const cuts =
-      cut === "round"
+      // months read left-to-right in time, same as rounds — a month is rounds
+      // rolled up one level, not a different dimension.
+      cut === "month"
+        ? db.from("v_metrics_by_month")
+            .select("cut_key, cut_label, cut_sub, m, month_start")
+            .eq("client_id", id).order("month_start")
+        : cut === "round"
         ? db.from("v_metrics_by_round")
             .select("cut_key, cut_label, cut_sub, m, start_date")
             .eq("client_id", id).order("start_date")
@@ -307,6 +316,7 @@ export async function getDashboard(clientId?: string, requested = "round"): Prom
     unmatched: chrome.unmatched,
     total: metrics?.total ?? null,
     baseline: metrics?.baseline ?? null,
+    byMonth: NEEDS_MONTHS.has(view) ? (metrics?.columns ?? []) : [],
     byRound: NEEDS_ROUNDS.has(view) ? (metrics?.columns ?? []) : [],
     byAdset: NEEDS_ADSETS.has(view) ? (metrics?.columns ?? []) : [],
     bySource: NEEDS_SOURCES.has(view) ? (metrics?.columns ?? []) : [],

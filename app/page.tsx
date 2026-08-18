@@ -24,9 +24,6 @@ const TITLES: Record<string, [string, string]> = {
 };
 
 const NOT_WIRED_REASON: Record<string, string> = {
-  month:       "The cut is rounds.start_date grouped to a month. The view doesn't exist yet — it's the one unwired tab that needs SQL written, not just pointing at.",
-  source:      "The cut is events.source plus the derived Previous Paid Ads column.",
-  roundsource: "The cross-tab needs a two-level column header on the spine table.",
   ads:         "The cut is ads_performance.ad, bridged from events.ad — which now comes in from GoHighLevel's utm_content. The people side is ready; this waits on a Meta export at ad level, since no ad names exist in ads_performance yet.",
   lp:          "Deliberately parked: the landing-page dimension source is still an open decision and needs Anis. Guessing it would put a wrong number on screen.",
   class:       "The cut is rounds.session_label, with every cost row blank — a class doesn't buy traffic.",
@@ -94,6 +91,42 @@ export default async function Page({
             />
           ) : null}
 
+          {view === "month" ? (
+            <>
+              <div className="pane-head">
+                <h1>{title}</h1>
+                <p>{blurb}</p>
+              </div>
+              <SpineTable
+                title="Month comparison"
+                sub="one column per calendar month · rounds rolled up, not re-added"
+                baseline={data.baseline}
+                total={data.total}
+                cuts={data.byMonth}
+                notice={
+                  <>
+                    <b>A round belongs to the month it started in.</b> A round that straddles a month
+                    boundary lands whole in its opening month rather than being cut in two — splitting
+                    it would put the spend in one column and the class that spend paid for in the
+                    next, and every closing rate would then be measured against a denominator from a
+                    different month. Revenue still counts on the month of the round that produced the
+                    lead, exactly as it does on <b>By round</b>.
+                  </>
+                }
+                note={
+                  <>
+                    A month with a round but no data yet still gets a column, reading{" "}
+                    &ldquo;—&rdquo; the whole way down. <b>By round</b> shows those rounds, so this
+                    tab shows those months — hiding them would claim the months don&rsquo;t exist.
+                    Reach is summed across a month&rsquo;s rounds and so double-counts anyone reached
+                    in both; Meta only reports reach per query, and the same is true of every Total
+                    column in the app.
+                  </>
+                }
+              />
+            </>
+          ) : null}
+
           {view === "round" ? (
             <>
               <div className="pane-head">
@@ -108,18 +141,19 @@ export default async function Page({
                 cuts={data.byRound}
                 notice={
                   <>
-                    <b>0526-02 gets its revenue back.</b> A lead from that round skipped its own class,
-                    attended a later one and bought there. The sale carries both references — so
-                    0526-02&rsquo;s spend is credited via <span className="num">lead_round_id</span>, and
-                    the later class&rsquo;s closing rate still counts only people who attended it. Both
-                    true, both add to the same total.
+                    <b>A round keeps the revenue its own spend produced.</b> When a lead skips its own
+                    class, attends a later one and buys there, the sale carries both references — the
+                    spend is credited via <span className="num">lead_round_id</span>, and the later
+                    class&rsquo;s closing rate still counts only people who actually attended it. Both
+                    true, and they add to the same total exactly once.
                   </>
                 }
                 note={
                   <>
-                    May&rsquo;s two rounds returned <b>6.0</b> and <b>9.7</b> on roughly a tenth of
-                    today&rsquo;s spend. Whatever changed between May and July is the most valuable
-                    question on this screen — and it isn&rsquo;t visible at all in a month view.
+                    Adding a round adds a column, never a formula. Every rate is derived from the two
+                    numbers above it in its own column, so a round with no spend shows &ldquo;—&rdquo;
+                    for CPL rather than a zero nobody measured. Roll these columns up a level and you
+                    get <b>By month</b>, from the same rows.
                   </>
                 }
               />
@@ -213,7 +247,9 @@ export default async function Page({
                 }
                 note={
                   <>
-                    Two audiences at almost identical spend return very different money. In the sheet
+                    Audiences at almost identical spend can differ by more than 2× on cost per
+                    attendee — and the one that looks worst on cost per lead is often not the one
+                    that looks worst on cost per attendee. In the sheet
                     those sit in different column blocks on different tabs at different spend levels —
                     the gap only becomes visible once rounds are summed.
                   </>
