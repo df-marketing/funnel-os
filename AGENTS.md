@@ -35,6 +35,7 @@
 - five import bugs were discovered and fixed by testing against real exports, confirming the value of dry-run/real-export testing.
 - The unmatched queue was made two-way, and Accept no longer loses money (fixing a bug where accepting an unmatched item would discard funds).
 - The test pack size is measured directly rather than predicted, avoiding prediction inaccuracies.
+- the commit message 'Say which file was needed first, instead of letting the counts imply it' is a prose/readability improvement, not a code change that adds durable technical facts
 
 ## Notes
 
