@@ -20,6 +20,7 @@
 - Stripe integration/dependency was dropped from the project.
 - The middle pricing offer was removed (no longer displayed/priced).
 - Campaign is included in the ads dedupe key.
+- spend per creative is read per creative, and buckets with zero spend are no longer priced.
 
 ## Architecture
 
