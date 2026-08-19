@@ -29,6 +29,12 @@
 - App has a nav shell, journey strip, client switcher, and two wired tabs (Sprint 2).
 - A 'by source' tab was wired with a two-level column header structure.
 - the import pipeline's staleness check compares the bucket's local date (from commit) against the metric's observation date — not the wall clock
+- bucket instants by local day; stale plans are dropped on commit
+- ads UI changed from twelve columns to one column
+- dry-run stub supports .is() filter matching real pipeline
+- the unmatched queue is now two-way
+- ads dedupe key includes campaign, not just audience/ad
+- phone is treated as identity in sales and attendance (not just membership)
 
 ## Gotchas
 
@@ -48,6 +54,7 @@
 - previously assumed staleness was measured from import date; corrected to compare the committed observation date vs. the metric's date dimension
 - batch re-import no longer queues the same import twice; it replaces the old queued import instead.
 - ROAS and CPA count only what the advertising directly produced, not what happened nearby — this is a critical interpretation constraint for ads metrics.
+- accepting unmatched items had a bug where it would discard funds — now fixed
 
 ## Notes
 
@@ -73,3 +80,4 @@
 - the middle pricing offer was removed from the project
 - absent (null/missing) is distinct from zero for sales and un-named-audience spend
 - no objective has been set for this project — milestones may lack a guiding north star.
+- five import bugs discovered and fixed by testing against real exports
