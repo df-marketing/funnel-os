@@ -871,6 +871,45 @@ console.log("\nAds — period-level export");
   eq("a date inside a round beats the campaign name", (dated.ops.ads[0] as any).round_id, "0526-02");
 }
 
+// ── channel is recorded, and the assumption is announced ────────────────────
+console.log("\nAds — channel");
+{
+  const base = "date,campaign,ad_set,spend\n2026-05-14,DF_SG_Preview_Sprint1_0526_03,Cold_Broad,10";
+  const db = () => fakeDb({ rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [] });
+
+  const silent = await planImport(db(), { source: "ads", clientId: "shely", fileName: "a.csv", text: base });
+  eq("a file with no platform column reads as meta", (silent.ops.ads[0] as any).channel, "meta");
+  eq("and says so rather than deciding quietly",
+     silent.warnings.some((w) => w.includes("No platform column")), true);
+
+  const named = await planImport(db(), {
+    source: "ads", clientId: "shely", fileName: "a.csv",
+    text: "date,campaign,ad_set,spend,platform\n2026-05-14,DF_SG_Preview_Sprint1_0526_03,Cold_Broad,10,Google Ads",
+  });
+  eq("a named platform wins", (named.ops.ads[0] as any).channel, "google");
+  eq("and no assumption is announced",
+     named.warnings.some((w) => w.includes("No platform column")), false);
+
+  for (const [written, expected] of [["Facebook", "meta"], ["TikTok Ads", "tiktok"], ["Snapchat", "other"]]) {
+    const p = await planImport(db(), {
+      source: "ads", clientId: "shely", fileName: "a.csv",
+      text: `date,campaign,ad_set,spend,channel\n2026-05-14,DF_SG_Preview_Sprint1_0526_03,Cold_Broad,10,${written}`,
+    });
+    eq(`"${written}" is recorded as ${expected}`, (p.ops.ads[0] as any).channel, expected);
+  }
+
+  // 0022 took "channel" off the leads source aliases — it now means the ad
+  // platform, and reading it as a lead's source would be a different answer.
+  const leads = await planImport(
+    fakeDb({ rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [] }),
+    { source: "leads", clientId: "shely", fileName: "l.csv",
+      text: "email,created,channel\na@b.com,2026-05-14,Meta" },
+  );
+  eq("a leads column headed 'channel' is not read as the lead's source",
+     leads.columnMap.source, undefined);
+  eq("and is listed back as unused", leads.unusedColumns.includes("channel"), true);
+}
+
 // ── the queue must not double-count a re-import ─────────────────────────────
 console.log("\nCommit — re-importing a source retires the batch it replaces");
 {

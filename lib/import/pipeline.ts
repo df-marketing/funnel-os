@@ -102,6 +102,26 @@ const sgDayOf = (s: string | null) => (s ? localDay(s) : null);
  * stable except what it says. Keys are sorted so a reordered export still
  * matches.
  */
+/**
+ * The platform an ads file is read as when it doesn't say.
+ *
+ * Meta's export names Meta nowhere in the file, so requiring the column would
+ * refuse every export anyone actually has. Assuming it is the pragmatic call —
+ * but the assumption is announced on the preview, never made in the database,
+ * which is why ads_performance.channel has no DEFAULT.
+ */
+const ASSUMED_CHANNEL = "meta";
+
+/** meta / google / tiktok, however the file spells it. */
+function normChannel(raw: string | null): string {
+  const s = (raw ?? "").toLowerCase().replace(/[^a-z]/g, "");
+  if (!s) return ASSUMED_CHANNEL;
+  if (s.includes("meta") || s.includes("facebook") || s.includes("instagram")) return "meta";
+  if (s.includes("google") || s.includes("youtube") || s.includes("adwords")) return "google";
+  if (s.includes("tiktok")) return "tiktok";
+  return "other";
+}
+
 const parkKey = (raw: unknown) => {
   const o = (raw ?? {}) as Record<string, unknown>;
   return JSON.stringify(
@@ -277,8 +297,22 @@ export async function planImport(
         impressions: round0(toNumber(val(r, "impressions"))),
         reach: round0(toNumber(val(r, "reach"))),
         clicks: round0(toNumber(val(r, "clicks"))),
+        channel: normChannel(val(r, "channel")),
       });
       plan.diff.newRows++;
+    }
+
+    /**
+     * If no row named a platform, the whole file is being read as Meta — say so
+     * on the preview rather than letting the database decide silently. This is
+     * the only assumption the ads importer makes, and the day a Google export
+     * arrives without a platform column is the day it needs to be visible.
+     */
+    if (!plan.ops.ads.some((a) => a.channel !== ASSUMED_CHANNEL)) {
+      plan.warnings.push(
+        `No platform column found — every row is being recorded as ${ASSUMED_CHANNEL}. ` +
+        `Add a "channel" column if this export is from somewhere else.`,
+      );
     }
 
     plan.coverage = { start: dates.sort()[0] ?? null, end: dates.sort().slice(-1)[0] ?? null };

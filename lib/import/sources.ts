@@ -62,6 +62,15 @@ export const SOURCES: Record<SourceKey, SourceSpec> = {
       f("impressions", false, "impr", "impression"),
       f("reach", false, "people reached"),
       f("clicks", false, "outbound clicks", "link clicks", "clicks (all)"),
+      /**
+       * Which platform the money was spent on — meta, google, tiktok.
+       *
+       * Optional, because no export we have carries it: Meta's report doesn't
+       * name Meta anywhere in the file. A file that omits it is treated as Meta
+       * and the Import screen says so, rather than the database quietly
+       * defaulting and nobody being told. See ASSUMED_CHANNEL in pipeline.ts.
+       */
+      f("channel", false, "platform", "network", "ad platform", "source platform"),
     ],
   },
   leads: {
@@ -72,7 +81,16 @@ export const SOURCES: Record<SourceKey, SourceSpec> = {
       f("email", true, "email address", "contact email"),
       f("phone", false, "phone number", "mobile"),
       f("event_date", true, "created", "created at", "date created", "opt-in date", "date"),
-      f("source", false, "lead source", "channel"),
+      /**
+       * WHERE THE PERSON CAME FROM — Paid Ads, AOAI, Organic.
+       *
+       * "channel" used to be an alias here and is deliberately gone: since 0022
+       * channel means WHERE THE MONEY WAS SPENT (meta, google, tiktok), which is
+       * a different question with different answers. A column headed "channel"
+       * in a leads export is now left unmapped and listed back to the importer,
+       * rather than silently read as the lead's source.
+       */
+      f("source", false, "lead source", "acquisition source"),
       /**
        * GoHighLevel writes three tracking tags and they mean different things.
        * Named here after what they HOLD, not after what the app once called

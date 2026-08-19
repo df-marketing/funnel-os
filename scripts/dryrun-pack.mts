@@ -113,7 +113,7 @@ if (process.argv.includes("--sql")) {
   for (const c of state.contacts as any[])
     out.push(`insert into contacts (contact_id, email, phone, client_id) values (${q(c.contact_id)}, ${q(c.email)}, ${q(c.phone)}, ${q(c.client_id)});`);
   for (const a of state.ads_performance as any[])
-    out.push(`insert into ads_performance (round_id, date, campaign, ad_set, ad, spend, impressions, reach, clicks) values (${q(a.round_id)}, ${q(a.date)}, ${q(a.campaign)}, ${q(a.ad_set)}, ${q(a.ad)}, ${q(a.spend)}, ${q(a.impressions)}, ${q(a.reach)}, ${q(a.clicks)});`);
+    out.push(`insert into ads_performance (round_id, date, campaign, ad_set, ad, spend, impressions, reach, clicks, channel) values (${q(a.round_id)}, ${q(a.date)}, ${q(a.campaign)}, ${q(a.ad_set)}, ${q(a.ad)}, ${q(a.spend)}, ${q(a.impressions)}, ${q(a.reach)}, ${q(a.clicks)}, ${q(a.channel)});`);
   for (const e of state.events as any[])
     out.push(`insert into events (contact_id, round_id, event_type, event_date, lead_round_id, close_round_id, attribution_method, utm_campaign, ad_set, ad, source, match_status, product, minutes_watched, amount, is_lead) values (${q(e.contact_id)}, ${q(e.round_id)}, ${q(e.event_type)}, ${q(e.event_date)}, ${q(e.lead_round_id)}, ${q(e.close_round_id)}, ${q(e.attribution_method)}, ${q(e.utm_campaign)}, ${q(e.ad_set)}, ${q(e.ad)}, ${q(e.source)}, ${q(e.match_status)}, ${q(e.product)}, ${q(e.minutes_watched)}, ${q(e.amount)}, ${e.is_lead ? "true" : "false"});`);
   for (const u of state.unmatched_rows as any[])
