@@ -1,4 +1,4 @@
-import { getDashboard } from "@/lib/funnel/data";
+import { getDashboard, type FilterKey } from "@/lib/funnel/data";
 import { SpineTable } from "@/components/SpineTable";
 import { TopBar, JourneyStrip, SideNav, NotWired, WIRED } from "@/components/Shell";
 import { ImportPane, UnmatchedPane } from "@/components/DataPanes";
@@ -32,10 +32,25 @@ const NOT_WIRED_REASON: Record<string, string> = {
 export default async function Page({
   searchParams,
 }: {
-  searchParams: Promise<{ client?: string; view?: string }>;
+  searchParams: Promise<{
+    client?: string; view?: string;
+    product?: string; channel?: string; from?: string; to?: string;
+  }>;
 }) {
   const params = await searchParams;
-  const data = await getDashboard(params.client, params.view ?? "round");
+  /**
+   * The filter lives in the address, not in component state. A filtered screen
+   * is therefore a real thing you can reload, bookmark and send to someone —
+   * and the server can render it, so there is no flash of unfiltered numbers.
+   * An empty string is treated as absent, the same as the database treats it.
+   */
+  const filter: FilterKey = {
+    product: params.product || null,
+    channel: params.channel || null,
+    from: params.from || null,
+    to: params.to || null,
+  };
+  const data = await getDashboard(params.client, params.view ?? "round", filter);
 
   if (data.error) {
     return (
@@ -67,7 +82,7 @@ export default async function Page({
   return (
     <>
       <TopBar clients={data.clients} current={current} imports={data.imports} />
-      <JourneyStrip strip={data.strip} client={current.client_id} view={view} />
+      <JourneyStrip strip={data.strip} client={current.client_id} view={view} filter={data.filter} />
 
       <div className="shell">
         <SideNav
@@ -75,6 +90,10 @@ export default async function Page({
           client={current.client_id}
           view={view}
           unmatchedCount={data.unmatched?.waiting ?? 0}
+          filter={data.filter}
+          products={data.products}
+          channels={data.channels}
+          periods={data.periods}
         />
 
         <main className="main">

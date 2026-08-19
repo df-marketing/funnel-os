@@ -2,9 +2,24 @@ import Link from "next/link";
 import { fmtCount } from "@/lib/funnel/spine";
 import { RefreshButton } from "./RefreshButton";
 import { SOURCES, type SourceKey } from "@/lib/import/sources";
-import type { Client, Stage, StripCard, ImportStatus } from "@/lib/funnel/data";
+import type {
+  Client, Stage, StripCard, ImportStatus, Product, ChannelOption, FilterKey,
+} from "@/lib/funnel/data";
 
-const href = (client: string, view: string) => `/?client=${client}&view=${view}`;
+/**
+ * Every link carries the whole filter, so a filtered screen survives clicking
+ * to another tab and can be pasted to someone else and land the same.
+ * Empty values are dropped rather than sent as "" — the URL should say what is
+ * set, not carry four blanks on every page.
+ */
+const href = (client: string, view: string, f?: FilterKey) => {
+  const q = new URLSearchParams({ client, view });
+  if (f?.product) q.set("product", f.product);
+  if (f?.channel) q.set("channel", f.channel);
+  if (f?.from) q.set("from", f.from);
+  if (f?.to) q.set("to", f.to);
+  return `/?${q}`;
+};
 
 /** Views that exist regardless of the client's journey. */
 export const FIXED_VIEWS = ["import", "unmatched", "month", "round", "source", "roundsource", "analysis"];
@@ -100,11 +115,12 @@ export function TopBar({
 }
 
 export function JourneyStrip({
-  strip, client, view,
+  strip, client, view, filter,
 }: {
   strip: StripCard[];
   client: string;
   view: string;
+  filter: FilterKey;
 }) {
   return (
     <section className="journey">
@@ -117,7 +133,7 @@ export function JourneyStrip({
           <Link
             className="stage"
             key={s.stage_slug}
-            href={href(client, s.stage_slug)}
+            href={href(client, s.stage_slug, filter)}
             aria-current={view === s.stage_slug}
           >
             <span className="sname">{s.stage_name}</span>
@@ -135,22 +151,133 @@ export function JourneyStrip({
   );
 }
 
+/**
+ * Product · Channel · Period, above everything else in the nav.
+ *
+ * Rendered as links rather than a form so a filtered screen has a real address:
+ * it survives a reload, a click to another tab, and being pasted to someone
+ * else. No client-side state, nothing to get out of step with the URL.
+ *
+ * A dimension with only one option still renders, greyed. Hiding it would say
+ * the client has no products; showing one says they have exactly one.
+ */
+function FilterBar({
+  client, view, filter, products, channels, periods,
+}: {
+  client: string;
+  view: string;
+  filter: FilterKey;
+  products: Product[];
+  channels: ChannelOption[];
+  periods: { key: string; label: string; from: string | null; to: string | null }[];
+}) {
+  const row = (
+    label: string,
+    options: { key: string | null; label: string; sub?: string; dim?: boolean }[],
+    active: string | null,
+    build: (key: string | null) => FilterKey,
+  ) => (
+    <div className="filter-row">
+      <span className="filter-label">{label}</span>
+      <div className="filter-opts">
+        {options.map((o) => (
+          <Link
+            key={o.key ?? "all"}
+            href={href(client, view, build(o.key))}
+            className={`filter-opt${o.dim ? " dim" : ""}`}
+            aria-pressed={active === o.key}
+            title={o.sub}
+          >
+            {o.label}
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+
+  const periodKey =
+    periods.find((p) => p.from === filter.from && p.to === filter.to)?.key ?? null;
+
+  return (
+    <div className="filters">
+      {row(
+        "Product",
+        [
+          { key: null, label: "All" },
+          ...products.map((p) => ({
+            key: p.product_id,
+            label: p.product_name,
+            sub: p.product_note ?? undefined,
+            dim: p.round_count === 0,
+          })),
+        ],
+        filter.product,
+        (product) => ({ ...filter, product }),
+      )}
+      {row(
+        "Channel",
+        [
+          { key: null, label: "All" },
+          ...channels.map((c) => ({
+            key: c.channel,
+            label: c.channel,
+            sub: c.note ?? undefined,
+          })),
+        ],
+        filter.channel,
+        (channel) => ({ ...filter, channel }),
+      )}
+      {row(
+        "Period",
+        [
+          { key: null, label: "All time" },
+          ...periods.map((p) => ({ key: p.key, label: p.label })),
+        ],
+        periodKey,
+        (key) => {
+          const p = periods.find((x) => x.key === key);
+          return { ...filter, from: p?.from ?? null, to: p?.to ?? null };
+        },
+      )}
+      {filter.channel ? (
+        <p className="filter-note">
+          Channel narrows spend and delivery only. Leads, attendance and sales carry no
+          platform, so they are shown in full.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function SideNav({
-  stages, client, view, unmatchedCount,
+  stages, client, view, unmatchedCount, filter, products, channels, periods,
 }: {
   stages: Stage[];
   client: string;
   view: string;
   unmatchedCount: number;
+  filter: FilterKey;
+  products: Product[];
+  channels: ChannelOption[];
+  periods: { key: string; label: string; from: string | null; to: string | null }[];
 }) {
   const item = (slug: string, label: React.ReactNode) => (
-    <Link key={slug} href={href(client, slug)} aria-current={view === slug ? "page" : undefined}>
+    <Link key={slug} href={href(client, slug, filter)} aria-current={view === slug ? "page" : undefined}>
       {label}
     </Link>
   );
 
   return (
     <nav className="nav">
+      <FilterBar
+        client={client}
+        view={view}
+        filter={filter}
+        products={products}
+        channels={channels}
+        periods={periods}
+      />
+
       <div className="nav-group">Data</div>
       {item("import", "Import")}
       {item(

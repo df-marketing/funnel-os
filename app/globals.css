@@ -79,6 +79,32 @@ a { color: inherit; text-decoration: none; }
 @media (max-width: 880px) { .shell { grid-template-columns: 1fr; } }
 .nav { border-right: 1px solid var(--line); background: var(--surface); padding: 12px 0; }
 @media (max-width: 880px) { .nav { border-right: 0; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 4px; padding: 10px; } }
+/* ── FILTER BAR ────────────────────────────────────────────────────────────
+   Product · Channel · Period, above the nav.
+
+   The options are links, not buttons, so the filter lives in the address and a
+   filtered screen can be reloaded, bookmarked and sent to someone. That also
+   means these have to opt out of the `.nav a` block below, which makes every
+   descendant a full-width row — hence the more specific selectors here. */
+.filters { padding: 10px 16px 12px; border-bottom: 1px solid var(--line); display: grid; gap: 9px; }
+.filter-row { display: grid; gap: 4px; }
+.filter-label { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
+.filter-opts { display: flex; flex-wrap: wrap; gap: 4px; }
+.nav .filters a.filter-opt {
+  display: inline-block; width: auto; padding: 2px 8px; font-size: 11.5px;
+  border: 1px solid var(--line); border-left: 1px solid var(--line); border-radius: var(--r);
+  color: var(--ink-2); background: transparent; line-height: 1.5;
+}
+.nav .filters a.filter-opt:hover { background: var(--surface-2); color: var(--ink); }
+.nav .filters a.filter-opt[aria-pressed="true"] {
+  color: var(--ink); font-weight: 600; border-color: var(--accent); background: var(--accent-wash);
+}
+/* a product with no rounds yet still shows — hiding it would say the client
+   doesn't have it, which is a different claim */
+.nav .filters a.filter-opt.dim { opacity: .5; }
+.filter-note { font-size: 10.5px; line-height: 1.45; color: var(--ink-3); margin: 2px 0 0; }
+@media (max-width: 880px) { .filters { padding: 8px 4px 10px; } }
+
 .nav-group { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3);
   padding: 11px 16px 4px; font-weight: 600; }
 @media (max-width: 880px) { .nav-group { width: 100%; padding: 5px 4px 1px; } }

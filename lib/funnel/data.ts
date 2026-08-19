@@ -72,6 +72,43 @@ export type UnmatchedRow = {
   raw_data: Record<string, unknown> | null;
 };
 
+type Cut2 =
+  | "month" | "round" | "adset" | "source" | "roundsource"
+  | "ad" | "session" | "preview" | "middle" | "thisround";
+
+/**
+ * What the filter bar is currently set to. Null on any field means "not
+ * filtering on this" — the same thing the database means by an unset setting,
+ * so there is one idea of "off" rather than two.
+ */
+export type FilterKey = {
+  product: string | null;
+  channel: string | null;
+  from: string | null;
+  to: string | null;
+};
+
+export const NO_FILTER: FilterKey = { product: null, channel: null, from: null, to: null };
+
+export type Product = {
+  product_id: string;
+  client_id: string;
+  product_name: string;
+  product_note: string | null;
+  round_count: number;
+};
+
+/** A period the client actually has data for. Never an empty window. */
+export type Period = { key: string; label: string; from: string | null; to: string | null };
+
+export type ChannelOption = {
+  client_id: string;
+  channel: string;
+  note: string | null;
+  ad_rows: number;
+  spend: number | null;
+};
+
 /**
  * Everything the dashboard needs for one client, in one round-trip set.
  *
@@ -98,6 +135,11 @@ export type Dashboard = {
   unmatched: UnmatchedSummary | null;
   unmatchedReasons: UnmatchedReason[];
   unmatchedRows: UnmatchedRow[];
+  /** What the filter bar can offer, and what it is currently set to. */
+  products: Product[];
+  channels: ChannelOption[];
+  periods: Period[];
+  filter: FilterKey;
   /** The tab actually rendered — may differ from the one asked for, see resolveView. */
   view: string;
   error: string | null;
@@ -107,6 +149,7 @@ export type Dashboard = {
 
 const EMPTY: Omit<Dashboard, "error" | "errorHint" | "view"> = {
   clients: [], stages: [], strip: [], total: null, baseline: null,
+  products: [], channels: [], periods: [], filter: NO_FILTER,
   byMonth: [], byRound: [], byAdset: [], bySource: [], byRoundSource: [],
   byAd: [], bySession: [], byOffer: [], thisRound: [],
   imports: [], unmatched: null,
@@ -140,10 +183,6 @@ const cutFor = (view: string): Cut2 | null =>
   : view === "middle" ? "middle"
   : NEEDS_THIS_ROUND.has(view) ? "thisround"
   : null;
-
-type Cut2 =
-  | "month" | "round" | "adset" | "source" | "roundsource"
-  | "ad" | "session" | "preview" | "middle" | "thisround";
 
 /** Tabs that belong to a journey stage, so they only exist for some clients. */
 const STAGE_TABS = ["targeting", "ads", "lp", "class", "preview", "middle", "product", "checkout"];
@@ -248,67 +287,115 @@ const loadChrome = unstable_cache(
  * Only the open tab's cut is fetched. The Import tab used to pull every round
  * and every ad set to render four dropzones that display neither.
  */
+/**
+ * The spine columns for one comparison tab, under the active filter.
+ *
+ * Reads go through fo_cut() rather than the views directly. A filter has to
+ * bite BEFORE the rows are added up — you cannot average a ROAS back out of a
+ * total — and a view takes no arguments, so fo_cut sets the filter and reads
+ * the cut inside one transaction. It returns each row as jsonb, which is why a
+ * single call serves eleven cuts of different shapes, and why the ordering is
+ * applied in the database instead of here.
+ *
+ * Only the open tab's cut is fetched. The Import tab used to pull every round
+ * and every ad set to render four dropzones that display neither.
+ */
+const VIEW_FOR: Record<Cut2, string> = {
+  month:       "v_metrics_by_month",
+  round:       "v_metrics_by_round",
+  roundsource: "v_metrics_by_round_source",
+  source:      "v_metrics_by_source",
+  ad:          "v_metrics_by_ad",
+  session:     "v_metrics_by_session",
+  preview:     "v_metrics_by_offer",
+  middle:      "v_metrics_by_offer",
+  thisround:   "v_metrics_this_round",
+  adset:       "v_metrics_by_adset",
+};
+
 const loadMetrics = unstable_cache(
-  async (id: string, cut: Cut2) => {
+  async (id: string, cut: Cut2, f: FilterKey) => {
     const db = createReadClient();
-    // Order explicitly: PostgREST doesn't guarantee a view's own ORDER BY survives.
-    // Rounds read left-to-right in time; audiences by spend, biggest bet first;
-    // sources in a fixed order, so a column doesn't slide sideways as rows land.
-    const cuts =
-      // months read left-to-right in time, same as rounds — a month is rounds
-      // rolled up one level, not a different dimension.
-      cut === "month"
-        ? db.from("v_metrics_by_month")
-            .select("cut_key, cut_label, cut_sub, m, month_start")
-            .eq("client_id", id).order("month_start")
-        : cut === "round"
-        ? db.from("v_metrics_by_round")
-            .select("cut_key, cut_label, cut_sub, m, start_date")
-            .eq("client_id", id).order("start_date")
-        : cut === "roundsource"
-        ? db.from("v_metrics_by_round_source")
-            .select("cut_key, cut_label, cut_sub, m, group_key, group_label, group_sub, start_date, ord")
-            .eq("client_id", id).order("start_date").order("ord")
-        : cut === "source"
-        ? db.from("v_metrics_by_source")
-            .select("cut_key, cut_label, cut_sub, m, ord")
-            .eq("client_id", id).order("ord")
-        // audiences by spend, biggest bet first — but ordered on `ord`, not on
-        // spend itself. When no spend is attributable to an audience the sort
-        // key ties at 0 for every column and they shuffle between page loads.
-        : cut === "ad"
-        ? db.from("v_metrics_by_ad")
-            .select("cut_key, cut_label, cut_sub, m, ord")
-            .eq("client_id", id).order("ord")
-        : cut === "session"
-        ? db.from("v_metrics_by_session")
-            .select("cut_key, cut_label, cut_sub, m, ord")
-            .eq("client_id", id).order("ord")
-        : cut === "preview" || cut === "middle"
-        ? db.from("v_metrics_by_offer")
-            .select("cut_key, cut_label, cut_sub, m, start_date")
-            .eq("client_id", id).eq("product", cut).order("start_date")
-        : cut === "thisround"
-        ? db.from("v_metrics_this_round")
-            .select("cut_key, cut_label, cut_sub, m, ord")
-            .eq("client_id", id).order("ord")
-        : db.from("v_metrics_by_adset")
-            .select("cut_key, cut_label, cut_sub, m, ord")
-            .eq("client_id", id).order("ord");
+    const scope = { p_client: id, p_product: f.product, p_channel: f.channel, p_from: f.from, p_to: f.to };
 
     const [total, baseline, columns] = await Promise.all([
-      db.from("v_metrics_total").select("cut_key, cut_label, cut_sub, m").eq("client_id", id).maybeSingle(),
-      db.from("v_metrics_baseline").select("cut_key, cut_label, cut_sub, m").eq("client_id", id).maybeSingle(),
-      cuts,
+      db.rpc("fo_cut", { p_view: "v_metrics_total", ...scope }),
+      db.rpc("fo_cut", { p_view: "v_metrics_baseline", ...scope }),
+      db.rpc("fo_cut", {
+        p_view: VIEW_FOR[cut],
+        ...scope,
+        // the two offer tabs are one view told apart by a product filter
+        p_offer: cut === "preview" || cut === "middle" ? cut : null,
+      }),
     ]);
     return {
-      total: ok(total, "v_metrics_total") ?? null,
-      baseline: ok(baseline, "v_metrics_baseline") ?? null,
-      columns: ok(columns, `metrics:${cut}`) ?? [],
+      total: (ok(total, "v_metrics_total") as Cut[] | null)?.[0] ?? null,
+      baseline: (ok(baseline, "v_metrics_baseline") as Cut[] | null)?.[0] ?? null,
+      columns: (ok(columns, `metrics:${cut}`) as Cut[] | null) ?? [],
     };
   },
   ["funnel-metrics"],
   { tags: [FUNNEL_TAG], revalidate: 300 },
+);
+
+/**
+ * What the filter bar can offer this client.
+ *
+ * Deliberately NOT filtered itself — the list of products has to stay whole
+ * while you are standing on one of them, or choosing a product would remove
+ * every other option and you could never choose back.
+ */
+const loadFilterOptions = unstable_cache(
+  async (id: string) => {
+    const db = createReadClient();
+    const [products, channels, rounds] = await Promise.all([
+      db.from("v_products").select("*").eq("client_id", id).order("ord"),
+      db.from("v_client_channels").select("*").eq("client_id", id).order("ord"),
+      db.from("rounds").select("round_id, start_date, end_date").eq("client_id", id).order("start_date"),
+    ]);
+    const rs = (ok(rounds, "rounds") as { round_id: string; start_date: string; end_date: string }[] | null) ?? [];
+
+    /**
+     * Only periods that exist. A month with no round is not offered, because
+     * choosing it would produce a screen of dashes and no way to tell that from
+     * a broken filter. Months first, then the rounds inside them.
+     */
+    const months = new Map<string, { from: string; to: string }>();
+    for (const r of rs) {
+      const k = r.start_date.slice(0, 7);
+      const m = months.get(k);
+      months.set(k, {
+        from: m && m.from < r.start_date ? m.from : r.start_date,
+        to: m && m.to > r.end_date ? m.to : r.end_date,
+      });
+    }
+    const monthLabel = (k: string) =>
+      new Date(`${k}-01T00:00:00Z`).toLocaleDateString("en-SG", {
+        month: "long", year: "numeric", timeZone: "UTC",
+      });
+    const dayLabel = (d: string) =>
+      new Date(`${d}T00:00:00Z`).toLocaleDateString("en-SG", {
+        day: "numeric", month: "short", timeZone: "UTC",
+      });
+
+    const periods: Period[] = [
+      ...[...months].map(([k, v]) => ({ key: `m:${k}`, label: monthLabel(k), from: v.from, to: v.to })),
+      ...rs.map((r) => ({
+        key: `r:${r.round_id}`,
+        label: `${r.round_id} · ${dayLabel(r.start_date)}–${dayLabel(r.end_date)}`,
+        from: r.start_date,
+        to: r.end_date,
+      })),
+    ];
+
+    return {
+      products: (ok(products, "v_products") as Product[] | null) ?? [],
+      channels: (ok(channels, "v_client_channels") as ChannelOption[] | null) ?? [],
+      periods,
+    };
+  },
+  ["funnel-filter-options"],
+  { tags: [FUNNEL_TAG], revalidate: 3600 },
 );
 
 /** The parked queue, only for the tab that shows it. */
@@ -343,7 +430,12 @@ const loadUnmatchedDetail = unstable_cache(
 function explain(e: unknown, requested: string): Dashboard {
   const msg = e instanceof Error ? e.message : String(e);
   const code = (e as { code?: string })?.code;
-  const missing = msg.includes("does not exist") || code === "42P01";
+  // PostgREST reports a missing FUNCTION as PGRST202 with "Could not find the
+  // function", not "does not exist" — so a database that has the views but not
+  // yet 0023 used to land on the raw message with no hint at all.
+  const missing =
+    msg.includes("does not exist") || code === "42P01" ||
+    code === "PGRST202" || msg.includes("Could not find the function");
   const unreachable = msg.includes("Could not reach");
   return {
     ...EMPTY,
@@ -357,15 +449,23 @@ function explain(e: unknown, requested: string): Dashboard {
   };
 }
 
-export async function getDashboard(clientId?: string, requested = "round"): Promise<Dashboard> {
+export async function getDashboard(
+  clientId?: string,
+  requested = "round",
+  filter: FilterKey = NO_FILTER,
+): Promise<Dashboard> {
   try {
-    return await build(clientId, requested);
+    return await build(clientId, requested, filter);
   } catch (e) {
     return explain(e, requested);
   }
 }
 
-async function build(clientId: string | undefined, requested: string): Promise<Dashboard> {
+async function build(
+  clientId: string | undefined,
+  requested: string,
+  filter: FilterKey,
+): Promise<Dashboard> {
   const clients = await loadClients();
 
   if (!clients.length) {
@@ -384,9 +484,10 @@ async function build(clientId: string | undefined, requested: string): Promise<D
   // The tab is fetched speculatively: confirming it's valid for this client needs
   // the journey stages, and waiting for those would put the waterfall back.
   const wanted = cutFor(requested);
-  const [chrome, speculative, detail] = await Promise.all([
+  const [chrome, options, speculative, detail] = await Promise.all([
     loadChrome(id),
-    wanted ? loadMetrics(id, wanted) : null,
+    loadFilterOptions(id),
+    wanted ? loadMetrics(id, wanted, filter) : null,
     NEEDS_UNMATCHED_DETAIL.has(requested) ? loadUnmatchedDetail(id) : null,
   ]);
 
@@ -396,10 +497,14 @@ async function build(clientId: string | undefined, requested: string): Promise<D
   // open tab — does a second fetch happen, and it's usually a cache hit.
   const settled = cutFor(view);
   const metrics =
-    view === requested ? speculative : settled ? await loadMetrics(id, settled) : null;
+    view === requested ? speculative : settled ? await loadMetrics(id, settled, filter) : null;
 
   return {
     clients,
+    products: options.products,
+    channels: options.channels,
+    periods: options.periods,
+    filter,
     stages: chrome.stages,
     strip: chrome.strip,
     imports: chrome.imports,
