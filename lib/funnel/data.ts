@@ -163,15 +163,37 @@ function resolveView(requested: string, slugs: Set<string>) {
  *
  * Cached hard: clients change when DriveFunnels signs one, not when data lands.
  */
+/**
+ * A failed read must never be cached.
+ *
+ * `unstable_cache` stores whatever the function returns, and every loader here
+ * used to fold a failure into `?? []` or an error object and return it. A
+ * one-second network blip therefore became an hour of a wrong screen: Supabase
+ * recovered within seconds and the app kept serving the frozen failure, past a
+ * redeploy, because the Data Cache outlives deployments. Nothing on the page
+ * said so — an empty dashboard from a dropped connection is indistinguishable
+ * from an empty dashboard from an empty database.
+ *
+ * Throwing instead is what makes it self-healing: `unstable_cache` caches a
+ * returned value and never a thrown one, so the very next request retries.
+ */
+function ok<R extends { data: unknown; error: { message: string; code?: string } | null }>(
+  r: R,
+  what: string,
+): R["data"] {
+  if (r.error) throw Object.assign(new Error(`${what}: ${r.error.message}`), { code: r.error.code });
+  return r.data;
+}
+
 const loadClients = unstable_cache(
   async () => {
     const db = createReadClient();
-    const { data, error } = await db
-      .from("v_clients")
-      .select("client_id, client_name, client_note, stage_count");
+    const data = ok(
+      await db.from("v_clients").select("client_id, client_name, client_note, stage_count"),
+      "v_clients",
+    );
 
-    if (error) return { clients: null, error };
-    if (!data?.length) return { clients: [] as Client[], error: null };
+    if (!data?.length) return [] as Client[];
 
     const counts = await Promise.all(
       data.map(async (c) => {
@@ -186,12 +208,11 @@ const loadClients = unstable_cache(
 
     // Open on the account with the most history rather than whichever name sorts
     // first, so the app lands on something worth looking at.
-    const clients = [...data].sort(
+    return [...data].sort(
       (a, b) =>
         (byId.get(b.client_id) ?? 0) - (byId.get(a.client_id) ?? 0) ||
         a.client_id.localeCompare(b.client_id),
     );
-    return { clients, error: null };
   },
   ["funnel-clients"],
   { tags: [FUNNEL_TAG], revalidate: 3600 },
@@ -208,10 +229,10 @@ const loadChrome = unstable_cache(
       db.from("v_unmatched_summary").select("*").eq("client_id", id).maybeSingle(),
     ]);
     return {
-      stages: stages.data ?? [],
-      strip: strip.data ?? [],
-      imports: imports.data ?? [],
-      unmatched: unmatched.data ?? null,
+      stages: ok(stages, "v_journey") ?? [],
+      strip: ok(strip, "v_journey_strip") ?? [],
+      imports: ok(imports, "v_import_status") ?? [],
+      unmatched: ok(unmatched, "v_unmatched_summary") ?? null,
     };
   },
   ["funnel-chrome"],
@@ -277,7 +298,11 @@ const loadMetrics = unstable_cache(
       db.from("v_metrics_baseline").select("cut_key, cut_label, cut_sub, m").eq("client_id", id).maybeSingle(),
       cuts,
     ]);
-    return { total: total.data ?? null, baseline: baseline.data ?? null, columns: columns.data ?? [] };
+    return {
+      total: ok(total, "v_metrics_total") ?? null,
+      baseline: ok(baseline, "v_metrics_baseline") ?? null,
+      columns: ok(columns, `metrics:${cut}`) ?? [],
+    };
   },
   ["funnel-metrics"],
   { tags: [FUNNEL_TAG], revalidate: 300 },
@@ -297,36 +322,50 @@ const loadUnmatchedDetail = unstable_cache(
         .order("revenue_held", { ascending: false })
         .limit(12),
     ]);
-    return { reasons: reasons.data ?? [], rows: rows.data ?? [] };
+    return {
+      reasons: ok(reasons, "v_unmatched_by_reason") ?? [],
+      rows: ok(rows, "unmatched_rows") ?? [],
+    };
   },
   ["funnel-unmatched"],
   { tags: [FUNNEL_TAG], revalidate: 60 },
 );
 
-export async function getDashboard(clientId?: string, requested = "round"): Promise<Dashboard> {
-  const { clients, error: clientErr } = await loadClients();
+/**
+ * Three failures that arrive as the same exception and have nothing in common
+ * as problems. Sending all of them to the SQL editor is wrong twice out of
+ * three times, and it wastes the reader's first guess — the one that costs the
+ * most, because they act on it before doubting it.
+ */
+function explain(e: unknown, requested: string): Dashboard {
+  const msg = e instanceof Error ? e.message : String(e);
+  const code = (e as { code?: string })?.code;
+  const missing = msg.includes("does not exist") || code === "42P01";
+  const unreachable = msg.includes("Could not reach");
+  return {
+    ...EMPTY,
+    view: requested,
+    error: missing ? "The database isn't set up yet." : msg,
+    errorHint: missing
+      ? "Run supabase/migrations/ALL.sql in the Supabase SQL editor — that's the 7-table schema, the seed and the metric views, in order."
+      : unreachable
+        ? "The schema is not the problem — nothing here even got as far as a query. Check that the Supabase project is running and not paused, that NEXT_PUBLIC_SUPABASE_URL is right, and that Network Restrictions aren't blocking the host doing the asking. Nothing is cached, so reloading is the retry."
+        : null,
+  };
+}
 
-  if (clientErr) {
-    /**
-     * Three failures that look alike in a catch block and have nothing in
-     * common as problems. Sending all of them to the SQL editor is wrong twice
-     * out of three times, and it wastes the reader's first guess — the one
-     * that costs the most, because they act on it before doubting it.
-     */
-    const missing = clientErr.message.includes("does not exist") || clientErr.code === "42P01";
-    const unreachable = clientErr.message.startsWith("Could not reach");
-    return {
-      ...EMPTY,
-      view: requested,
-      error: missing ? "The database isn't set up yet." : clientErr.message,
-      errorHint: missing
-        ? "Run supabase/migrations/ALL.sql in the Supabase SQL editor — that's the 7-table schema, the seed and the metric views, in order."
-        : unreachable
-          ? "The schema is not the problem — nothing here even got as far as a query. Check that the Supabase project is running and not paused, that NEXT_PUBLIC_SUPABASE_URL is right, and that Network Restrictions aren't blocking the host doing the asking."
-          : null,
-    };
+export async function getDashboard(clientId?: string, requested = "round"): Promise<Dashboard> {
+  try {
+    return await build(clientId, requested);
+  } catch (e) {
+    return explain(e, requested);
   }
-  if (!clients?.length) {
+}
+
+async function build(clientId: string | undefined, requested: string): Promise<Dashboard> {
+  const clients = await loadClients();
+
+  if (!clients.length) {
     return {
       ...EMPTY,
       view: requested,
