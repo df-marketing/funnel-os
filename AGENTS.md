@@ -35,6 +35,7 @@
 - the unmatched queue is now two-way
 - ads dedupe key includes campaign, not just audience/ad
 - phone is treated as identity in sales and attendance (not just membership)
+- Filter by product, channel and period — before anything is added up
 
 ## Gotchas
 
@@ -55,6 +56,7 @@
 - batch re-import no longer queues the same import twice; it replaces the old queued import instead.
 - ROAS and CPA count only what the advertising directly produced, not what happened nearby — this is a critical interpretation constraint for ads metrics.
 - accepting unmatched items had a bug where it would discard funds — now fixed
+- Column pinning is now actually enforced in the UI (previously claimed but not implemented)
 
 ## Notes
 
