@@ -8,11 +8,57 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
  * unstable_cache. This client can therefore live inside a cached function; the
  * cookie-bound one in ./server.ts cannot.
  */
+/**
+ * Node's fetch reports every network failure as the same three words —
+ * `TypeError: fetch failed` — and hides what actually happened in `.cause`,
+ * which supabase-js drops on the floor. The screen then read "fetch failed"
+ * next to a suggestion to run the migrations, which is the one explanation it
+ * cannot be: the app was already talking to that schema an hour earlier.
+ *
+ * This walks the cause chain and puts the real reason in the message, so the
+ * difference between "the hostname doesn't resolve", "the connection was
+ * refused" and "the request timed out" survives to the screen. Three different
+ * problems with three different fixes, and none of them is the SQL editor.
+ */
+function describe(e: unknown): string {
+  const seen = new Set<unknown>();
+  const parts: string[] = [];
+  let cur: unknown = e;
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    const o = cur as { message?: string; code?: string; errno?: number; syscall?: string; cause?: unknown };
+    const bit = [o.code, o.syscall, o.message].filter(Boolean).join(" ");
+    if (bit && !parts.includes(bit)) parts.push(bit);
+    cur = o.cause;
+  }
+  return parts.join(" — ") || String(e);
+}
+
+/** Where reads are pointed, said once so the error can name it. */
+const host = () => {
+  try {
+    return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).host;
+  } catch {
+    return process.env.NEXT_PUBLIC_SUPABASE_URL ? "an unparseable URL" : "no URL configured";
+  }
+};
+
 export function createReadClient() {
   return createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { auth: { persistSession: false, autoRefreshToken: false } },
+    {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: {
+        fetch: async (input, init) => {
+          try {
+            return await fetch(input as RequestInfo, init);
+          } catch (e) {
+            throw new TypeError(`Could not reach ${host()} — ${describe(e)}`);
+          }
+        },
+      },
+    },
   );
 }
 

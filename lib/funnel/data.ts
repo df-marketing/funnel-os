@@ -98,9 +98,11 @@ export type Dashboard = {
   /** The tab actually rendered — may differ from the one asked for, see resolveView. */
   view: string;
   error: string | null;
+  /** What to actually do about `error`. Null when there is nothing to fix. */
+  errorHint: string | null;
 };
 
-const EMPTY: Omit<Dashboard, "error" | "view"> = {
+const EMPTY: Omit<Dashboard, "error" | "errorHint" | "view"> = {
   clients: [], stages: [], strip: [], total: null, baseline: null,
   byMonth: [], byRound: [], byAdset: [], bySource: [], byRoundSource: [],
   byAd: [], bySession: [], byOffer: [], thisRound: [],
@@ -305,20 +307,31 @@ export async function getDashboard(clientId?: string, requested = "round"): Prom
   const { clients, error: clientErr } = await loadClients();
 
   if (clientErr) {
+    /**
+     * Three failures that look alike in a catch block and have nothing in
+     * common as problems. Sending all of them to the SQL editor is wrong twice
+     * out of three times, and it wastes the reader's first guess — the one
+     * that costs the most, because they act on it before doubting it.
+     */
+    const missing = clientErr.message.includes("does not exist") || clientErr.code === "42P01";
+    const unreachable = clientErr.message.startsWith("Could not reach");
     return {
       ...EMPTY,
       view: requested,
-      error:
-        clientErr.message.includes("does not exist") || clientErr.code === "42P01"
-          ? "The database isn't set up yet — run supabase/migrations/ALL.sql in the Supabase SQL editor."
-          : clientErr.message,
+      error: missing ? "The database isn't set up yet." : clientErr.message,
+      errorHint: missing
+        ? "Run supabase/migrations/ALL.sql in the Supabase SQL editor — that's the 7-table schema, the seed and the metric views, in order."
+        : unreachable
+          ? "The schema is not the problem — nothing here even got as far as a query. Check that the Supabase project is running and not paused, that NEXT_PUBLIC_SUPABASE_URL is right, and that Network Restrictions aren't blocking the host doing the asking."
+          : null,
     };
   }
   if (!clients?.length) {
     return {
       ...EMPTY,
       view: requested,
-      error: "No clients configured. Run supabase/migrations/ALL.sql to load the schema and seed.",
+      error: "No clients configured.",
+      errorHint: "Run supabase/migrations/ALL.sql to load the schema and seed.",
     };
   }
 
@@ -364,5 +377,6 @@ export async function getDashboard(clientId?: string, requested = "round"): Prom
     unmatchedRows: detail?.rows ?? [],
     view,
     error: null,
+    errorHint: null,
   };
 }

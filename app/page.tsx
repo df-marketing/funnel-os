@@ -48,10 +48,12 @@ export default async function Page({
           <span className="ico">!</span>
           <div>
             <b>{data.error}</b>
-            <br />
-            Open the Supabase SQL editor and run{" "}
-            <span className="num">supabase/migrations/ALL.sql</span> — that&rsquo;s the 7-table schema,
-            the seed and the 29-metric views, in order.
+            {data.errorHint ? (
+              <>
+                <br />
+                {data.errorHint}
+              </>
+            ) : null}
           </div>
         </div>
       </main>
