@@ -21,7 +21,15 @@ export type Round = {
   client_id: string;
   start_date: string;
   end_date: string;
-  session_date: string | null;
+  /**
+   * Every class this round runs, not one. A round with classes on the 5th and
+   * the 7th used to have nowhere to put the second, so a Zoom export named
+   * after it resolved to no round at all and every row parked.
+   *
+   * Kept as a list rather than a single date because the schedule is not
+   * predictable — some rounds run one class, some several.
+   */
+  session_dates: string[];
 };
 
 export type AdSetRun = { ad_set: string; round_id: string; date: string };
@@ -123,7 +131,7 @@ export function resolveRoundRef(ref: string, rounds: Round[]): string | null {
   const s = ref.trim();
   const exact = rounds.find((r) => r.round_id.toLowerCase() === s.toLowerCase());
   if (exact) return exact.round_id;
-  const bySession = rounds.find((r) => r.session_date && day(r.session_date) === day(s));
+  const bySession = rounds.find((r) => r.session_dates.some((d) => day(d) === day(s)));
   if (bySession) return bySession.round_id;
   const contains = rounds.find((r) => s.toLowerCase().includes(r.round_id.toLowerCase()));
   return contains ? contains.round_id : null;

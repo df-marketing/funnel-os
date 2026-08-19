@@ -205,8 +205,33 @@ export async function planImport(
   };
 
   // ── reference data ───────────────────────────────────────────────────────
-  const rounds = await fetchAll<Round>(db, "rounds", "round_id, client_id, start_date, end_date, session_date",
-    (q) => q.eq("client_id", clientId));
+  /**
+   * Rounds, each carrying every class it runs.
+   *
+   * Two reads rather than a join: PostgREST's embedding would need a foreign
+   * key the anon role can see, and this is two small tables. Sessions are read
+   * from the table, not v_round_sessions, because an import is not looking at a
+   * filtered screen — it has to see every round the file might name.
+   */
+  const [roundRows, sessionRows] = await Promise.all([
+    fetchAll<Omit<Round, "session_dates"> & { session_date: string | null }>(
+      db, "rounds", "round_id, client_id, start_date, end_date, session_date",
+      (q) => q.eq("client_id", clientId)),
+    fetchAll<{ round_id: string; session_date: string }>(
+      db, "round_sessions", "round_id, session_date"),
+  ]);
+  const sessionsByRound = new Map<string, string[]>();
+  for (const s of sessionRows) {
+    const list = sessionsByRound.get(s.round_id) ?? [];
+    list.push(s.session_date);
+    sessionsByRound.set(s.round_id, list);
+  }
+  const rounds: Round[] = roundRows.map((r) => ({
+    round_id: r.round_id, client_id: r.client_id,
+    start_date: r.start_date, end_date: r.end_date,
+    // fall back to the round's own column for a database that hasn't run 0025
+    session_dates: sessionsByRound.get(r.round_id) ?? (r.session_date ? [r.session_date] : []),
+  }));
   if (!rounds.length) throw new ImportError("This client has no rounds yet — create a round before importing.");
 
   const roundIds = rounds.map((r) => r.round_id);
@@ -490,7 +515,14 @@ export async function planImport(
       if (!roundId) { park("no_matching_round", r, null, `no round matches session "${ref ?? ""}"`, "none"); continue; }
 
       const round = rounds.find((x) => x.round_id === roundId)!;
-      const when = toTimestamp(val(r, "event_date")) ?? new Date(`${dayOf(round.session_date ?? round.end_date)}T20:00:00+08:00`).toISOString();
+      // no date on the row: fall back to the round's LAST class, then its end.
+      // The last rather than the first, because a row with no date is most
+      // likely the final session's export.
+      const lastClass = round.session_dates.length
+        ? round.session_dates.slice().sort().slice(-1)[0]
+        : null;
+      const when = toTimestamp(val(r, "event_date"))
+        ?? new Date(`${dayOf(lastClass ?? round.end_date)}T20:00:00+08:00`).toISOString();
       track(sgDayOf(when));
 
       const key = eventKey("attendance", contactId, roundId, when);

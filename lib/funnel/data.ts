@@ -73,7 +73,7 @@ export type UnmatchedRow = {
 };
 
 type Cut2 =
-  | "month" | "round" | "adset" | "source" | "roundsource"
+  | "month" | "week" | "round" | "adset" | "source" | "roundsource"
   | "ad" | "session" | "preview" | "middle" | "thisround";
 
 /**
@@ -123,6 +123,7 @@ export type Dashboard = {
   total: Cut | null;
   baseline: Cut | null;
   byMonth: Cut[];
+  byWeek: Cut[];
   byRound: Cut[];
   byAd: Cut[];
   bySession: Cut[];
@@ -150,7 +151,7 @@ export type Dashboard = {
 const EMPTY: Omit<Dashboard, "error" | "errorHint" | "view"> = {
   clients: [], stages: [], strip: [], total: null, baseline: null,
   products: [], channels: [], periods: [], filter: NO_FILTER,
-  byMonth: [], byRound: [], byAdset: [], bySource: [], byRoundSource: [],
+  byMonth: [], byWeek: [], byRound: [], byAdset: [], bySource: [], byRoundSource: [],
   byAd: [], bySession: [], byOffer: [], thisRound: [],
   imports: [], unmatched: null,
   unmatchedReasons: [], unmatchedRows: [],
@@ -158,6 +159,7 @@ const EMPTY: Omit<Dashboard, "error" | "errorHint" | "view"> = {
 
 /** Which tabs actually read a metrics table. Everything else is chrome-only. */
 const NEEDS_MONTHS = new Set(["month"]);
+const NEEDS_WEEKS = new Set(["week"]);
 const NEEDS_ROUNDS = new Set(["round"]);
 const NEEDS_ADSETS = new Set(["targeting"]);
 const NEEDS_SOURCES = new Set(["source"]);
@@ -171,6 +173,7 @@ const NEEDS_UNMATCHED_DETAIL = new Set(["unmatched"]);
 /** The cut a tab reads, or null if it reads none. */
 const cutFor = (view: string): Cut2 | null =>
   NEEDS_MONTHS.has(view) ? "month"
+  : NEEDS_WEEKS.has(view) ? "week"
   : NEEDS_ROUNDS.has(view) ? "round"
   : NEEDS_ADSETS.has(view) ? "adset"
   : NEEDS_SOURCES.has(view) ? "source"
@@ -302,6 +305,7 @@ const loadChrome = unstable_cache(
  */
 const VIEW_FOR: Record<Cut2, string> = {
   month:       "v_metrics_by_month",
+  week:        "v_metrics_by_week",
   round:       "v_metrics_by_round",
   roundsource: "v_metrics_by_round_source",
   source:      "v_metrics_by_source",
@@ -512,6 +516,7 @@ async function build(
     total: metrics?.total ?? null,
     baseline: metrics?.baseline ?? null,
     byMonth: NEEDS_MONTHS.has(view) ? (metrics?.columns ?? []) : [],
+    byWeek: NEEDS_WEEKS.has(view) ? (metrics?.columns ?? []) : [],
     byAd: NEEDS_ADS.has(view) ? (metrics?.columns ?? []) : [],
     bySession: NEEDS_SESSION.has(view) ? (metrics?.columns ?? []) : [],
     byOffer: NEEDS_OFFER.has(view) ? (metrics?.columns ?? []) : [],

@@ -22,11 +22,11 @@ const href = (client: string, view: string, f?: FilterKey) => {
 };
 
 /** Views that exist regardless of the client's journey. */
-export const FIXED_VIEWS = ["import", "unmatched", "month", "round", "source", "roundsource", "analysis"];
+export const FIXED_VIEWS = ["import", "unmatched", "month", "week", "round", "source", "roundsource", "analysis"];
 
 /** Which tabs are wired to real Supabase data today. Everything else says so. */
 export const WIRED = new Set([
-  "month", "round", "source", "roundsource",
+  "month", "week", "round", "source", "roundsource",
   "targeting", "ads", "class", "preview", "middle",
   "analysis", "import", "unmatched",
 ]);
@@ -289,6 +289,7 @@ export function SideNav({
 
       <div className="nav-group">Overview</div>
       {item("month", "By month")}
+      {item("week", "By week")}
       {item("round", "By round")}
       {item("source", "By source")}
       {item("roundsource", "Round × source")}

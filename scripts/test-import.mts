@@ -19,7 +19,7 @@ import { parseCsv, writeCsv, toNumber, toDate, toTimestamp, localDay } from "../
 import { mapColumns, SOURCES } from "../lib/import/sources";
 import { buildTemplate } from "../lib/import/template";
 import { buildIndex, matchRow, normPhone, normEmail, stripPlus } from "../lib/import/identity";
-import { attributeLead, closeRoundFor, resolveProduct, roundFromCampaign } from "../lib/import/attribute";
+import { attributeLead, closeRoundFor, resolveProduct, roundFromCampaign, resolveRoundRef } from "../lib/import/attribute";
 import { planImport, commitPlan, ImportError } from "../lib/import/pipeline";
 
 let pass = 0, fail = 0;
@@ -94,8 +94,8 @@ console.log("\nTime zone");
 
   // the bug this actually caused: nine leads filed into the previous round
   const rounds = [
-    { round_id: "0526-02", client_id: "shely", start_date: "2026-05-13", end_date: "2026-05-19", session_date: "2026-05-19" },
-    { round_id: "0526-03", client_id: "shely", start_date: "2026-05-23", end_date: "2026-05-27", session_date: "2026-05-27" },
+    { round_id: "0526-02", client_id: "shely", start_date: "2026-05-13", end_date: "2026-05-19", session_dates: ["2026-05-19"] },
+    { round_id: "0526-03", client_id: "shely", start_date: "2026-05-23", end_date: "2026-05-27", session_dates: ["2026-05-27"] },
   ];
   const dawn = attributeLead(toTimestamp("2026-05-23 03:56:17")!, null, rounds, []);
   eq("a 4am opt-in belongs to the round that opened that morning", dawn.roundId, "0526-03");
@@ -149,8 +149,8 @@ console.log("\nIdentity");
 console.log("\nAttribution");
 {
   const rounds = [
-    { round_id: "0526-02", client_id: "shely", start_date: "2026-05-13", end_date: "2026-05-19", session_date: "2026-05-19" },
-    { round_id: "0526-03", client_id: "shely", start_date: "2026-05-23", end_date: "2026-05-27", session_date: "2026-05-27" },
+    { round_id: "0526-02", client_id: "shely", start_date: "2026-05-13", end_date: "2026-05-19", session_dates: ["2026-05-19"] },
+    { round_id: "0526-03", client_id: "shely", start_date: "2026-05-23", end_date: "2026-05-27", session_dates: ["2026-05-27"] },
   ];
   const runs = [
     { ad_set: "Cold_Broad", round_id: "0526-02", date: "2026-05-14" },
@@ -241,8 +241,8 @@ function writableDb(tables: Tables) {
 }
 
 const ROUNDS = [
-  { round_id: "0526-02", client_id: "shely", start_date: "2026-05-13", end_date: "2026-05-19", session_date: "2026-05-19" },
-  { round_id: "0526-03", client_id: "shely", start_date: "2026-05-23", end_date: "2026-05-27", session_date: "2026-05-27" },
+  { round_id: "0526-02", client_id: "shely", start_date: "2026-05-13", end_date: "2026-05-19", session_dates: ["2026-05-19"] },
+  { round_id: "0526-03", client_id: "shely", start_date: "2026-05-23", end_date: "2026-05-27", session_dates: ["2026-05-27"] },
 ];
 
 console.log("\nPipeline — leads");
@@ -844,7 +844,7 @@ console.log("\nAds — period-level export");
   ok("a campaign naming no round resolves to nothing", roundFromCampaign("New Leads campaign", ROUNDS) === null);
   ok("no campaign, no round", roundFromCampaign(null, ROUNDS) === null);
   // longest id first, so a shorter id can never swallow a longer one
-  const both = [...ROUNDS, { round_id: "0526-0", client_id: "shely", start_date: "2026-05-01", end_date: "2026-05-02", session_date: null }];
+  const both = [...ROUNDS, { round_id: "0526-0", client_id: "shely", start_date: "2026-05-01", end_date: "2026-05-02", session_dates: [] }];
   eq("longest round id wins", roundFromCampaign("camp_0526_02", both)?.round_id, "0526-02");
 
   const db = fakeDb({ rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [] });
@@ -869,6 +869,26 @@ console.log("\nAds — period-level export");
     text: "date,campaign,ad_set,spend\n2026-05-14,DF_SG_Preview_Sprint1_0526_03,Cold_Broad,10",
   });
   eq("a date inside a round beats the campaign name", (dated.ops.ads[0] as any).round_id, "0526-02");
+}
+
+// ── a round runs however many classes it runs ───────────────────────────────
+console.log("\nRounds — more than one class");
+{
+  const two = [
+    { round_id: "0526-01", client_id: "shely", start_date: "2026-05-04", end_date: "2026-05-08",
+      session_dates: ["2026-05-05", "2026-05-07"] },
+    ...ROUNDS,
+  ];
+  eq("an attendance file naming the first class finds the round",
+     resolveRoundRef("2026-05-05", two), "0526-01");
+  eq("and so does one naming the second",
+     resolveRoundRef("2026-05-07", two), "0526-01");
+  eq("a date that is nobody's class still finds nothing",
+     resolveRoundRef("2026-05-06", two), null);
+  eq("a round with no class recorded doesn't throw",
+     resolveRoundRef("2026-05-05", [{ round_id: "x", client_id: "shely",
+       start_date: "2026-05-01", end_date: "2026-05-02", session_dates: [] }]), null);
+  eq("the round id still wins over any date", resolveRoundRef("0526-03", two), "0526-03");
 }
 
 // ── channel is recorded, and the assumption is announced ────────────────────

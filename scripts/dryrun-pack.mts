@@ -16,8 +16,8 @@ import { planImport, ImportError } from "../lib/import/pipeline";
 const DIR = process.argv[2] ?? "/home/pewds/Downloads/funnel-os-test";
 
 const ROUNDS = [
-  { round_id: "0526-02", client_id: "shely", start_date: "2026-05-13", end_date: "2026-05-19", session_date: "2026-05-19" },
-  { round_id: "0526-03", client_id: "shely", start_date: "2026-05-23", end_date: "2026-05-27", session_date: "2026-05-28" },
+  { round_id: "0526-02", client_id: "shely", start_date: "2026-05-13", end_date: "2026-05-19", session_dates: ["2026-05-19"] },
+  { round_id: "0526-03", client_id: "shely", start_date: "2026-05-23", end_date: "2026-05-27", session_dates: ["2026-05-28"] },
 ];
 
 type Tables = Record<string, any[]>;
