@@ -80,7 +80,8 @@ export function TopBar({
           {stale.map((s) => (
             <span className="meta fresh" key={s.source}>
               <span className="dot old" />
-              {s.source[0].toUpperCase() + s.source.slice(1)} {s.days_since}d stale
+              {s.source[0].toUpperCase() + s.source.slice(1)}
+              {s.days_behind ? ` ${s.days_behind}d` : ""} stale
             </span>
           ))}
         </>

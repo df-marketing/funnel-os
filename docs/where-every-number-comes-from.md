@@ -256,6 +256,15 @@ middle. Which metric each card shows is set per client in
 latest `coverage_end` across all four files formatted as a month, then the
 currency. All from `import_batches`.
 
+**Stale** does not mean "imported a while ago". A source is stale when its
+`coverage_end` falls before the last round that has already **ended** — that is,
+when a finished round exists for which this file says nothing. Time passing is
+not evidence of missing data; missing data is. The number on the pill is
+`days_behind`, the size of that gap: sales covering to 20 May while rounds run
+to 27 May reads **`Sales 7d stale`**. A source flagged stale by hand with no gap
+to report shows no number rather than a zero. `days_since` — days since the
+import — is a separate fact and appears only as "Last import" on the Import tab.
+
 **Import tab** — "Last import", "Covers" and "Rows" are `imported_at`,
 `coverage_start → coverage_end` and `row_count` from the newest **committed**
 batch for that source. Discarded and staged batches are excluded.

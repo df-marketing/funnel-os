@@ -158,7 +158,14 @@ export function ImportPane({ imports, client }: { imports: ImportStatus[]; clien
           <span className="ico">!</span>
           <div>
             <b>
-              {stale.map((s) => `${s.source} is ${s.days_since} days stale`).join(", ")}.
+              {stale
+                .map((s) =>
+                  s.days_behind
+                    ? `${s.source} stops ${s.days_behind} days before the rounds do`
+                    : `${s.source} is stale`,
+                )
+                .join(", ")}
+              .
             </b>{" "}
             Until it lands, this round&rsquo;s figures downstream of it are understated. Views built on
             it carry the same flag as the header.

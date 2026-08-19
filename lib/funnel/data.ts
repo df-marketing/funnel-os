@@ -45,7 +45,10 @@ export type ImportStatus = {
   coverage_end: string | null;
   row_count: number | null;
   is_stale: boolean;
+  /** Days since the file was imported. A fact about the clock; claims nothing. */
   days_since: number;
+  /** Days of finished rounds this source says nothing about. Null when none. */
+  days_behind: number | null;
 };
 
 export type UnmatchedSummary = {
