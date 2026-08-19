@@ -46,6 +46,7 @@
 - phone is treated as an identity field in sales and attendance, not just in membership.
 - Never cache a failure — one blocked second was becoming one blocked hour
 - previously assumed staleness was measured from import date; corrected to compare the committed observation date vs. the metric's date dimension
+- batch re-import no longer queues the same import twice; it replaces the old queued import instead.
 
 ## Notes
 
@@ -70,3 +71,4 @@
 - bucket instants by local day, drop stale plans on commit
 - the middle pricing offer was removed from the project
 - absent (null/missing) is distinct from zero for sales and un-named-audience spend
+- no objective has been set for this project — milestones may lack a guiding north star.
