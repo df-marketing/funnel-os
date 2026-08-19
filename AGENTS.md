@@ -22,6 +22,7 @@
 - Campaign is included in the ads dedupe key.
 - spend per creative is read per creative, and buckets with zero spend are no longer priced.
 - staleness rule counts the gap between the last-committed date and the metric's own observation date, not the days-since-import
+- The 'By week' tab was removed — it was just a 'By round' tab with a misleading heading.
 
 ## Architecture
 
