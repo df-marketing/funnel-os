@@ -159,6 +159,14 @@ const EMPTY: Omit<Dashboard, "error" | "errorHint" | "view"> = {
 
 /** Which tabs actually read a metrics table. Everything else is chrome-only. */
 const NEEDS_MONTHS = new Set(["month"]);
+/**
+ * No tab. Shely runs in rounds, and a week that holds exactly one round is By
+ * round with a worse heading — the same two columns saying less.
+ *
+ * The cut stays because the CRO process asks for "by week or round" and the
+ * charts need a week axis for a client who runs continuous traffic with no
+ * rounds at all. Reachable through fo_cut, absent from the sidebar.
+ */
 const NEEDS_WEEKS = new Set(["week"]);
 const NEEDS_ROUNDS = new Set(["round"]);
 const NEEDS_ADSETS = new Set(["targeting"]);

@@ -9,7 +9,6 @@ const TITLES: Record<string, [string, string]> = {
   import:      ["Import", "Four sources, each on its own cadence. Staleness is surfaced here and in the header."],
   unmatched:   ["Unmatched", "Rows parked rather than guessed at. Never counted, never dropped."],
   month:       ["By month", "Management's first question. Metrics down, months across — the same spine as every other view."],
-  week:        ["By week", "The spine that is always there. Rounds only exist when one runs; weeks don't wait."],
   round:       ["By round", "One column per round. Adding 0826-02 adds a column, not a formula."],
   source:      ["By source", "Paid, organic, AOAI and the derived previous-round column."],
   roundsource: ["Round × source", "Both dimensions at once. Any dimension can be the columns; any other can split them."],
@@ -139,39 +138,6 @@ export default async function Page({
                     rounds&rsquo; reach summed — anyone reached in both would be counted twice. It is
                     read off the coarsest figure Meta reported instead, which is the only one that
                     was ever true for the whole month.
-                  </>
-                }
-              />
-            </>
-          ) : null}
-
-          {view === "week" ? (
-            <>
-              <div className="pane-head">
-                <h1>{title}</h1>
-                <p>{blurb}</p>
-              </div>
-              <SpineTable
-                title="Week comparison"
-                sub="one column per calendar week · rounds rolled up, not re-added"
-                baseline={data.baseline}
-                total={data.total}
-                cuts={data.byWeek}
-                notice={
-                  <>
-                    <b>A round belongs to the week it started in</b>, for the same reason it belongs
-                    to the month it started in: splitting a round across the boundary would put the
-                    spend in one column and the class that spend paid for in the next, and every
-                    closing rate would then be measured against a denominator from a different week.
-                  </>
-                }
-                note={
-                  <>
-                    Weeks exist whether or not a class ran, which is what makes this the dependable
-                    axis — a quiet fortnight is two columns of dashes here and simply nothing at all
-                    on <b>By round</b>. A week with no round gets no column, because a week nobody
-                    was working in is not the same as a week that failed. Reach is not added up here,
-                    for the reason given on <b>By month</b>.
                   </>
                 }
               />
