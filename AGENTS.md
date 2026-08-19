@@ -81,3 +81,4 @@
 - absent (null/missing) is distinct from zero for sales and un-named-audience spend
 - no objective has been set for this project — milestones may lack a guiding north star.
 - five import bugs discovered and fixed by testing against real exports
+- A client sells more than one thing, and buys traffic in more than one place — foundational domain invariant that the app must support multi-product sales and multi-source ad spend.
