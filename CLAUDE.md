@@ -57,6 +57,7 @@
 - ROAS and CPA count only what the advertising directly produced, not what happened nearby — this is a critical interpretation constraint for ads metrics.
 - accepting unmatched items had a bug where it would discard funds — now fixed
 - Column pinning is now actually enforced in the UI (previously claimed but not implemented)
+- A round outside the filter must not leave an empty column behind — filtering logic needs to handle column cleanup.
 
 ## Notes
 
