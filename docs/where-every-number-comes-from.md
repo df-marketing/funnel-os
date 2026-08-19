@@ -234,7 +234,12 @@ The two cases where this bites, both on purpose:
   for, and it is the direction that makes the work look worthless.
 - In **Unsplit spend**, delivery metrics are blank. Reach, impressions and
   clicks describe how an *audience* was reached; that column's whole meaning is
-  "we cannot say which audience", so they have no subject.
+  "we cannot say which audience", so they have no subject. Spend is blank there
+  too, and for a sharper reason: the rows that land in that bucket are the
+  reach-and-clicks correction rows, which carry `spend 0.00` because their spend
+  was already counted on the rows above. Printed as `0.00` it read as "this
+  bucket was free", and it divided into the leads underneath to produce a
+  **CPL of 0.00** — a cost of nothing, on real people.
 
 ---
 
@@ -278,25 +283,56 @@ configured; picked by that rule.
 
 | on screen | comes from |
 |---|---|
-| Ads Spent 1,378.24 / 1,153.22 | `1-ads.csv` `spend`, summed per round |
-| Impression 30,257 / 22,669 | `1-ads.csv` `impressions`, the 60 ad-set rows |
-| Reach 12,672 / 10,131 | `1-ads.csv` `reach` — **the 2 correction rows only** |
-| Outbound Clicks 479 / 377 | `1-ads.csv` `clicks` — **the 2 correction rows only** |
+| Ads Spent 1,294.04 / 1,153.22 | `1-ads.csv` `spend` — **the 56 creative rows only** |
+| Impression 28,691 / 22,669 | `1-ads.csv` `impressions` — the same 56 rows |
+| Reach 12,672 / 10,131 | `1-ads.csv` `reach` — **the 2 round rows only** |
+| Outbound Clicks 455 / 377 | `1-ads.csv` `clicks` — **the 18 ad-set rows only** |
 | Leads 171 / 135 | `2-leads.csv`, one event per row that resolved |
 | Attendance 21 / 19 | `3-attendance.csv`, the 40 rows whose name resolved to one lead |
 | Preview Purchases 2 | `4-sales.csv`, the 2 rows that matched a lead |
 | Preview Revenue 594.00 | `4-sales.csv` `amount`, those 2 rows × 297 |
 | Preview Selling Price 297.00 | **`client_journey_config`** — configured, not measured |
-| 18 creatives on the Ads tab | `2-leads.csv` `utm_content` |
+| 5 creatives on the Ads tab | `1-ads.csv` `ad` (Meta's `Ad name`) |
 | 6 audiences on Targeted views | `1-ads.csv` `ad_set` ↔ `2-leads.csv` `utm_term` |
 | Unmatched 152 rows · SGD 4,176 | `unmatched_rows` |
 
-Reach and clicks deserve the emphasis. Meta's ad-set export gives reach **per
-day**, and reach is deduplicated people, so it cannot be added — summing the
-daily rows gives 46,401 against a true 22,803. Its outbound-clicks column comes
-back empty on all 285 rows. So both figures enter on two hand-built correction
-rows carrying the round-level totals, which is why they are correct on **By
-round** and blank per audience.
+### Why the ads file has three tiers
+
+`1-ads.csv` is not one export. It is Meta's May report pulled at **three**
+granularities and stacked, because different metrics survive being added and
+different ones do not:
+
+| tier | rows | carries | why |
+|---|---|---|---|
+| creative | 56 | `spend`, `impressions` | both are additive, and this is the finest level Meta names an ad at |
+| ad set | 18 | `reach`, `clicks` | reach is only true at the level it was queried; clicks are recovered here |
+| round | 2 | `reach` | the only reach figure that is true for a whole round |
+
+The spend and impression columns agree with the ad-set export on **18 of 18 ad
+sets**, which is the check that says the creative tier is not a different
+number wearing the same name.
+
+Reach is the reason for the whole arrangement. It is deduplicated *people*, so
+adding it always overstates: creatives → ad set gives 40,911 against a true
+39,476; ad sets → campaign gives 20,665 against 11,380; campaigns → round gives
+12,765 against 10,131. Every view therefore reads reach off the coarsest row
+present rather than summing (migration 0016), and the creative and ad-set tiers
+deliberately leave it empty so there is nothing there to add up.
+
+Clicks are the second oddity. Meta's **Outbound clicks** column comes back
+empty on all 72 rows because these are on-Facebook lead forms — nobody clicks
+*out*. They are recovered exactly as `leads ÷ Lead Gen %`, which lands on whole
+numbers for all 18 ad sets and reproduces the master sheet's 377 for 0526-03.
+Ticking **Link clicks** on the next export removes the arithmetic; the importer
+already accepts that column.
+
+Two consequences show on the Ads tab, both honest rather than broken:
+
+- Every creative shows spend, impressions and CPL, but **no reach, CTR, CPM or
+  CPC** — those need a click or reach figure that does not exist per creative.
+- Twelve rows carry a raw **Ad ID** instead of a name, marked *"Ad ID, no name
+  in the export"*. GoHighLevel wrote the ID on those leads and none of the
+  twelve appears in Meta's export, so there is nothing to translate them with.
 
 ---
 
