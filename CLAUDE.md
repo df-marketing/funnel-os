@@ -21,12 +21,14 @@
 - The middle pricing offer was removed (no longer displayed/priced).
 - Campaign is included in the ads dedupe key.
 - spend per creative is read per creative, and buckets with zero spend are no longer priced.
+- staleness rule counts the gap between the last-committed date and the metric's own observation date, not the days-since-import
 
 ## Architecture
 
 - Schema includes 29 metric views built from seed generator (Sprint 1).
 - App has a nav shell, journey strip, client switcher, and two wired tabs (Sprint 2).
 - A 'by source' tab was wired with a two-level column header structure.
+- the import pipeline's staleness check compares the bucket's local date (from commit) against the metric's observation date — not the wall clock
 
 ## Gotchas
 
@@ -43,6 +45,7 @@
 - the staleness pill was put back the way it read, with every number source documented
 - phone is treated as an identity field in sales and attendance, not just in membership.
 - Never cache a failure — one blocked second was becoming one blocked hour
+- previously assumed staleness was measured from import date; corrected to compare the committed observation date vs. the metric's date dimension
 
 ## Notes
 
