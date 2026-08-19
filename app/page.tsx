@@ -288,13 +288,19 @@ export default async function Page({
                 }
                 note={
                   <>
-                    Columns headed by a long number are ads whose{" "}
-                    <span className="num">utm_content</span> carried an Ad ID instead of a name,
-                    because a second tracking template writes{" "}
-                    <span className="num">{"{{ad.id}}"}</span>. They are kept as they arrived rather
-                    than merged away — an ID is a better join key than a name. None of them appears
-                    in the ad-level export, so they carry leads and no spend until Meta reports an ad
-                    that answers to that ID.
+                    <b>Ad ID only</b> is one column standing for every ad whose{" "}
+                    <span className="num">utm_content</span> carried an ID instead of a name, because
+                    a second tracking template writes{" "}
+                    <span className="num">{"{{ad.id}}"}</span> where the others write the ad&rsquo;s
+                    name. None of them appears in the ad-level export, so they carry leads and no
+                    spend — and each one splits back out into its own column the moment Meta reports
+                    an ad answering to that ID.
+                    <br />
+                    <br />
+                    They are collapsed rather than dropped because those leads are real people, and
+                    a tab that reads short of <b>By round</b> without saying why is the failure this
+                    one is built to avoid. It is worth reading the row: leads, and no attendance at
+                    all. Ads nobody can name produced nobody who came.
                   </>
                 }
               />
