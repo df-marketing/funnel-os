@@ -20,7 +20,7 @@ import { mapColumns, SOURCES } from "../lib/import/sources";
 import { buildTemplate } from "../lib/import/template";
 import { buildIndex, matchRow, normPhone, normEmail, stripPlus } from "../lib/import/identity";
 import { attributeLead, closeRoundFor, resolveProduct, roundFromCampaign } from "../lib/import/attribute";
-import { planImport, ImportError } from "../lib/import/pipeline";
+import { planImport, commitPlan, ImportError } from "../lib/import/pipeline";
 
 let pass = 0, fail = 0;
 const ok = (name: string, cond: boolean, extra = "") => {
@@ -203,6 +203,41 @@ function fakeDb(tables: Tables) {
     return api;
   };
   return { from: (t: string) => build(tables[t] ?? []) } as any;
+}
+
+/**
+ * A fake that also WRITES. The read-only one above cannot reach commitPlan, and
+ * that gap let a real bug through: re-importing a source left the previous
+ * upload's parked rows in the queue, so the same eight people were counted
+ * twice and "revenue held" nearly doubled. Every rule the plan gets right can
+ * still be undone on the way to disk.
+ */
+function writableDb(tables: Tables) {
+  const build = (name: string) => {
+    const all = (tables[name] ??= []);
+    let out = [...all];
+    let pending: any = null;
+    const api: any = {
+      select: () => api,
+      insert: async (rows: any) => { all.push(...(Array.isArray(rows) ? rows : [rows])); return { error: null }; },
+      update: (patch: any) => { pending = patch; return api; },
+      eq:   (c: string, v: any) => { out = out.filter((r) => r[c] === v); return api; },
+      neq:  (c: string, v: any) => { out = out.filter((r) => r[c] !== v); return api; },
+      in:   (c: string, v: any[]) => { out = out.filter((r) => v.includes(r[c])); return api; },
+      not:  (c: string) => { out = out.filter((r) => r[c] != null); return api; },
+      is:   (c: string, v: any) => { out = out.filter((r) => (r[c] ?? null) === v); return api; },
+      order: () => api,
+      range: (f: number, t: number) => { out = out.slice(f, t + 1); return api; },
+      maybeSingle: async () => ({ data: out[0] ?? null, error: null }),
+      single: async () => ({ data: out[0] ?? null, error: null }),
+      then: (res: any) => {
+        if (pending) out.forEach((r) => Object.assign(r, pending));
+        return Promise.resolve({ data: out, error: null }).then(res);
+      },
+    };
+    return api;
+  };
+  return { from: build } as any;
 }
 
 const ROUNDS = [
@@ -834,6 +869,59 @@ console.log("\nAds — period-level export");
     text: "date,campaign,ad_set,spend\n2026-05-14,DF_SG_Preview_Sprint1_0526_03,Cold_Broad,10",
   });
   eq("a date inside a round beats the campaign name", (dated.ops.ads[0] as any).round_id, "0526-02");
+}
+
+// ── the queue must not double-count a re-import ─────────────────────────────
+console.log("\nCommit — re-importing a source retires the batch it replaces");
+{
+  const SALES = "event_date,email,phone,product,amount\n2026-05-20,,+6591234567,preview,297\n";
+  const held = (t: Tables) =>
+    (t.unmatched_rows ?? []).filter((r) => !r.resolved_at)
+      .reduce((s, r) => s + Number(r.revenue_held ?? 0), 0);
+  const waiting = (t: Tables) => (t.unmatched_rows ?? []).filter((r) => !r.resolved_at).length;
+
+  const run = async (t: Tables, batchId: string, text: string) => {
+    const db = writableDb(t);
+    const plan = await planImport(db, { source: "sales", clientId: "shely", fileName: "s.csv", text });
+    (t.import_batches ??= []).push({
+      batch_id: batchId, client_id: "shely", source: "sales", status: "staged",
+      coverage_start: plan.coverage.start, coverage_end: plan.coverage.end,
+    });
+    await commitPlan(db, batchId, plan);
+    return plan;
+  };
+
+  const t: Tables = { rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [], unmatched_rows: [], import_batches: [] };
+  await run(t, "b1", SALES);
+  eq("first import parks the unmatched buyer", waiting(t), 1);
+  eq("and holds their money", held(t), 297);
+
+  await run(t, "b2", SALES);
+  eq("re-importing the same file does not park them twice", waiting(t), 1);
+  eq("so revenue held stays put instead of doubling", held(t), 297);
+  eq("the row moves onto the batch that re-asserted it",
+     (t.unmatched_rows ?? []).filter((r) => r.import_batch_id === "b2" && !r.resolved_at).length, 1);
+
+  /**
+   * The case that actually bit: the file was EDITED between uploads. A changed
+   * column defeats the identical-row guard, so the row parks again under a new
+   * id and the old copy stays. Live, that took the queue to 17 rows holding
+   * 8,649 against a file describing 9 rows and 4,473.
+   */
+  const t3: Tables = { rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [], unmatched_rows: [], import_batches: [] };
+  await run(t3, "d1", "event_date,email,phone,product,amount,evidence\n2026-05-20,,+6591234567,preview,297,first guess\n");
+  await run(t3, "d2", "event_date,email,phone,product,amount,evidence\n2026-05-20,,+6591234567,preview,297,supervisor confirmed\n");
+  eq("an edited re-upload does not leave its predecessor behind", waiting(t3), 1);
+  eq("and the money is held once, not twice", held(t3), 297);
+  eq("the replaced row says why it left",
+     (t3.unmatched_rows ?? []).find((r) => r.import_batch_id === "d1")?.resolved_by, "restated");
+
+  // A later period says nothing about an earlier one, so it must not retire it.
+  const t2: Tables = { rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [], unmatched_rows: [], import_batches: [] };
+  await run(t2, "c1", SALES);
+  await run(t2, "c2", "event_date,email,phone,product,amount\n2026-05-27,,+6599999999,preview,297\n");
+  eq("a different period leaves the earlier queue alone", waiting(t2), 2);
+  eq("and both amounts are still held", held(t2), 594);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

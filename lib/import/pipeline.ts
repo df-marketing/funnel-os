@@ -72,6 +72,13 @@ export type Plan = {
      * first one.
      */
     supersededParked: Array<{ row_id: string; contact_id: string }>;
+    /**
+     * Parked rows this import has seen again and still cannot match.
+     *
+     * They keep their place in the queue and move onto this batch, so the
+     * batch they came from can be retired whole without taking them with it.
+     */
+    adoptedParked: string[];
   };
 };
 
@@ -193,7 +200,7 @@ export async function planImport(
     diff: { newRows: 0, changedRows: 0, restatements: [] },
     warnings,
     prerequisite: null,
-    ops: { contacts: [], events: [], ads: [], unmatched: [], refundUpdates: [], supersededParked: [] },
+    ops: { contacts: [], events: [], ads: [], unmatched: [], refundUpdates: [], supersededParked: [], adoptedParked: [] },
   };
 
   const dates: string[] = [];
@@ -368,7 +375,16 @@ export async function planImport(
 
   const park = (reason: ParkReason, raw: Row, bestGuess: string | null, guessMethod: string | null, confidence: string, held = 0) => {
     const key = parkKey(raw);
-    if (parked.has(key)) { plan.counts.duplicates++; return; }
+    if (parked.has(key)) {
+      plan.counts.duplicates++;
+      // Still in the queue and still unmatched, so this import re-asserts it
+      // rather than adding a second copy. Moving it onto this batch is what
+      // lets commitPlan retire the batch it replaces without dropping a row
+      // that only survives in the older one.
+      const existing = parkedRowIds.get(key);
+      if (existing) plan.ops.adoptedParked.push(existing);
+      return;
+    }
     parked.add(key);
     plan.ops.unmatched.push({
       row_id: uuid(), source, client_id: clientId, raw_data: raw,
@@ -592,6 +608,71 @@ export async function commitPlan(db: SupabaseClient, batchId: string, plan: Plan
       resolved_by: "superseded",
     }).eq("row_id", sup.row_id).is("resolved_at", null);
     if (error) throw new ImportError(`Clearing a superseded parked row failed: ${error.message}`);
+  }
+
+  /**
+   * The other half of the same problem: a row that parked before and parks
+   * again.
+   *
+   * The loop above retires a parked row that this import has just made
+   * countable. It cannot see the row that still doesn't match — that one is
+   * inserted fresh above, and the copy from the previous upload of the same
+   * file stays in the queue beside it. Re-uploading sales once took the queue
+   * to 17 rows holding SGD 8,649 when the file described 9 rows holding 4,473:
+   * the same eight people counted twice, and "understated by exactly this
+   * queue, never overstated" quietly became false in the direction it promises
+   * is impossible.
+   *
+   * A re-import is the authority for the period it covers, so its predecessors
+   * for that period are spent. Containment, not overlap, is the test: importing
+   * June sales must not retire May's parked rows, because the June file says
+   * nothing about them. A narrower re-import leaves the wider batch alone for
+   * the same reason — keeping a row a human can dismiss beats dropping one
+   * silently.
+   *
+   * resolved_by records 'restated' rather than 'superseded' so the two cases
+   * stay distinguishable in the audit trail: one was answered, this one was
+   * replaced.
+   */
+  // Rows this import saw again and still cannot match move onto this batch
+  // first, so the sweep below retires only what is genuinely spent.
+  if (plan.ops.adoptedParked.length) {
+    const { error } = await db
+      .from("unmatched_rows")
+      .update({ import_batch_id: batchId })
+      .in("row_id", plan.ops.adoptedParked)
+      .is("resolved_at", null);
+    if (error) throw new ImportError(`Re-asserting a parked row failed: ${error.message}`);
+  }
+
+  if (plan.coverage.start && plan.coverage.end) {
+    const { data: prior, error: e } = await db
+      .from("import_batches")
+      .select("batch_id, coverage_start, coverage_end")
+      .eq("client_id", plan.clientId)
+      .eq("source", plan.source)
+      .eq("status", "committed")
+      .neq("batch_id", batchId);
+    if (e) throw new ImportError(`Reading earlier batches failed: ${e.message}`);
+
+    const spent = (prior ?? [])
+      .filter(
+        (b) =>
+          b.coverage_start &&
+          b.coverage_end &&
+          b.coverage_start >= plan.coverage.start! &&
+          b.coverage_end <= plan.coverage.end!,
+      )
+      .map((b) => b.batch_id);
+
+    if (spent.length) {
+      const { error: e2 } = await db
+        .from("unmatched_rows")
+        .update({ resolved_at: new Date().toISOString(), resolved_by: "restated" })
+        .in("import_batch_id", spent)
+        .is("resolved_at", null);
+      if (e2) throw new ImportError(`Retiring replaced parked rows failed: ${e2.message}`);
+    }
   }
 
   const { error } = await db.from("import_batches").update({
