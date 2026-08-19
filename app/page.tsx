@@ -115,9 +115,10 @@ export default async function Page({
                     A month with a round but no data yet still gets a column, reading{" "}
                     &ldquo;—&rdquo; the whole way down. <b>By round</b> shows those rounds, so this
                     tab shows those months — hiding them would claim the months don&rsquo;t exist.
-                    Reach is summed across a month&rsquo;s rounds and so double-counts anyone reached
-                    in both; Meta only reports reach per query, and the same is true of every Total
-                    column in the app.
+                    Reach is not added up here. It counts deduplicated people, so a month is not its
+                    rounds&rsquo; reach summed — anyone reached in both would be counted twice. It is
+                    read off the coarsest figure Meta reported instead, which is the only one that
+                    was ever true for the whole month.
                   </>
                 }
               />
@@ -269,21 +270,20 @@ export default async function Page({
                 cuts={data.byAd}
                 notice={
                   <>
-                    <b>The people half is real and the money half is not, yet.</b> Which ad produced
-                    a lead comes in from GoHighLevel&rsquo;s{" "}
-                    <span className="num">utm_content</span>, so leads, attendance and revenue are
-                    per creative. Spend is not: the Meta export we have is at ad-set level and its ad
-                    column is empty on every row, so every dollar sits in{" "}
-                    <b>Unsplit spend</b> until an ad-level export lands. Cost per lead by creative is
-                    the one question this tab cannot answer today.
+                    <b>Spend and impressions are per creative; reach and clicks are not.</b> Both
+                    halves come from Meta&rsquo;s ad-level export, and both are additive, so cost per
+                    lead by creative is answerable here. Reach is deduplicated people and is only
+                    true at the level it was queried — the creatives add up to more than the ad sets
+                    they ran in — so it is left blank rather than overstated, and CTR, CPM and CPC go
+                    with it. Which ad produced a lead comes from a different source entirely,
+                    GoHighLevel&rsquo;s <span className="num">utm_content</span>.
                     <br />
                     <br />
-                    Attendance here comes to <b>37</b>, not the 40 on <b>By round</b>. Three of those
-                    attendees belong to two people who are known by email but have no lead — their
-                    opt-in row had no date and parked, so nothing records an ad for them. They
-                    can&rsquo;t be credited to a creative that may not exist, so they appear on every
-                    tab cut by round and on none cut by ad. <b>Targeted views</b> is short by the
-                    same three, for the same reason.
+                    Attendance here can come to less than the figure on <b>By round</b>. An attendee
+                    whose own opt-in row parked is known by email but has no lead, so nothing records
+                    an ad for them — they can&rsquo;t be credited to a creative that may not exist,
+                    and they appear on every tab cut by round and on none cut by ad.{" "}
+                    <b>Targeted views</b> is short by the same people, for the same reason.
                   </>
                 }
                 note={
@@ -292,8 +292,9 @@ export default async function Page({
                     <span className="num">utm_content</span> carried an Ad ID instead of a name,
                     because a second tracking template writes{" "}
                     <span className="num">{"{{ad.id}}"}</span>. They are kept as they arrived rather
-                    than merged away — an ID is a better join key than a name, and this is where they
-                    resolve when ad-level spend arrives.
+                    than merged away — an ID is a better join key than a name. None of them appears
+                    in the ad-level export, so they carry leads and no spend until Meta reports an ad
+                    that answers to that ID.
                   </>
                 }
               />
