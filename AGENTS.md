@@ -42,6 +42,7 @@
 - audience and ad are read from tags GoHighLevel actually writes, not from assumed tags
 - the staleness pill was put back the way it read, with every number source documented
 - phone is treated as an identity field in sales and attendance, not just in membership.
+- Never cache a failure — one blocked second was becoming one blocked hour
 
 ## Notes
 
