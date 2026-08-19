@@ -47,6 +47,7 @@
 - Never cache a failure — one blocked second was becoming one blocked hour
 - previously assumed staleness was measured from import date; corrected to compare the committed observation date vs. the metric's date dimension
 - batch re-import no longer queues the same import twice; it replaces the old queued import instead.
+- ROAS and CPA count only what the advertising directly produced, not what happened nearby — this is a critical interpretation constraint for ads metrics.
 
 ## Notes
 
