@@ -4,7 +4,7 @@ import { OBJECTIVES, type ObjectiveKey } from "@/lib/funnel/chart";
 import {
   movesFor, issuesIn, tooThinIn, missedTargetIn, diffAssets, candidatesFrom,
   moveChip, roundProgress, MIN_SAMPLE, MATERIAL_PCT, SHARE_SHIFT_PTS,
-  MIN_ASSET_LEADS, MIN_SPEND_MULTIPLE,
+  MIN_ASSET_LEADS, MIN_SPEND_MULTIPLE, MAX_CANDIDATES,
   type Move, type Asset,
 } from "@/lib/funnel/analysis";
 
@@ -461,9 +461,9 @@ export function RoundAnalysis({
       </Step>
 
       <Step n="07" title="Solution — things to test next round" aim="candidates, not decisions">
-        {candidates.length ? (
+        {candidates.shown.length ? (
           <ul className="cands">
-            {candidates.map((c, i) => (
+            {candidates.shown.map((c, i) => (
               <li key={i} className={c.kind}>
                 <span className="tag">{c.kind}</span>
                 <div>
@@ -482,6 +482,16 @@ export function RoundAnalysis({
           </p>
         )}
         <p className="cro-foot">
+          {candidates.dropped ? (
+            <>
+              <b>
+                {candidates.dropped} more candidate{candidates.dropped === 1 ? " is" : "s are"} not
+                shown
+              </b>{" "}
+              — the list stops at {MAX_CANDIDATES} so it stays readable, and says so rather than
+              looking complete.{" "}
+            </>
+          ) : null}
           Nothing is proposed on fewer than {MIN_ASSET_LEADS} leads, and nothing is called a
           failure for spending less than {MIN_SPEND_MULTIPLE} leads&rsquo; worth — at those sizes
           one more lead changes the answer. Every one of these is still one round of evidence,

@@ -286,9 +286,14 @@ export type Candidate = {
  * footer says is not enough to rank creatives on. So they are candidates to
  * test, never a verdict, and the wording has to keep saying so.
  */
-export function candidatesFrom(assets: Asset[], roundLabel: string): Candidate[] {
+export const MAX_CANDIDATES = 6;
+
+export function candidatesFrom(
+  assets: Asset[],
+  roundLabel: string,
+): { shown: Candidate[]; dropped: number } {
   const paid = assets.filter((a) => (a.spend ?? 0) > 0);
-  if (!paid.length) return [];
+  if (!paid.length) return { shown: [], dropped: 0 };
 
   const totalSpend = paid.reduce((s, a) => s + (a.spend ?? 0), 0);
   const totalLeads = paid.reduce((s, a) => s + a.leads, 0);
@@ -326,7 +331,12 @@ export function candidatesFrom(assets: Asset[], roundLabel: string): Candidate[]
     }
   }
 
-  return out.slice(0, 6);
+  /**
+   * Capped, and the cap is reported. A list that quietly stops at six reads as
+   * "these are all of them", which is the one thing a truncated list must not
+   * say. The count of what was left out goes back to the caller to print.
+   */
+  return { shown: out.slice(0, MAX_CANDIDATES), dropped: Math.max(0, out.length - MAX_CANDIDATES) };
 }
 
 // ── Presentation helpers ───────────────────────────────────────────────────

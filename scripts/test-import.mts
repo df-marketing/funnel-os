@@ -1213,23 +1213,30 @@ console.log("\nCommit — re-importing a source retires the batch it replaces");
     "0826-01",
   );
   eq("money spent for no leads is a candidate to cut",
-     cands.filter((c) => c.kind === "cut").map((c) => c.headline.split(" ")[0]).join(","), "Dead");
+     cands.shown.filter((c) => c.kind === "cut").map((c) => c.headline.split(" ")[0]).join(","), "Dead");
   eq("a CPL far off the round's own is a candidate to watch",
-     cands.filter((c) => c.kind === "watch").map((c) => c.headline.split(" ")[0]).join(","), "Pricey");
-  eq("and a normal one is left alone", cands.some((c) => c.headline.startsWith("Fine")), false);
-  eq("no spend at all proposes nothing", candidatesFrom([], "0826-01").length, 0);
+     cands.shown.filter((c) => c.kind === "watch").map((c) => c.headline.split(" ")[0]).join(","), "Pricey");
+  eq("and a normal one is left alone", cands.shown.some((c) => c.headline.startsWith("Fine")), false);
+  eq("no spend at all proposes nothing", candidatesFrom([], "0826-01").shown.length, 0);
 
   /**
    * The floors. The first real run of this screen proposed a creative at 3.5x
    * the round's CPL on TWO leads -- one more lead would have halved that.
    */
   eq("a CPL multiple on too few leads is not proposed",
-     candidatesFrom([A("Noise", 400, 2, 20), A("Fine", 1600, 100, 80)], "R").length, 0);
+     candidatesFrom([A("Noise", 400, 2, 20), A("Fine", 1600, 100, 80)], "R").shown.length, 0);
   eq("the same asset with ten leads is",
      candidatesFrom([A("Noise", 400, 10, 20), A("Fine", 1600, 100, 80)], "R")
-       .filter((c) => c.kind === "watch").length, 1);
+       .shown.filter((c) => c.kind === "watch").length, 1);
   eq("and an asset that never spent a lead's worth is not blamed for having none",
-     cands.some((c) => c.headline.startsWith("Tiny")), false);
+     cands.shown.some((c) => c.headline.startsWith("Tiny")), false);
+
+  // A capped list must never read as a complete one.
+  const many = Array.from({ length: 9 }, (_, i) => A(`Dead${i}`, 500, 0, 5));
+  const capped = candidatesFrom([...many, A("Fine", 4500, 300, 55)], "R");
+  eq("the candidate list stops at six", capped.shown.length, 6);
+  eq("and says how many it left out", capped.dropped, 3);
+  eq("a short list drops nothing", cands.dropped, 0);
 
   // A move out of zero has no percentage, but it is not "no comparison".
   const outOfZero = compare("midBuy", M({ midBuy: 2 }), M({ midBuy: 0 }), null, null);
