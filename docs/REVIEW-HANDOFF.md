@@ -4,7 +4,7 @@
 sprints 3–6, deliberately including the places I am least sure of. Assume I am wrong somewhere;
 the point of this document is to make it cheap to find where.
 
-Last updated after migration `0030`. `main` at the commit that reports the step-7 candidate cap.
+Last updated after migration `0031`. `main` at the commit that reports the step-7 candidate cap.
 
 ---
 
@@ -72,6 +72,7 @@ Check these are actually true rather than merely claimed. Each has bitten at lea
 | 8 | **Untracked ads are bucketed, not dropped.** A second GoHighLevel template writes `{{ad.id}}`; those leads are real people. | 0021 (`v_metrics_by_ad`), 0030 (`v_round_assets`) |
 | 9 | **A rate on a thin denominator is reported and never ranked.** | `MIN_SAMPLE = 30` in `lib/funnel/analysis.ts` |
 | 10 | **No silent caps.** A truncated list says how many it left out. | `candidatesFrom` returns `{ shown, dropped }` |
+| 11 | **Every number on the page comes through `fo_cut`.** It is the only place the filter is set. Anything read straight from PostgREST is unfiltered — that is how the journey strip showed 393 leads above a table showing 313 (fixed in `0031`). | `loadMetrics`, `loadStrip`, `loadRoundContext` |
 
 ---
 

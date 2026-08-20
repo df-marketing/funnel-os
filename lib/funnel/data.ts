@@ -22,7 +22,16 @@ export type Stage = {
   stage_rate_label: string | null;
 };
 
-export type StripCard = Stage & { value: string | null; rate: string | null };
+/**
+ * One journey card. `m` is the whole metric object, so the card is derived from
+ * exactly the same numbers — and the same channel blanking — as every table.
+ * `value`/`rate` are the view's older flat columns and are not read.
+ */
+export type StripCard = Stage & {
+  value: string | null;
+  rate: string | null;
+  m?: Metrics | null;
+};
 
 export type Cut = {
   cut_key: string;
@@ -316,20 +325,41 @@ const loadClients = unstable_cache(
 const loadChrome = unstable_cache(
   async (id: string) => {
     const db = createReadClient();
-    const [stages, strip, imports, unmatched] = await Promise.all([
+    const [stages, imports, unmatched] = await Promise.all([
       db.from("v_journey").select("*").eq("client_id", id).order("stage_order"),
-      db.from("v_journey_strip").select("*").eq("client_id", id).order("stage_order"),
       db.from("v_import_status").select("*").eq("client_id", id),
       db.from("v_unmatched_summary").select("*").eq("client_id", id).maybeSingle(),
     ]);
     return {
       stages: ok(stages, "v_journey") ?? [],
-      strip: ok(strip, "v_journey_strip") ?? [],
       imports: ok(imports, "v_import_status") ?? [],
       unmatched: ok(unmatched, "v_unmatched_summary") ?? null,
     };
   },
   ["funnel-chrome"],
+  { tags: [FUNNEL_TAG], revalidate: 300 },
+);
+
+/**
+ * The journey strip, under the active filter.
+ *
+ * Separate from loadChrome and read through fo_cut, because it is the only part
+ * of the chrome that is made of NUMBERS. It used to be fetched straight from
+ * PostgREST alongside the stages and the import status, which meant the filter
+ * was never set for it and the strip showed 393 leads above a table showing 313.
+ * The journey config genuinely doesn't move when you filter; the figures on it
+ * do.
+ */
+const loadStrip = unstable_cache(
+  async (id: string, f: FilterKey) => {
+    const db = createReadClient();
+    const strip = await db.rpc("fo_cut", {
+      p_view: "v_journey_strip",
+      p_client: id, p_product: f.product, p_channel: f.channel, p_from: f.from, p_to: f.to,
+    });
+    return (ok(strip, "v_journey_strip") as StripCard[] | null) ?? [];
+  },
+  ["funnel-strip"],
   { tags: [FUNNEL_TAG], revalidate: 300 },
 );
 
@@ -582,8 +612,9 @@ async function build(
   // The tab is fetched speculatively: confirming it's valid for this client needs
   // the journey stages, and waiting for those would put the waterfall back.
   const wanted = cutFor(requested);
-  const [chrome, options, speculative, detail] = await Promise.all([
+  const [chrome, strip, options, speculative, detail] = await Promise.all([
     loadChrome(id),
+    loadStrip(id, filter),
     loadFilterOptions(id),
     wanted ? loadMetrics(id, wanted, filter) : null,
     NEEDS_UNMATCHED_DETAIL.has(requested) ? loadUnmatchedDetail(id) : null,
@@ -612,7 +643,7 @@ async function build(
     filter,
     cadences,
     stages: chrome.stages,
-    strip: chrome.strip,
+    strip,
     imports: chrome.imports,
     unmatched: chrome.unmatched,
     total: metrics?.total ?? null,

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { fmtCount } from "@/lib/funnel/spine";
+import { fmtCount, type MetricKey, type Metrics } from "@/lib/funnel/spine";
 import { RefreshButton } from "./RefreshButton";
 import { SOURCES, type SourceKey } from "@/lib/import/sources";
 import type {
@@ -129,6 +129,34 @@ export function TopBar({
   );
 }
 
+/**
+ * Which spine metric each journey stage counts, and which rate goes under it.
+ *
+ * The same mapping v_journey_strip does in SQL, moved here so the card is read
+ * off the metric object fo_cut returns — which is the object that channel
+ * blanking is applied to. Reading the view's own flat columns instead would put
+ * an unblinded Lead Gen % on the strip directly above a table that blanks it.
+ */
+const STAGE_METRIC: Record<string, { value: MetricKey; rate?: MetricKey }> = {
+  impressions:       { value: "impr" },
+  clicks:            { value: "clicks",  rate: "ctr" },
+  leads:             { value: "leads",   rate: "leadgen" },
+  attendance:        { value: "att",     rate: "attPct" },
+  preview_purchases: { value: "prevBuy", rate: "prevPct" },
+  middle_purchases:  { value: "midBuy",  rate: "midPct" },
+};
+
+const cardNumbers = (s: StripCard) => {
+  const map = s.stage_metric ? STAGE_METRIC[s.stage_metric] : undefined;
+  const m = (s.m ?? null) as Metrics | null;
+  // Falls back to the view's flat columns for a database that hasn't run 0031.
+  if (!map || !m) return { value: s.value, rate: s.rate };
+  return {
+    value: (m[map.value] ?? null) as string | number | null,
+    rate: map.rate ? ((m[map.rate] ?? null) as string | number | null) : null,
+  };
+};
+
 export function JourneyStrip({
   strip, client, view, filter, opts,
 }: {
@@ -145,23 +173,26 @@ export function JourneyStrip({
         <p>Each stage has a comparison view. Change the journey and the views change with it.</p>
       </div>
       <div className="stages">
-        {strip.map((s) => (
-          <Link
-            className="stage"
-            key={s.stage_slug}
-            href={href(client, s.stage_slug, filter, opts)}
-            aria-current={view === s.stage_slug}
-          >
-            <span className="sname">{s.stage_name}</span>
-            <span className="sval">{fmtCount(s.value)}</span>
-            <span className="srate">
-              {s.rate !== null && s.rate !== undefined
-                ? `${Number(s.rate).toFixed(1)}% ${s.stage_rate_label ?? ""}`.trim()
-                : (s.stage_rate_label ?? "")}
-            </span>
-            <span className="sarrow" />
-          </Link>
-        ))}
+        {strip.map((s) => {
+          const { value, rate } = cardNumbers(s);
+          return (
+            <Link
+              className="stage"
+              key={s.stage_slug}
+              href={href(client, s.stage_slug, filter, opts)}
+              aria-current={view === s.stage_slug}
+            >
+              <span className="sname">{s.stage_name}</span>
+              <span className="sval">{fmtCount(value)}</span>
+              <span className="srate">
+                {rate !== null && rate !== undefined
+                  ? `${Number(rate).toFixed(1)}% ${s.stage_rate_label ?? ""}`.trim()
+                  : (s.stage_rate_label ?? "")}
+              </span>
+              <span className="sarrow" />
+            </Link>
+          );
+        })}
       </div>
     </section>
   );
