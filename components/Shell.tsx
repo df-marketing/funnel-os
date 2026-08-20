@@ -3,7 +3,7 @@ import { fmtCount } from "@/lib/funnel/spine";
 import { RefreshButton } from "./RefreshButton";
 import { SOURCES, type SourceKey } from "@/lib/import/sources";
 import type {
-  Client, Stage, StripCard, ImportStatus, Product, ChannelOption, FilterKey,
+  Client, Stage, StripCard, ImportStatus, Product, ChannelOption, FilterKey, Cadence,
 } from "@/lib/funnel/data";
 
 /**
@@ -21,12 +21,19 @@ const href = (client: string, view: string, f?: FilterKey) => {
   return `/?${q}`;
 };
 
-/** Views that exist regardless of the client's journey. */
-export const FIXED_VIEWS = ["import", "unmatched", "month", "round", "source", "roundsource", "analysis"];
+/**
+ * Views that exist regardless of the client's journey.
+ *
+ * "week" and "round" are both here even though a given product only offers one
+ * of them: this list is about which URLs are legal, not which are in the
+ * sidebar. Cadence decides the sidebar — see `cadencesFor` in data.ts — and a
+ * URL for the wrong spine is redirected to the right one rather than 404'd.
+ */
+export const FIXED_VIEWS = ["import", "unmatched", "month", "week", "round", "source", "roundsource", "analysis"];
 
 /** Which tabs are wired to real Supabase data today. Everything else says so. */
 export const WIRED = new Set([
-  "month", "round", "source", "roundsource",
+  "month", "week", "round", "source", "roundsource",
   "targeting", "ads", "class", "preview", "middle",
   "analysis", "import", "unmatched",
 ]);
@@ -250,7 +257,7 @@ function FilterBar({
 }
 
 export function SideNav({
-  stages, client, view, unmatchedCount, filter, products, channels, periods,
+  stages, client, view, unmatchedCount, filter, products, channels, periods, cadences,
 }: {
   stages: Stage[];
   client: string;
@@ -260,6 +267,8 @@ export function SideNav({
   products: Product[];
   channels: ChannelOption[];
   periods: { key: string; label: string; from: string | null; to: string | null }[];
+  /** Which of By week and By round this selection has something to put in. */
+  cadences: Cadence[];
 }) {
   const item = (slug: string, label: React.ReactNode) => (
     <Link key={slug} href={href(client, slug, filter)} aria-current={view === slug ? "page" : undefined}>
@@ -289,7 +298,14 @@ export function SideNav({
 
       <div className="nav-group">Overview</div>
       {item("month", "By month")}
-      {item("round", "By round")}
+      {/*
+        One spine, chosen by what the selected product actually runs. Showing
+        both to a client who only runs rounds put two identical tables in the
+        sidebar; hiding week outright put a per-client fact in the source code.
+        The product says which, so neither mistake is available here.
+      */}
+      {cadences.includes("week") ? item("week", "By week") : null}
+      {cadences.includes("round") ? item("round", "By round") : null}
       {item("source", "By source")}
       {item("roundsource", "Round × source")}
 

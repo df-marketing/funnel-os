@@ -9,6 +9,7 @@ const TITLES: Record<string, [string, string]> = {
   import:      ["Import", "Four sources, each on its own cadence. Staleness is surfaced here and in the header."],
   unmatched:   ["Unmatched", "Rows parked rather than guessed at. Never counted, never dropped."],
   month:       ["By month", "Management's first question. Metrics down, months across — the same spine as every other view."],
+  week:        ["By week", "For a product that runs continuously. Weeks are always there; rounds only exist when one runs."],
   round:       ["By round", "One column per round. Adding 0826-02 adds a column, not a formula."],
   source:      ["By source", "Paid, organic, AOAI and the derived previous-round column."],
   roundsource: ["Round × source", "Both dimensions at once. Any dimension can be the columns; any other can split them."],
@@ -94,6 +95,7 @@ export default async function Page({
           products={data.products}
           channels={data.channels}
           periods={data.periods}
+          cadences={data.cadences}
         />
 
         <main className="main">
@@ -138,6 +140,40 @@ export default async function Page({
                     rounds&rsquo; reach summed — anyone reached in both would be counted twice. It is
                     read off the coarsest figure Meta reported instead, which is the only one that
                     was ever true for the whole month.
+                  </>
+                }
+              />
+            </>
+          ) : null}
+
+          {view === "week" ? (
+            <>
+              <div className="pane-head">
+                <h1>{title}</h1>
+                <p>{blurb}</p>
+              </div>
+              <SpineTable
+                title="Week comparison"
+                sub="one column per calendar week · rounds rolled up, not re-added"
+                baseline={data.baseline}
+                total={data.total}
+                cuts={data.byWeek}
+                notice={
+                  <>
+                    <b>This tab appears for products that run weekly, not for every client.</b> A
+                    product sold in rounds reports on <b>By round</b> instead, because there every
+                    week would hold exactly one round and the two tables would be identical with the
+                    week headings saying less. Which one you get is set on the product, so a client
+                    running continuous traffic with no classes still has a spine to read.
+                  </>
+                }
+                note={
+                  <>
+                    A round belongs to the week it started in, for the same reason it belongs to the
+                    month it started in: splitting it would put the spend in one column and the
+                    result that spend paid for in the next. A week with nothing in it gets no column
+                    — a week nobody was working in is not the same as a week that failed. Reach is
+                    not added up here, for the reason given on <b>By month</b>.
                   </>
                 }
               />

@@ -1,6 +1,9 @@
 import { unstable_cache } from "next/cache";
 import { createReadClient, FUNNEL_TAG } from "@/lib/supabase/read";
+import { cadencesFor, resolveSpine, type Cadence } from "./cadence";
 import type { Metrics } from "./spine";
+
+export type { Cadence };
 
 export type Client = {
   client_id: string;
@@ -96,6 +99,7 @@ export type Product = {
   product_name: string;
   product_note: string | null;
   round_count: number;
+  cadence: Cadence;
 };
 
 /** A period the client actually has data for. Never an empty window. */
@@ -141,6 +145,12 @@ export type Dashboard = {
   channels: ChannelOption[];
   periods: Period[];
   filter: FilterKey;
+  /**
+   * The cadences in play under the current filter — which of By round and By
+   * week the sidebar should offer. Both, when the filter spans products that
+   * run differently, because at that point both are true at once.
+   */
+  cadences: Cadence[];
   /** The tab actually rendered — may differ from the one asked for, see resolveView. */
   view: string;
   error: string | null;
@@ -150,7 +160,7 @@ export type Dashboard = {
 
 const EMPTY: Omit<Dashboard, "error" | "errorHint" | "view"> = {
   clients: [], stages: [], strip: [], total: null, baseline: null,
-  products: [], channels: [], periods: [], filter: NO_FILTER,
+  products: [], channels: [], periods: [], filter: NO_FILTER, cadences: ["round"],
   byMonth: [], byWeek: [], byRound: [], byAdset: [], bySource: [], byRoundSource: [],
   byAd: [], bySession: [], byOffer: [], thisRound: [],
   imports: [], unmatched: null,
@@ -160,12 +170,9 @@ const EMPTY: Omit<Dashboard, "error" | "errorHint" | "view"> = {
 /** Which tabs actually read a metrics table. Everything else is chrome-only. */
 const NEEDS_MONTHS = new Set(["month"]);
 /**
- * No tab. Shely runs in rounds, and a week that holds exactly one round is By
- * round with a worse heading — the same two columns saying less.
- *
- * The cut stays because the CRO process asks for "by week or round" and the
- * charts need a week axis for a client who runs continuous traffic with no
- * rounds at all. Reachable through fo_cut, absent from the sidebar.
+ * Whether this tab is in the sidebar is not decided here — see `cadencesFor`.
+ * A product that runs in rounds offers By round; one that runs continuously
+ * offers By week. The data says which; this file only knows how to fetch both.
  */
 const NEEDS_WEEKS = new Set(["week"]);
 const NEEDS_ROUNDS = new Set(["round"]);
@@ -205,6 +212,7 @@ const STAGE_TABS = ["targeting", "ads", "lp", "class", "preview", "middle", "pro
 function resolveView(requested: string, slugs: Set<string>) {
   return slugs.has(requested) || !STAGE_TABS.includes(requested) ? requested : "round";
 }
+
 
 /**
  * The client list, with the default-client ordering already applied.
@@ -503,7 +511,11 @@ async function build(
     NEEDS_UNMATCHED_DETAIL.has(requested) ? loadUnmatchedDetail(id) : null,
   ]);
 
-  const view = resolveView(requested, new Set(chrome.stages.map((s) => s.stage_slug)));
+  const cadences = cadencesFor(options.products, filter.product);
+  const view = resolveSpine(
+    resolveView(requested, new Set(chrome.stages.map((s) => s.stage_slug))),
+    cadences,
+  );
 
   // Only when the guess was wrong — switching to a client whose journey lacks the
   // open tab — does a second fetch happen, and it's usually a cache hit.
@@ -517,6 +529,7 @@ async function build(
     channels: options.channels,
     periods: options.periods,
     filter,
+    cadences,
     stages: chrome.stages,
     strip: chrome.strip,
     imports: chrome.imports,

@@ -21,6 +21,7 @@ import { buildTemplate } from "../lib/import/template";
 import { buildIndex, matchRow, normPhone, normEmail, stripPlus } from "../lib/import/identity";
 import { attributeLead, closeRoundFor, resolveProduct, roundFromCampaign, resolveRoundRef } from "../lib/import/attribute";
 import { planImport, commitPlan, ImportError } from "../lib/import/pipeline";
+import { cadencesFor, resolveSpine } from "../lib/funnel/cadence";
 
 let pass = 0, fail = 0;
 const ok = (name: string, cond: boolean, extra = "") => {
@@ -981,6 +982,51 @@ console.log("\nCommit — re-importing a source retires the batch it replaces");
   await run(t2, "c2", "event_date,email,phone,product,amount\n2026-05-27,,+6599999999,preview,297\n");
   eq("a different period leaves the earlier queue alone", waiting(t2), 2);
   eq("and both amounts are still held", held(t2), 594);
+}
+
+/**
+ * ── CADENCE ────────────────────────────────────────────────────────────────
+ * Which of By week and By round is in the sidebar.
+ *
+ * Tested because the failure is silent in the worst way: no error, no wrong
+ * number, just a nav entry that isn't there — which reads as a feature nobody
+ * built rather than a bug. The By week tab was already deleted once on the
+ * strength of one client's data, so the rule that replaced that decision is
+ * worth pinning down.
+ */
+{
+  const workshop = { product_id: "shely-webinar", cadence: "round" as const };
+  const evergreen = { product_id: "shely-demo-evergreen", cadence: "week" as const };
+  const both = [workshop, evergreen];
+
+  eq("a round product offers By round only",
+     cadencesFor([workshop], null).join(","), "round");
+  eq("a weekly product offers By week only",
+     cadencesFor([evergreen], null).join(","), "week");
+  eq("a client selling both, unfiltered, offers both",
+     cadencesFor(both, null).join(","), "round,week");
+  eq("filtering to the workshop drops the week tab",
+     cadencesFor(both, "shely-webinar").join(","), "round");
+  eq("filtering to the evergreen product drops the round tab",
+     cadencesFor(both, "shely-demo-evergreen").join(","), "week");
+  eq("a filter naming a product this client doesn't have falls back to rounds",
+     cadencesFor(both, "someone-elses-product").join(","), "round");
+
+  // A database that hasn't run 0026 returns products with no cadence at all.
+  // Its sidebar must look exactly as it did, not lose its Overview tabs.
+  eq("products with no cadence column still get By round",
+     cadencesFor([{ product_id: "shely-webinar" }], null).join(","), "round");
+  eq("and a client with no products row at all still gets By round",
+     cadencesFor([], null).join(","), "round");
+
+  eq("standing on By round with only weeks lands on By week",
+     resolveSpine("round", ["week"]), "week");
+  eq("standing on By week with only rounds lands on By round",
+     resolveSpine("week", ["round"]), "round");
+  eq("both cadences leave By round alone", resolveSpine("round", ["round", "week"]), "round");
+  eq("both cadences leave By week alone", resolveSpine("week", ["round", "week"]), "week");
+  eq("a tab that is neither is never rewritten", resolveSpine("source", ["week"]), "source");
+  eq("including the one it would otherwise collide with", resolveSpine("month", ["week"]), "month");
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
