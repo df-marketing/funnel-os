@@ -22,7 +22,9 @@ import { buildIndex, matchRow, normPhone, normEmail, stripPlus } from "../lib/im
 import { attributeLead, closeRoundFor, resolveProduct, roundFromCampaign, resolveRoundRef } from "../lib/import/attribute";
 import { planImport, commitPlan, ImportError } from "../lib/import/pipeline";
 import { cadencesFor, resolveSpine } from "../lib/funnel/cadence";
-import { niceMax, axisMax, num, chartModel, lineRuns, colX, barH, GEO } from "../lib/funnel/chart";
+import {
+  niceMax, axisMax, num, chartModel, lineRuns, colX, valueY, floorY, ticksFor, TICKS, GEO,
+} from "../lib/funnel/chart";
 
 let pass = 0, fail = 0;
 const ok = (name: string, cond: boolean, extra = "") => {
@@ -1032,77 +1034,82 @@ console.log("\nCommit — re-importing a source retires the batch it replaces");
 
 /**
  * ── CHART ──────────────────────────────────────────────────────────────────
- * A chart fails silently by construction: nothing throws when a bar is the
- * wrong height, and a missing month drawn as a zero looks like a measured
- * collapse. These pin the two things that would be wrong without being loud.
+ * A chart fails silently by construction: nothing throws when a point is at the
+ * wrong height, and a missing round drawn as a zero looks like a measured
+ * collapse. These pin the things that would be wrong without being loud.
  */
 {
   const cut = (k: string, m: Record<string, unknown>) =>
     ({ cut_key: k, cut_label: k, cut_sub: null, m }) as never;
 
-  eq("a round axis top sits above the tallest bar", niceMax(1294.04), 2000);
+  eq("an axis top sits above the highest point", niceMax(1294.04), 2000);
   eq("and lands on a round number, not the value", niceMax(41), 50);
-  eq("an all-zero panel still gets a usable ceiling", niceMax(0), 1);
-  eq("so does a panel of nothing but blanks", niceMax(-Infinity), 1);
+  eq("an all-zero series still gets a usable ceiling", niceMax(0), 1);
+  eq("so does a series of nothing but blanks", niceMax(-Infinity), 1);
 
-  // A count panel's middle gridline must land on a whole person.
-  eq("an integer axis gets an even ceiling so the midpoint is whole", axisMax(21, "i"), 26);
-  eq("which is what 21 attendees needed", axisMax(21, "i") / 2, 13);
-  eq("money keeps the round ceiling", axisMax(1294.04, "m"), 2000);
-  eq("and its midpoint is already exact", axisMax(1294.04, "m") / 2, 1000);
+  // Gridline labels have to land ON their lines. A count axis of 0..25 across
+  // four gaps put labels at 6.25 and printed them as 6.
+  eq("a count ceiling divides evenly by the gridline count", axisMax(21, "i") % (TICKS - 1), 0);
+  eq("so every gridline label is a whole person", axisMax(21, "i"), 28);
+  eq("21 attendees therefore read 0, 7, 14, 21, 28", ticksFor(axisMax(21, "i")).join(","), "0,7,14,21,28");
+  eq("money keeps its round ceiling", axisMax(1294.04, "m"), 2000);
+  eq("and there are five gridlines, floor to ceiling", ticksFor(2000).join(","), "0,500,1000,1500,2000");
 
   eq("a numeric string from PostgREST is a number", num("1294.04"), 1294.04);
   eq("null stays null", num(null), null);
   eq("empty string is absent, not zero", num(""), null);
   eq("and so is a value that isn't a number", num("n/a"), null);
 
-  const m = chartModel(
-    [
-      cut("0526-02", { spend: "1294.04", att: 21, cpAtt: "61.62" }),
-      cut("0526-03", { spend: "1153.22", att: 19, cpAtt: "60.70" }),
-      cut("DEMO-W1", { spend: "500.00", att: null, cpAtt: null }),
-    ],
-    "att",
-  );
-  eq("three panels, in argument order",
-     m.panels.map((p) => p.role).join(" -> "), "input -> objective -> efficiency");
-  eq("the objective picks its own efficiency metric", m.panels[2].title, "Cost per attendance (SGD)");
-  eq("a blank attendance stays blank rather than becoming 0", m.panels[1].points[2].value, null);
-  eq("but its spend is still plotted", m.panels[0].points[2].value, 500);
-  eq("no panel is marked empty while it has values", m.panels[1].empty, false);
+  const rounds = [
+    cut("0526-02", { spend: "1294.04", att: 21, cpAtt: "61.62" }),
+    cut("0526-03", { spend: "1153.22", att: 19, cpAtt: "60.70" }),
+    cut("DEMO-W1", { spend: "500.00", att: null, cpAtt: null }),
+  ];
+
+  const eff = chartModel(rounds, "att", "efficiency");
+  eq("spend is always the left line", eff.left.label, "Ads Spent (SGD)");
+  eq("and it owns the left axis", eff.left.axis, "left");
+  eq("the right line is the objective's efficiency", eff.right.label, "Cost per attendance (SGD)");
+  eq("on its own axis", eff.right.axis, "right");
+  eq("two scales, not one", eff.left.max === eff.right.max, false);
+
+  const obj = chartModel(rounds, "att", "objective");
+  eq("switching to the objective changes the right line", obj.right.label, "Overall Attendance");
+  eq("but never the left one", obj.left.label, "Ads Spent (SGD)");
+
+  eq("a blank attendance stays blank rather than becoming 0", obj.right.points[2].value, null);
+  eq("but its spend is still plotted", obj.left.points[2].value, 500);
+  eq("a series with values is not marked empty", obj.right.empty, false);
 
   // The one that matters: the line must not run through a round nobody measured.
-  const runs = lineRuns(m.panels[2].points, m.panels[2].max, 0);
-  eq("the efficiency line stops at the gap instead of crossing it", runs.length, 1);
-  eq("and covers only the rounds that have a number", runs[0].length, 2);
+  eq("the right line stops at the gap instead of crossing it",
+     lineRuns(eff.right.points, eff.right.max).length, 1);
+  eq("and covers only the rounds that have a number",
+     lineRuns(eff.right.points, eff.right.max)[0].length, 2);
 
   const holed = chartModel(
-    [
-      cut("a", { cpAtt: "10" }),
-      cut("b", { cpAtt: null }),
-      cut("c", { cpAtt: "30" }),
-    ],
-    "att",
+    [cut("a", { cpAtt: "10" }), cut("b", { cpAtt: null }), cut("c", { cpAtt: "30" })],
+    "att", "efficiency",
   );
-  const r2 = lineRuns(holed.panels[2].points, holed.panels[2].max, 0);
+  const r2 = lineRuns(holed.right.points, holed.right.max);
   eq("a gap in the middle splits the line into two runs", r2.length, 2);
   eq("left run has one point", r2[0].length, 1);
   eq("right run has one point", r2[1].length, 1);
 
-  eq("a round with nothing at all is named under the chart",
-     chartModel([cut("Q", { spend: null, att: null, cpAtt: null })], "att").blanks.join(","), "Q");
-  eq("a round with any value is not", m.blanks.length, 0);
+  eq("a round with nothing on either line is named under the chart",
+     chartModel([cut("Q", { spend: null, att: null, cpAtt: null })], "att", "efficiency").blanks.join(","), "Q");
+  eq("a round with any value is not", eff.blanks.length, 0);
 
-  // Geometry: the tallest bar reaches the ceiling, zero has no height.
-  eq("a value at the ceiling fills the panel", barH(2000, 2000), GEO.panelH);
-  eq("half the ceiling is half the panel", barH(1000, 2000), GEO.panelH / 2);
-  eq("zero has no height", barH(0, 2000), 0);
+  // Geometry: the top of the scale is the top of the plot, the floor is the floor.
+  eq("a value at the ceiling reaches the top of the plot", valueY(2000, 2000), floorY() - GEO.plotH);
+  eq("half the ceiling is half way up", valueY(1000, 2000), floorY() - GEO.plotH / 2);
+  eq("zero sits on the floor", valueY(0, 2000), floorY());
   eq("columns are evenly spaced", colX(1) - colX(0), GEO.col);
 
-  eq("the revenue objective flips to ROAS",
-     chartModel([cut("x", { rev: "5067" })], "rev").panels[2].title, "Overall ROAS");
-  eq("and reads up as better",
-     chartModel([cut("x", { rev: "5067" })], "rev").objective.betterWhen, "higher");
+  eq("the revenue objective reads efficiency as ROAS",
+     chartModel([cut("x", { rev: "5067" })], "rev", "efficiency").right.label, "Overall ROAS");
+  eq("and up is better there",
+     chartModel([cut("x", { rev: "5067" })], "rev", "efficiency").objective.betterWhen, "higher");
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

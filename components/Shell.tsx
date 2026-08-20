@@ -25,6 +25,7 @@ const href = (client: string, view: string, f?: FilterKey, o?: ViewOpts) => {
   // reading, instead of dropping you back into the table each time.
   if (o && o.mode !== DEFAULT_OPTS.mode) q.set("mode", o.mode);
   if (o && o.objective !== DEFAULT_OPTS.objective) q.set("objective", o.objective);
+  if (o && o.against !== DEFAULT_OPTS.against) q.set("against", o.against);
   return `/?${q}`;
 };
 
@@ -366,22 +367,45 @@ export function PaneControls({
       </div>
 
       {opts.mode === "graph" ? (
-        <div className="objective">
-          <span className="filter-label">Objective</span>
-          <div className="filter-opts">
-            {OBJECTIVE_KEYS.map((k) => (
-              <Link
-                key={k}
-                href={href(client, view, filter, { ...opts, objective: k })}
-                className="filter-opt"
-                aria-pressed={opts.objective === k}
-                title={`Efficiency becomes ${OBJECTIVES[k].efficiencyLabel}`}
-              >
-                {OBJECTIVES[k].label}
-              </Link>
-            ))}
+        <>
+          <div className="objective">
+            <span className="filter-label">Objective</span>
+            <div className="filter-opts">
+              {OBJECTIVE_KEYS.map((k) => (
+                <Link
+                  key={k}
+                  href={href(client, view, filter, { ...opts, objective: k })}
+                  className="filter-opt"
+                  aria-pressed={opts.objective === k}
+                  title={`Efficiency becomes ${OBJECTIVES[k].efficiencyLabel}`}
+                >
+                  {OBJECTIVES[k].label}
+                </Link>
+              ))}
+            </div>
           </div>
-        </div>
+
+          {/* Spend is always the left line. This is the right one. */}
+          <div className="objective">
+            <span className="filter-label">Spend vs</span>
+            <div className="filter-opts">
+              <Link
+                href={href(client, view, filter, { ...opts, against: "objective" })}
+                className="filter-opt"
+                aria-pressed={opts.against === "objective"}
+              >
+                {OBJECTIVES[opts.objective].label}
+              </Link>
+              <Link
+                href={href(client, view, filter, { ...opts, against: "efficiency" })}
+                className="filter-opt"
+                aria-pressed={opts.against === "efficiency"}
+              >
+                {OBJECTIVES[opts.objective].efficiencyLabel}
+              </Link>
+            </div>
+          </div>
+        </>
       ) : null}
     </div>
   );

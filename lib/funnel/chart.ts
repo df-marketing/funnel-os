@@ -67,8 +67,19 @@ export const isObjective = (v: string | null | undefined): v is ObjectiveKey =>
   !!v && (OBJECTIVE_KEYS as string[]).includes(v);
 
 /** Table or graph. In the URL, like the filter, so a graph can be sent to someone. */
+/**
+ * What the right-hand axis carries.
+ *
+ * The input is always ad spend — that half of the question never changes. What
+ * you read it AGAINST does: the objective's own level, or what a unit of it
+ * cost. Two lines, because a third would need a third axis, and three axes on
+ * one plot is a puzzle rather than a chart.
+ */
+export type Against = "objective" | "efficiency";
+export const AGAINST_KEYS: Against[] = ["objective", "efficiency"];
+
 export type ViewMode = "table" | "graph";
-export type ViewOpts = { mode: ViewMode; objective: ObjectiveKey };
+export type ViewOpts = { mode: ViewMode; objective: ObjectiveKey; against: Against };
 
 /**
  * Attendance, because that is the objective the brief named: "let's say client
@@ -76,7 +87,7 @@ export type ViewOpts = { mode: ViewMode; objective: ObjectiveKey };
  * default and not a decision — the picker is one click away and the choice
  * lives in the URL.
  */
-export const DEFAULT_OPTS: ViewOpts = { mode: "table", objective: "att" };
+export const DEFAULT_OPTS: ViewOpts = { mode: "table", objective: "att", against: "efficiency" };
 
 /**
  * Tabs whose cut is one-dimensional, so it can be an x-axis.
@@ -127,33 +138,38 @@ export function niceMax(max: number): number {
  */
 export function axisMax(max: number, f: Fmt): number {
   const nice = niceMax(max);
-  return f === "i" ? Math.ceil(nice / 2) * 2 : nice;
+  // TICKS gridlines means TICKS-1 gaps; a count has to divide by that exactly or
+  // the labels drift off their own lines.
+  return f === "i" ? Math.ceil(nice / (TICKS - 1)) * (TICKS - 1) : nice;
 }
+
 
 export type Point = { key: string; label: string; sub: string | null; value: number | null };
 
-export type Panel = {
-  role: "input" | "objective" | "efficiency";
-  title: string;
+export type Series = {
+  role: "input" | "against";
+  axis: "left" | "right";
+  label: string;
   fmt: Fmt;
   points: Point[];
   /** Axis ceiling. Always > 0, so dividing by it is always safe. */
   max: number;
-  /** Every value is absent — the panel draws an explanation, not an empty grid. */
+  /** Every value is absent — said in words rather than drawn as a flat zero. */
   empty: boolean;
 };
 
 export type ChartModel = {
-  panels: Panel[];
+  left: Series;
+  right: Series;
   columns: { key: string; label: string; sub: string | null }[];
   objective: ObjectiveDef;
-  /** Cuts that carried no value in any panel. Named under the chart, not hidden. */
+  /** Cuts that carried nothing on either line. Named under the chart, not hidden. */
   blanks: string[];
 };
 
-function panelFor(
-  role: Panel["role"], title: string, key: MetricKey, f: Fmt, cuts: Cut[],
-): Panel {
+function seriesFor(
+  role: Series["role"], axis: Series["axis"], label: string, key: MetricKey, f: Fmt, cuts: Cut[],
+): Series {
   const points: Point[] = cuts.map((c) => ({
     key: c.cut_key,
     label: c.cut_label ?? c.cut_key,
@@ -162,32 +178,39 @@ function panelFor(
   }));
   const values = points.map((p) => p.value).filter((v): v is number => v !== null);
   return {
-    role, title, fmt: f, points,
+    role, axis, label, fmt: f, points,
     max: axisMax(Math.max(0, ...values), f),
     empty: values.length === 0,
   };
 }
 
 /**
- * Build the three panels for one tab's columns.
+ * Two series on one plot, each with its own axis.
  *
- * The Total column is deliberately NOT passed in by the caller: a total is not
- * a point on a time axis, and plotting it beside the rounds it is made of would
- * put a bar six times the height of the others at the right-hand edge and make
- * every real column unreadable.
+ * Separate scales rather than one shared: spend runs in thousands and cost per
+ * attendee in tens, so a single axis would press the second line flat along the
+ * floor and it would read as a collapse rather than as a different unit. That
+ * is what the left and right axes are for, and why each is labelled with the
+ * series it belongs to.
+ *
+ * The Total column is deliberately not passed in by the caller: a total is not
+ * a point on a time axis.
  */
-export function chartModel(cuts: Cut[], objective: ObjectiveKey): ChartModel {
+export function chartModel(cuts: Cut[], objective: ObjectiveKey, against: Against): ChartModel {
   const def = OBJECTIVES[objective];
-  const panels = [
-    panelFor("input", "Ads Spent (SGD)", "spend", "m", cuts),
-    panelFor("objective", def.label, def.metric, def.metricFmt, cuts),
-    panelFor("efficiency", def.efficiencyLabel, def.efficiency, def.efficiencyFmt, cuts),
-  ];
+  const left = seriesFor("input", "left", "Ads Spent (SGD)", "spend", "m", cuts);
+  const right =
+    against === "objective"
+      ? seriesFor("against", "right", def.label, def.metric, def.metricFmt, cuts)
+      : seriesFor("against", "right", def.efficiencyLabel, def.efficiency, def.efficiencyFmt, cuts);
+
   const blanks = cuts
-    .filter((c) => panels.every((p) => p.points.find((q) => q.key === c.cut_key)?.value === null))
+    .filter((c) =>
+      [left, right].every((s) => s.points.find((q) => q.key === c.cut_key)?.value === null))
     .map((c) => c.cut_label ?? c.cut_key);
+
   return {
-    panels,
+    left, right,
     columns: cuts.map((c) => ({ key: c.cut_key, label: c.cut_label ?? c.cut_key, sub: c.cut_sub ?? null })),
     objective: def,
     blanks,
@@ -198,42 +221,45 @@ export function chartModel(cuts: Cut[], objective: ObjectiveKey): ChartModel {
 export const cell = (v: number | null, f: Fmt): string => (v === null ? "—" : (fmt(v, f) ?? "—"));
 
 // ── Geometry ───────────────────────────────────────────────────────────────
-// Fixed drawing constants, in viewBox units. The SVG scales with CSS; these
-// never change, so a chart of two columns and a chart of forty are the same
-// drawing at different widths rather than two different-looking charts.
+// One plot area, two y-axes, in viewBox units.
+
+export const TICKS = 5;   // 0, a quarter, half, three quarters, the ceiling
 
 export const GEO = {
-  padL: 76,      // room for the y-axis labels, which are money and can be wide
-  padR: 20,
-  padT: 22,      // the panel title sits above the plot
-  col: 110,      // one column's full width
-  bar: 48,       // the bar inside it, centred
-  panelH: 118,   // the plot area only
-  gap: 44,       // between panels, enough for the next title
-  axisH: 46,     // x labels under the last panel
+  padL: 80,      // left axis labels — money, and money is wide
+  padR: 80,      // right axis labels
+  padT: 18,      // above the plot
+  col: 118,      // one column's full width
+  plotH: 300,
+  axisH: 52,     // x labels, and their sub-labels
 } as const;
 
 export const chartWidth = (n: number) => GEO.padL + Math.max(1, n) * GEO.col + GEO.padR;
-export const chartHeight = () => 3 * (GEO.padT + GEO.panelH) + 2 * GEO.gap + GEO.axisH;
+export const chartHeight = () => GEO.padT + GEO.plotH + GEO.axisH;
 
 /** Centre of column i, in viewBox x units. */
 export const colX = (i: number) => GEO.padL + i * GEO.col + GEO.col / 2;
 
-/** Top edge of panel p's plot area. */
-export const panelTop = (p: number) => p * (GEO.padT + GEO.panelH + GEO.gap) + GEO.padT;
+/** The plot floor — y grows downward, so this is the largest y in the plot. */
+export const floorY = () => GEO.padT + GEO.plotH;
 
-/** How far up the plot a value sits, 0 at the baseline. */
-export const barH = (value: number, max: number) =>
-  Math.max(0, Math.min(1, value / max)) * GEO.panelH;
+/** Where a value sits vertically on its own axis. */
+export const valueY = (value: number, max: number) =>
+  floorY() - Math.max(0, Math.min(1, value / max)) * GEO.plotH;
+
+/** Gridline values for one axis, floor to ceiling. */
+export const ticksFor = (max: number) =>
+  Array.from({ length: TICKS }, (_, i) => (max * i) / (TICKS - 1));
 
 /**
- * The polyline for the efficiency panel, split wherever a value is missing.
+ * The polyline for one series, split wherever a value is missing.
  *
  * Returns one array per unbroken run. A single line drawn straight across a
  * blank round would assert a trend through a number that was never measured —
- * the one thing this app refuses everywhere else.
+ * the one thing this app refuses everywhere else. Looker draws through the gap;
+ * this doesn't, because the gap is a fact.
  */
-export function lineRuns(points: Point[], max: number, top: number): Array<Array<[number, number]>> {
+export function lineRuns(points: Point[], max: number): Array<Array<[number, number]>> {
   const runs: Array<Array<[number, number]>> = [];
   let run: Array<[number, number]> = [];
   points.forEach((p, i) => {
@@ -242,11 +268,8 @@ export function lineRuns(points: Point[], max: number, top: number): Array<Array
       run = [];
       return;
     }
-    run.push([colX(i), top + GEO.panelH - barH(p.value, max)]);
+    run.push([colX(i), valueY(p.value, max)]);
   });
   if (run.length) runs.push(run);
   return runs;
 }
-
-/** Three gridlines: floor, middle, ceiling. More is noise at this size. */
-export const ticks = (max: number) => [0, max / 2, max];

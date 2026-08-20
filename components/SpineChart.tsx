@@ -1,38 +1,44 @@
 import type { Cut } from "@/lib/funnel/data";
 import {
-  chartModel, chartWidth, chartHeight, colX, panelTop, barH, lineRuns, ticks, cell, GEO,
-  type ObjectiveKey,
+  chartModel, chartWidth, chartHeight, colX, valueY, floorY, lineRuns, ticksFor, cell, GEO,
+  type ObjectiveKey, type Against, type Series,
 } from "@/lib/funnel/chart";
 
 /**
- * The same columns as the table, drawn.
+ * One plot, two lines, an axis each.
  *
- * Three panels on one shared x-axis — spend, what it produced, what a unit of
- * that cost — because that is the order the question gets asked in. Separate
- * scales rather than one: money, people and a ratio share no unit, and forcing
- * them onto one axis would flatten two of the three into the floor.
+ * Ad spend on the left, and on the right whatever you are reading it against —
+ * the objective's own level, or what a unit of it cost. Two axes rather than
+ * one because spend runs in thousands and cost per attendee in tens: sharing a
+ * scale would press the second line flat along the floor, where it would read
+ * as a collapse instead of as a different unit.
  *
- * Server-rendered SVG. No chart library, no client JavaScript, and no canvas:
- * the numbers are already on the server, the drawing is arithmetic, and a graph
- * that needs a 90 kB dependency to show six bars is a worse graph.
+ * Two series, not three. A third would need a third axis, and three axes on one
+ * plot is a puzzle rather than a chart.
  *
- * A missing value is a gap — no bar, and the efficiency line breaks rather than
- * running straight through it. The whole app refuses to turn absent into zero;
- * a chart is where that refusal is easiest to lose and hardest to notice.
+ * Server-rendered SVG. No chart library and no client JavaScript: the numbers
+ * are already on the server and the drawing is arithmetic.
+ *
+ * A missing value is a gap — no point, and the line BREAKS rather than running
+ * through it. Every dashboard of this shape draws straight across a blank and
+ * calls it a trend; the blank is a fact, and this is the one place where losing
+ * that rule costs nothing visible and changes what the chart says.
  */
 export function SpineChart({
-  title, sub, cuts, objective, notice, note,
+  title, sub, cuts, objective, against, notice, note,
 }: {
   title: string;
   sub: string;
   cuts: Cut[];
   objective: ObjectiveKey;
+  against: Against;
   notice?: React.ReactNode;
   note?: React.ReactNode;
 }) {
-  const model = chartModel(cuts, objective);
+  const model = chartModel(cuts, objective, against);
   const W = chartWidth(cuts.length);
   const H = chartHeight();
+  const floor = floorY();
 
   if (!cuts.length) {
     return (
@@ -52,6 +58,47 @@ export function SpineChart({
     );
   }
 
+  /**
+   * Where a value label goes.
+   *
+   * The two series label in opposite directions so that where the lines cross
+   * the numbers don't land on each other — but a point sitting ON the floor or
+   * the ceiling has no room in its preferred direction, and its label was
+   * printing straight through the x-axis heading. So the preference yields to
+   * the edge, and only then to the other series.
+   */
+  const labelY = (y: number, above: boolean) => {
+    const wanted = above ? y - 11 : y + 18;
+    if (wanted > floor - 6) return y - 11;
+    if (wanted < GEO.padT + 12) return y + 18;
+    return wanted;
+  };
+
+  /** One series' line, its points, and its value labels. */
+  const draw = (s: Series, labelAbove: boolean) =>
+    s.empty ? null : (
+      <g className={`s-${s.axis}`}>
+        {lineRuns(s.points, s.max).map((run, i) => (
+          <polyline key={i} className="chart-line" points={run.map(([x, y]) => `${x},${y}`).join(" ")} />
+        ))}
+        {s.points.map((p, i) =>
+          p.value === null ? null : (
+            <g key={p.key}>
+              <circle className="chart-dot" cx={colX(i)} cy={valueY(p.value, s.max)} r={4.5} />
+              <text
+                className="chart-value"
+                x={colX(i)}
+                y={labelY(valueY(p.value, s.max), labelAbove)}
+                textAnchor="middle"
+              >
+                {cell(p.value, s.fmt)}
+              </text>
+            </g>
+          ),
+        )}
+      </g>
+    );
+
   return (
     <>
       <div className="cap">
@@ -66,158 +113,116 @@ export function SpineChart({
         </div>
       ) : null}
 
-      <div className="chart-scroll">
-        <svg
-          className="chart"
-          viewBox={`0 0 ${W} ${H}`}
-          width={W}
-          height={H}
-          role="img"
-          aria-label={`${title}. ${model.panels.map((p) => p.title).join(", then ")}, across ${cuts.length} columns.`}
-        >
-          {model.panels.map((panel, pi) => {
-            const top = panelTop(pi);
-            const floor = top + GEO.panelH;
-            return (
-              <g key={panel.role}>
-                <text className="chart-title" x={GEO.padL} y={top - 8}>
-                  {panel.title}
-                </text>
+      <div className="chart-box">
+        <div className="chart-key">
+          <i className="s-left">
+            <span className="rule" />
+            {model.left.label}
+            <em>left axis</em>
+          </i>
+          <i className="s-right">
+            <span className="rule" />
+            {model.right.label}
+            <em>right axis</em>
+          </i>
+        </div>
 
-                {/* Gridlines and their labels. The floor line is solid, so the
-                    baseline of a bar is never ambiguous against a tick. */}
-                {ticks(panel.max).map((t) => {
-                  const y = floor - barH(t, panel.max);
-                  return (
-                    <g key={t}>
-                      <line
-                        className={t === 0 ? "chart-axis" : "chart-grid"}
-                        x1={GEO.padL} x2={W - GEO.padR} y1={y} y2={y}
-                      />
-                      <text className="chart-tick" x={GEO.padL - 10} y={y + 4} textAnchor="end">
-                        {cell(t, panel.fmt)}
-                      </text>
-                    </g>
-                  );
-                })}
-
-                {panel.empty ? (
-                  <text className="chart-blank" x={GEO.padL + 14} y={top + GEO.panelH / 2}>
-                    Not measured for any column here
+        <div className="chart-scroll">
+          <svg
+            className="chart"
+            viewBox={`0 0 ${W} ${H}`}
+            width={W}
+            height={H}
+            role="img"
+            aria-label={`${model.left.label} against ${model.right.label}, across ${cuts.length} columns.`}
+          >
+            {/* Gridlines come off the LEFT axis only. Two sets of horizontal
+                rules at different intervals would look like a printing fault. */}
+            {ticksFor(model.left.max).map((t, i) => {
+              const y = valueY(t, model.left.max);
+              return (
+                <g key={t}>
+                  <line
+                    className={i === 0 ? "chart-axis" : "chart-grid"}
+                    x1={GEO.padL} x2={W - GEO.padR} y1={y} y2={y}
+                  />
+                  <text className="chart-tick s-left" x={GEO.padL - 12} y={y + 4} textAnchor="end">
+                    {cell(t, model.left.fmt)}
                   </text>
-                ) : panel.role === "efficiency" ? (
-                  <>
-                    {/* A ratio is a line: it says "this moved", where a bar says
-                        "this much was produced". Runs are split at every gap. */}
-                    {lineRuns(panel.points, panel.max, top).map((run, i) => (
-                      <polyline
-                        key={i}
-                        className="chart-line"
-                        points={run.map(([x, y]) => `${x},${y}`).join(" ")}
-                      />
-                    ))}
-                    {panel.points.map((p, i) =>
-                      p.value === null ? null : (
-                        <g key={p.key}>
-                          <circle
-                            className="chart-dot"
-                            cx={colX(i)}
-                            cy={floor - barH(p.value, panel.max)}
-                            r={5}
-                          />
-                          <text
-                            className="chart-value"
-                            x={colX(i)}
-                            y={floor - barH(p.value, panel.max) - 12}
-                            textAnchor="middle"
-                          >
-                            {cell(p.value, panel.fmt)}
-                          </text>
-                        </g>
-                      ),
-                    )}
-                  </>
-                ) : (
-                  panel.points.map((p, i) =>
-                    p.value === null ? (
-                      // Absent gets a mark of its own. An empty slot and a bar of
-                      // height zero look identical, and they are not the same fact.
-                      <text
-                        key={p.key}
-                        className="chart-gap"
-                        x={colX(i)}
-                        y={floor - 8}
-                        textAnchor="middle"
-                      >
-                        —
-                      </text>
-                    ) : (
-                      <g key={p.key}>
-                        <rect
-                          className={`chart-bar ${panel.role}`}
-                          x={colX(i) - GEO.bar / 2}
-                          y={floor - barH(p.value, panel.max)}
-                          width={GEO.bar}
-                          height={Math.max(1, barH(p.value, panel.max))}
-                          rx={3}
-                        />
-                        <text
-                          className="chart-value"
-                          x={colX(i)}
-                          y={floor - barH(p.value, panel.max) - 8}
-                          textAnchor="middle"
-                        >
-                          {cell(p.value, panel.fmt)}
-                        </text>
-                      </g>
-                    ),
-                  )
-                )}
-              </g>
-            );
-          })}
+                </g>
+              );
+            })}
 
-          {/* One x-axis under the bottom panel — the three share it, which is
-              what makes them one argument rather than three charts. */}
-          {model.columns.map((c, i) => (
-            <g key={c.key}>
+            {/* The right axis gets labels at the same heights, reading its own
+                scale — which is what makes two units on one plot legible. */}
+            {ticksFor(model.right.max).map((t) => (
               <text
-                className="chart-x"
-                x={colX(i)}
-                y={panelTop(2) + GEO.panelH + 24}
-                textAnchor="middle"
+                key={t}
+                className="chart-tick s-right"
+                x={W - GEO.padR + 12}
+                y={valueY(t, model.right.max) + 4}
+                textAnchor="start"
               >
-                {c.label}
+                {cell(t, model.right.fmt)}
               </text>
-              {c.sub ? (
-                <text
-                  className="chart-xsub"
-                  x={colX(i)}
-                  y={panelTop(2) + GEO.panelH + 40}
-                  textAnchor="middle"
-                >
-                  {c.sub}
-                </text>
-              ) : null}
-            </g>
-          ))}
-        </svg>
+            ))}
+
+            {draw(model.left, true)}
+            {draw(model.right, false)}
+
+            {/* A column where neither line has a value still gets its place on
+                the axis. Dropping it would close the gap and shorten the run. */}
+            {model.columns.map((c, i) => {
+              const blank =
+                model.left.points[i]?.value === null && model.right.points[i]?.value === null;
+              return (
+                <g key={c.key}>
+                  {blank ? (
+                    <text className="chart-gap" x={colX(i)} y={floor - 10} textAnchor="middle">
+                      —
+                    </text>
+                  ) : null}
+                  <text className="chart-x" x={colX(i)} y={floor + 22} textAnchor="middle">
+                    {c.label}
+                  </text>
+                  {c.sub ? (
+                    <text className="chart-xsub" x={colX(i)} y={floor + 38} textAnchor="middle">
+                      {c.sub}
+                    </text>
+                  ) : null}
+                </g>
+              );
+            })}
+          </svg>
+        </div>
       </div>
 
+      {model.left.empty || model.right.empty ? (
+        <div className="notice info">
+          <span className="ico">?</span>
+          <div>
+            <b>{(model.left.empty ? model.left : model.right).label} has no measurement on this
+            cut</b>, so that line is absent rather than drawn along the floor. A flat line at
+            zero would claim a number that was never recorded.
+          </div>
+        </div>
+      ) : null}
+
       <p className="note chart-legend">
-        <b>Input → objective → efficiency</b>, read downwards: what was spent, what it
-        produced, and what one unit of that cost.{" "}
-        {model.objective.betterWhen === "lower"
-          ? "On the bottom panel, down is better."
-          : "On the bottom panel, up is better."}{" "}
-        Each panel has its own scale — money, people and a ratio share no unit, so a
-        single axis would flatten two of them into the floor. A column with no
-        measurement is a gap, never a zero, and the efficiency line breaks across it
+        <b>Input against outcome.</b> Ad spend is the input and never changes; the right-hand
+        line is what you are reading it against, chosen above.{" "}
+        {against === "efficiency"
+          ? model.objective.betterWhen === "lower"
+            ? "Spend rising while the right line falls is the shape you want."
+            : "Spend rising while the right line rises with it is the shape you want."
+          : "Switch to the efficiency reading to see what a unit of it cost."}{" "}
+        Each line has its own axis — sharing one would flatten the smaller of the two into
+        the floor. A column with no measurement is a gap, and the line breaks across it
         rather than drawing a trend through a number nobody has.
         {model.blanks.length ? (
           <>
             {" "}
-            Nothing at all recorded yet for <b>{model.blanks.join(", ")}</b>.
+            Nothing recorded at all for <b>{model.blanks.join(", ")}</b>.
           </>
         ) : null}
         {note ? <> {note}</> : null}

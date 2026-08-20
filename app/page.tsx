@@ -40,7 +40,7 @@ export default async function Page({
   searchParams: Promise<{
     client?: string; view?: string;
     product?: string; channel?: string; from?: string; to?: string;
-    mode?: string; objective?: string;
+    mode?: string; objective?: string; against?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -60,6 +60,7 @@ export default async function Page({
   const opts: ViewOpts = {
     mode: params.mode === "graph" ? "graph" : "table",
     objective: isObjective(params.objective) ? params.objective : DEFAULT_OPTS.objective,
+    against: params.against === "objective" ? "objective" : DEFAULT_OPTS.against,
   };
   const data = await getDashboard(params.client, params.view ?? "round", filter);
 
@@ -132,10 +133,13 @@ export default async function Page({
                 <p>{blurb}</p>
               </div>
               <SpineChart
-                title="Input → objective → efficiency"
-                sub={`spend, then ${OBJECTIVES[opts.objective].label.toLowerCase()}, then ${OBJECTIVES[opts.objective].efficiencyLabel.toLowerCase()}`}
+                title="Input against outcome"
+                sub={`ad spend against ${(opts.against === "objective"
+                  ? OBJECTIVES[opts.objective].label
+                  : OBJECTIVES[opts.objective].efficiencyLabel).toLowerCase()}`}
                 cuts={data.columns}
                 objective={opts.objective}
+                against={opts.against}
                 notice={
                   <>
                     <b>The Total column is not plotted.</b> A total is not a point on this
@@ -147,7 +151,7 @@ export default async function Page({
                 note={
                   <>
                     Switch objective above to ask a different question of the same rounds; the
-                    efficiency panel follows it, because cost per attendee under a revenue
+                    right-hand line follows it, because cost per attendee under a revenue
                     objective would be two questions on one screen.
                   </>
                 }
