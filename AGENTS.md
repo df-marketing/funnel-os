@@ -59,6 +59,7 @@
 - accepting unmatched items had a bug where it would discard funds — now fixed
 - Column pinning is now actually enforced in the UI (previously claimed but not implemented)
 - A round outside the filter must not leave an empty column behind — filtering logic needs to handle column cleanup.
+- Channel ratios are blanked only when the channel filter actually removes something — if the filter takes nothing, ratios remain shown.
 
 ## Notes
 
