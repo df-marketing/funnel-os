@@ -64,6 +64,7 @@
 - A round outside the filter must not leave an empty column behind — filtering logic needs to handle column cleanup.
 - Channel ratios are blanked only when the channel filter actually removes something — if the filter takes nothing, ratios remain shown.
 - first real run of the import pipeline revealed four faults, none of which threw an exception — silent data corruption is possible if validation is missing.
+- The journey strip was showing unfiltered numbers above filtered tables.
 
 ## Notes
 
