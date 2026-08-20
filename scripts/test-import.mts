@@ -1209,7 +1209,7 @@ console.log("\nCommit — re-importing a source retires the batch it replaces");
 
   // Step 7 -- candidates, and the two cases the arithmetic can stand behind.
   const cands = candidatesFrom(
-    [A("Dead", 500, 0, 25), A("Pricey", 600, 4, 30), A("Fine", 900, 60, 45)],
+    [A("Dead", 500, 0, 20), A("Pricey", 900, 12, 30), A("Fine", 900, 60, 40), A("Tiny", 12, 0, 10)],
     "0826-01",
   );
   eq("money spent for no leads is a candidate to cut",
@@ -1218,6 +1218,30 @@ console.log("\nCommit — re-importing a source retires the batch it replaces");
      cands.filter((c) => c.kind === "watch").map((c) => c.headline.split(" ")[0]).join(","), "Pricey");
   eq("and a normal one is left alone", cands.some((c) => c.headline.startsWith("Fine")), false);
   eq("no spend at all proposes nothing", candidatesFrom([], "0826-01").length, 0);
+
+  /**
+   * The floors. The first real run of this screen proposed a creative at 3.5x
+   * the round's CPL on TWO leads -- one more lead would have halved that.
+   */
+  eq("a CPL multiple on too few leads is not proposed",
+     candidatesFrom([A("Noise", 400, 2, 20), A("Fine", 1600, 100, 80)], "R").length, 0);
+  eq("the same asset with ten leads is",
+     candidatesFrom([A("Noise", 400, 10, 20), A("Fine", 1600, 100, 80)], "R")
+       .filter((c) => c.kind === "watch").length, 1);
+  eq("and an asset that never spent a lead's worth is not blamed for having none",
+     cands.some((c) => c.headline.startsWith("Tiny")), false);
+
+  // A move out of zero has no percentage, but it is not "no comparison".
+  const outOfZero = compare("midBuy", M({ midBuy: 2 }), M({ midBuy: 0 }), null, null);
+  eq("0 to 2 reads as a move, not a blank", moveChip(outOfZero).text, "▲ from 0");
+  eq("and it reads as good", moveChip(outOfZero).tone, "good");
+  // Into zero is not the same case: it divides by the old figure and has a
+  // perfectly good percentage, so it keeps one.
+  const intoZero = compare("midBuy", M({ midBuy: 0 }), M({ midBuy: 2 }), null, null);
+  eq("2 to 0 keeps its percentage", moveChip(intoZero).text, "▼ 100.0%");
+  eq("and it reads as bad", moveChip(intoZero).tone, "bad");
+  eq("absent still reads as no comparison",
+     moveChip(compare("midBuy", M({ midBuy: null }), M({ midBuy: 2 }), null, null)).tone, "none");
 
   // How far through the round we are -- the difference between judging a round
   // on day 2 and on day 12.

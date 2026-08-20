@@ -187,6 +187,8 @@ export type Asset = {
   spend: number | null;
   leads: number;
   spend_share: number | null;
+  /** Only on '(ad ids)' — how many untracked ads that one row stands for. */
+  id_count?: number | null;
 };
 
 export type AssetChange = {
@@ -201,6 +203,26 @@ export type AssetChange = {
 
 /** A share moving by this many points of the round is a redistribution. */
 export const SHARE_SHIFT_PTS = 5;
+
+/**
+ * Floors for step 7, so a candidate is never proposed on noise.
+ *
+ * The first real run of this screen offered "Static_ContentAtScale_Text costs
+ * 3.5× the round's own CPL" on TWO leads. One more lead would have halved that
+ * multiple. The screen's own footer promises not to rank a creative on one
+ * round, and proposing one on two leads is that promise broken quietly.
+ *
+ * MIN_ASSET_LEADS is deliberately below the 30 used for rates: step 7 offers
+ * something to TEST, not a winner to back, and 10 leads at 3× the round average
+ * is worth a test. It is still stated on the screen so the reader knows what
+ * was filtered out.
+ *
+ * MIN_SPEND_MULTIPLE guards the other candidate: an asset that spent less than
+ * two leads' worth cannot be blamed for producing no leads.
+ */
+export const MIN_ASSET_LEADS = 10;
+export const MIN_SPEND_MULTIPLE = 2;
+export const CPL_MULTIPLE = 1.5;
 
 /**
  * Which audiences and creatives are new, gone, or carrying a different share.
@@ -275,7 +297,13 @@ export function candidatesFrom(assets: Asset[], roundLabel: string): Candidate[]
 
   const out: Candidate[] = [];
 
-  for (const a of paid.filter((a) => a.leads === 0).sort((x, y) => (y.spend ?? 0) - (x.spend ?? 0))) {
+  // Spent enough to have bought a lead at the round's own rate, and bought none.
+  const couldHaveBought = (a: Asset) =>
+    roundCpl === null || (a.spend ?? 0) >= roundCpl * MIN_SPEND_MULTIPLE;
+
+  for (const a of paid
+    .filter((a) => a.leads === 0 && couldHaveBought(a))
+    .sort((x, y) => (y.spend ?? 0) - (x.spend ?? 0))) {
     out.push({
       kind: "cut",
       headline: `${a.name} spent and returned nothing`,
@@ -285,9 +313,9 @@ export function candidatesFrom(assets: Asset[], roundLabel: string): Candidate[]
   }
 
   if (roundCpl !== null) {
-    for (const a of paid.filter((a) => a.leads > 0)) {
+    for (const a of paid.filter((a) => a.leads >= MIN_ASSET_LEADS)) {
       const cpl = (a.spend ?? 0) / a.leads;
-      if (cpl >= roundCpl * 1.5) {
+      if (cpl >= roundCpl * CPL_MULTIPLE) {
         out.push({
           kind: "watch",
           headline: `${a.name} costs ${(cpl / roundCpl).toFixed(1)}× the round's own CPL`,
@@ -305,10 +333,23 @@ export function candidatesFrom(assets: Asset[], roundLabel: string): Candidate[]
 
 /** "▲ 12.4%" / "▼ 3.1%" / "=" — the arrow says direction of MOVEMENT, not good. */
 export function moveChip(m: Move): { text: string; tone: "good" | "bad" | "flat" | "none" } {
-  if (m.verdict === "unknown" || m.deltaPct === null) return { text: "—", tone: "none" };
+  if (m.verdict === "unknown") return { text: "—", tone: "none" };
+  const tone = m.verdict === "better" ? "good" : m.verdict === "worse" ? "bad" : "flat";
+
+  /**
+   * A move OUT of zero has no percentage, and reporting it as "no comparison"
+   * understated it badly: Middle Offer Purchases going 0 → 2 is the whole story
+   * of that round, and the chip said nothing had happened.
+   *
+   * Only out of zero — a move INTO zero divides by the old figure and has a
+   * perfectly good percentage of -100%, which is what it shows.
+   */
+  if (m.deltaPct === null) {
+    if (m.now !== null && m.prev === 0 && m.now > 0) return { text: "▲ from 0", tone };
+    return { text: "—", tone: "none" };
+  }
+
   const arrow = m.deltaPct > 0 ? "▲" : m.deltaPct < 0 ? "▼" : "=";
-  const tone =
-    m.verdict === "better" ? "good" : m.verdict === "worse" ? "bad" : "flat";
   return { text: `${arrow} ${Math.abs(m.deltaPct).toFixed(1)}%`, tone };
 }
 

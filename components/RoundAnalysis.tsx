@@ -4,6 +4,7 @@ import { OBJECTIVES, type ObjectiveKey } from "@/lib/funnel/chart";
 import {
   movesFor, issuesIn, tooThinIn, missedTargetIn, diffAssets, candidatesFrom,
   moveChip, roundProgress, MIN_SAMPLE, MATERIAL_PCT, SHARE_SHIFT_PTS,
+  MIN_ASSET_LEADS, MIN_SPEND_MULTIPLE,
   type Move, type Asset,
 } from "@/lib/funnel/analysis";
 
@@ -23,6 +24,24 @@ import {
 const KPIS: MetricKey[] = ["spend", "leads", "attPct", "prevPct", "roas"];
 
 const money = (v: number | null) => (v === null ? "—" : (fmt(v, "m") ?? "—"));
+
+/**
+ * "1 lead" / "2 leads", as one string.
+ *
+ * Written out because JSX inserts whitespace between adjacent expressions, so
+ * `{n} lead{n === 1 ? "" : "s"}` rendered on screen as "2 lead s".
+ */
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/**
+ * Spend, or the fact that there isn't any.
+ *
+ * "SGD —" reads as a missing figure. These assets have no spend because no ad
+ * in the export answers to their name — untracked leads, not unmeasured money —
+ * and that is worth saying in words.
+ */
+const spendOf = (a: { spend: number | null } | null | undefined) =>
+  a && a.spend !== null ? `SGD ${money(a.spend)}` : "no spend in the export";
 
 function Chip({ move }: { move: Move }) {
   const chip = moveChip(move);
@@ -264,13 +283,15 @@ export function RoundAnalysis({
                 <span className="detail">
                   {c.change === "added" ? (
                     <>
-                      new this round · SGD {money(c.now?.spend ?? null)} ·{" "}
-                      {c.now?.leads ?? 0} lead{(c.now?.leads ?? 0) === 1 ? "" : "s"}
+                      {spendOf(c.now)} · {plural(c.now?.leads ?? 0, "lead")} · new this round
+                      {c.now?.id_count ? ` · stands for ${c.now.id_count} untracked ads` : ""}
                     </>
                   ) : c.change === "dropped" ? (
                     <>
-                      ran in {prevId} and not here · was SGD {money(c.prev?.spend ?? null)} ·{" "}
-                      {c.prev?.spend_share ?? "—"}% of that round
+                      ran in {prevId} and not here · was {spendOf(c.prev)}
+                      {c.prev?.spend_share !== null && c.prev?.spend_share !== undefined
+                        ? ` · ${c.prev.spend_share}% of that round`
+                        : ""}
                     </>
                   ) : (
                     <>
@@ -461,10 +482,12 @@ export function RoundAnalysis({
           </p>
         )}
         <p className="cro-foot">
-          Every one of these is one round of evidence, which is not enough to rank a creative on.
-          They are candidates to test, and the call is yours rather than the tool&rsquo;s — the
-          comparison that settles it is on <b>Targeted views</b> and <b>Ads</b>, where every round
-          is summed.
+          Nothing is proposed on fewer than {MIN_ASSET_LEADS} leads, and nothing is called a
+          failure for spending less than {MIN_SPEND_MULTIPLE} leads&rsquo; worth — at those sizes
+          one more lead changes the answer. Every one of these is still one round of evidence,
+          which is not enough to rank a creative on. They are candidates to test, and the call is
+          yours rather than the tool&rsquo;s — the comparison that settles it is on{" "}
+          <b>Targeted views</b> and <b>Ads</b>, where every round is summed.
         </p>
       </Step>
 
