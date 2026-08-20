@@ -94,3 +94,4 @@
 - Sprint execution: a round runs however many classes it runs, and weeks don't wait for one.
 - ad set names were colliding and have been deduplicated (likely via dedupe key changes).
 - plot now fills its pane (layout/rendering fix).
+- Handoff for review, and stop step 7 truncating its list in silence.
