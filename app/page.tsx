@@ -5,7 +5,7 @@ import { RoundAnalysis } from "@/components/RoundAnalysis";
 import { TopBar, JourneyStrip, SideNav, NotWired, PaneControls, WIRED } from "@/components/Shell";
 import { ImportPane, UnmatchedPane } from "@/components/DataPanes";
 import {
-  DEFAULT_OPTS, GRAPHABLE, isObjective, OBJECTIVES, type ViewOpts,
+  DEFAULT_OPTS, GRAPHABLE, isObjective, isVs, vsOption, type ViewOpts,
 } from "@/lib/funnel/chart";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +41,7 @@ export default async function Page({
   searchParams: Promise<{
     client?: string; view?: string;
     product?: string; channel?: string; from?: string; to?: string;
-    mode?: string; objective?: string; against?: string;
+    mode?: string; objective?: string; vs?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -61,7 +61,7 @@ export default async function Page({
   const opts: ViewOpts = {
     mode: params.mode === "graph" ? "graph" : "table",
     objective: isObjective(params.objective) ? params.objective : DEFAULT_OPTS.objective,
-    against: params.against === "objective" ? "objective" : DEFAULT_OPTS.against,
+    vs: isVs(params.vs) ? params.vs : DEFAULT_OPTS.vs,
   };
   const data = await getDashboard(params.client, params.view ?? "round", filter);
 
@@ -147,12 +147,9 @@ export default async function Page({
               </div>
               <SpineChart
                 title="Input against outcome"
-                sub={`ad spend against ${(opts.against === "objective"
-                  ? OBJECTIVES[opts.objective].label
-                  : OBJECTIVES[opts.objective].efficiencyLabel).toLowerCase()}`}
+                sub={`ad spend against ${vsOption(opts.vs).label.toLowerCase()}`}
                 cuts={data.columns}
-                objective={opts.objective}
-                against={opts.against}
+                vs={opts.vs}
                 notice={
                   <>
                     <b>The Total column is not plotted.</b> A total is not a point on this
@@ -163,9 +160,9 @@ export default async function Page({
                 }
                 note={
                   <>
-                    Switch objective above to ask a different question of the same rounds; the
-                    right-hand line follows it, because cost per attendee under a revenue
-                    objective would be two questions on one screen.
+                    The left line never changes — it is what you spent. Everything above picks
+                    the right one, so the chart always answers exactly one question of the same
+                    rounds.
                   </>
                 }
               />

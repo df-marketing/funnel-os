@@ -149,9 +149,13 @@ printing as if observed.
 
 ### Step 5 — The graph · app-only, no migration
 
-A Table/Graph switch on nine tabs. One plot, two lines, an axis each: ad spend on the left, and on
-the right either the objective's own level or its efficiency. `mode`, `objective` and `against` live
-in the URL.
+A Table/Graph switch on nine tabs. One plot, two lines, an axis each: ad spend on the left — always,
+and unchangeable — and on the right one metric chosen from eight, grouped into the outcome itself
+and the efficiency of it. `mode` and `vs` live in the URL.
+
+This was originally Objective (four) × Spend-vs (two): eight states through two controls, which put
+the *same metric name* selected in both rows at once. The pairing is real in the code (an efficiency
+must know its denominator) but on screen it was a data structure leaking into an interface.
 
 - [ ] **A missing value must break the line, not be drawn through.** Every dashboard of this shape
       draws straight across a blank and calls it a trend (`lineRuns` splits at every gap).

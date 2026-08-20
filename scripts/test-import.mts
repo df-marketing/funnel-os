@@ -24,7 +24,7 @@ import { planImport, commitPlan, ImportError } from "../lib/import/pipeline";
 import { cadencesFor, resolveSpine } from "../lib/funnel/cadence";
 import {
   niceMax, axisMax, num, chartModel, lineRuns, colX, valueY, floorY, ticksFor, TICKS, GEO,
-  colWidth, chartWidth, labelChars, wrapLabel,
+  colWidth, chartWidth, labelChars, wrapLabel, VS_OPTIONS, vsOption, isVs, DEFAULT_OPTS,
 } from "../lib/funnel/chart";
 import {
   compare, movesFor, issuesIn, tooThinIn, missedTargetIn, diffAssets, candidatesFrom,
@@ -1071,15 +1071,15 @@ console.log("\nCommit — re-importing a source retires the batch it replaces");
     cut("DEMO-W1", { spend: "500.00", att: null, cpAtt: null }),
   ];
 
-  const eff = chartModel(rounds, "att", "efficiency");
+  const eff = chartModel(rounds, "cpAtt");
   eq("spend is always the left line", eff.left.label, "Ads Spent (SGD)");
   eq("and it owns the left axis", eff.left.axis, "left");
   eq("the right line is the objective's efficiency", eff.right.label, "Cost per attendance (SGD)");
   eq("on its own axis", eff.right.axis, "right");
   eq("two scales, not one", eff.left.max === eff.right.max, false);
 
-  const obj = chartModel(rounds, "att", "objective");
-  eq("switching to the objective changes the right line", obj.right.label, "Overall Attendance");
+  const obj = chartModel(rounds, "att");
+  eq("picking the amount puts it on the right line", obj.right.label, "Overall Attendance");
   eq("but never the left one", obj.left.label, "Ads Spent (SGD)");
 
   eq("a blank attendance stays blank rather than becoming 0", obj.right.points[2].value, null);
@@ -1094,7 +1094,7 @@ console.log("\nCommit — re-importing a source retires the batch it replaces");
 
   const holed = chartModel(
     [cut("a", { cpAtt: "10" }), cut("b", { cpAtt: null }), cut("c", { cpAtt: "30" })],
-    "att", "efficiency",
+    "cpAtt",
   );
   const r2 = lineRuns(holed.right.points, holed.right.max);
   eq("a gap in the middle splits the line into two runs", r2.length, 2);
@@ -1102,7 +1102,7 @@ console.log("\nCommit — re-importing a source retires the batch it replaces");
   eq("right run has one point", r2[1].length, 1);
 
   eq("a round with nothing on either line is named under the chart",
-     chartModel([cut("Q", { spend: null, att: null, cpAtt: null })], "att", "efficiency").blanks.join(","), "Q");
+     chartModel([cut("Q", { spend: null, att: null, cpAtt: null })], "cpAtt").blanks.join(","), "Q");
   eq("a round with any value is not", eff.blanks.length, 0);
 
   // Geometry: the top of the scale is the top of the plot, the floor is the floor.
@@ -1132,10 +1132,25 @@ console.log("\nCommit — re-importing a source retires the batch it replaces");
   eq("and never more than two lines", wrapLabel("a_b_c_d_e_f_g_h_i_j_k_l", 6).length, 2);
   eq("more columns means fewer characters each", labelChars(20) < labelChars(4), true);
 
-  eq("the revenue objective reads efficiency as ROAS",
-     chartModel([cut("x", { rev: "5067" })], "rev", "efficiency").right.label, "Overall ROAS");
-  eq("and up is better there",
-     chartModel([cut("x", { rev: "5067" })], "rev", "efficiency").objective.betterWhen, "higher");
+  eq("ROAS is reachable as its own option",
+     chartModel([cut("x", { rev: "5067" })], "roas").right.label, "Overall ROAS");
+  eq("and up is better there", chartModel([cut("x", { rev: "5067" })], "roas").vs.betterWhen, "higher");
+
+  /**
+   * One control, eight options. It used to be four objectives x two readings,
+   * which put the same metric name in both rows at once.
+   */
+  eq("eight ways to read spend, and no repeats",
+     new Set(VS_OPTIONS.map((o) => o.short)).size, 8);
+  eq("four are the outcome itself", VS_OPTIONS.filter((o) => o.kind === "amount").length, 4);
+  eq("four are its efficiency", VS_OPTIONS.filter((o) => o.kind === "efficiency").length, 4);
+  eq("no short label appears in both rows",
+     VS_OPTIONS.filter((o) => o.kind === "amount")
+       .some((a) => VS_OPTIONS.some((b) => b.kind === "efficiency" && b.short === a.short)), false);
+  eq("ROAS sits with the efficiencies but still reads up",
+     [vsOption("roas").kind, vsOption("roas").betterWhen].join("/"), "efficiency/higher");
+  eq("an unknown vs in the URL falls back rather than throwing", isVs("nonsense"), false);
+  eq("and the default is a real option", isVs(DEFAULT_OPTS.vs), true);
 }
 
 /**

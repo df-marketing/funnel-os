@@ -70,16 +70,60 @@ export const isObjective = (v: string | null | undefined): v is ObjectiveKey =>
 /**
  * What the right-hand axis carries.
  *
- * The input is always ad spend — that half of the question never changes. What
- * you read it AGAINST does: the objective's own level, or what a unit of it
- * cost. Two lines, because a third would need a third axis, and three axes on
- * one plot is a puzzle rather than a chart.
+ * The input is always ad spend — that half of the question never changes, so
+ * everything here is choosing the other line. Two lines, because a third would
+ * need a third axis, and three axes on one plot is a puzzle rather than a chart.
+ *
+ * ── WHY THIS IS ONE LIST AND NOT TWO CONTROLS ─────────────────────────────
+ * It used to be Objective (four) times Spend-vs (two). Eight states reached
+ * through two controls, and the screenshot that killed it showed "Overall
+ * Attendance" lit up in BOTH rows at once, four hundred pixels apart, because
+ * the second control's first option is by construction the same string as the
+ * first control's selection.
+ *
+ * That pairing is real in the code — an efficiency has to know its own
+ * denominator — but on screen it was a data structure leaking into an
+ * interface. The graph asks one question, "spend against what", and the answer
+ * is one metric. So: one list, grouped into the amount and its efficiency, so
+ * eight options still scan as two kinds.
+ *
+ * `objective` survives on This round, where it genuinely names a goal rather
+ * than picking a line.
  */
-export type Against = "objective" | "efficiency";
-export const AGAINST_KEYS: Against[] = ["objective", "efficiency"];
+export type VsKey = "leads" | "att" | "prevBuy" | "rev" | "cpl" | "cpAtt" | "cpa" | "roas";
+
+export type VsOption = {
+  key: VsKey;
+  metric: MetricKey;
+  /** On the button. Short, because eight of them share a control bar. */
+  short: string;
+  /** On the axis and in the legend, where there is room to be exact. */
+  label: string;
+  fmt: Fmt;
+  /** Which row it sits in: the outcome itself, or the efficiency of it. */
+  kind: "amount" | "efficiency";
+  betterWhen: "lower" | "higher";
+};
+
+export const VS_OPTIONS: VsOption[] = [
+  { key: "leads",   metric: "leads",   short: "Leads",      label: "Leads",                   fmt: "i",  kind: "amount",     betterWhen: "higher" },
+  { key: "att",     metric: "att",     short: "Attendance", label: "Overall Attendance",      fmt: "i",  kind: "amount",     betterWhen: "higher" },
+  { key: "prevBuy", metric: "prevBuy", short: "Purchases",  label: "Preview Offer Purchases", fmt: "i",  kind: "amount",     betterWhen: "higher" },
+  { key: "rev",     metric: "rev",     short: "Revenue",    label: "Total Revenue (SGD)",     fmt: "m",  kind: "amount",     betterWhen: "higher" },
+  { key: "cpl",     metric: "cpl",     short: "Cost per lead",       label: "Cost per lead (SGD)",       fmt: "m",  kind: "efficiency", betterWhen: "lower" },
+  { key: "cpAtt",   metric: "cpAtt",   short: "Cost per attendance", label: "Cost per attendance (SGD)", fmt: "m",  kind: "efficiency", betterWhen: "lower" },
+  { key: "cpa",     metric: "cpa",     short: "CPA",                 label: "Cost per acquisition (SGD)",fmt: "m",  kind: "efficiency", betterWhen: "lower" },
+  // The one that goes UP when it improves. It sits with the efficiencies
+  // because that is what it measures, not because it is a cost.
+  { key: "roas",    metric: "roas",    short: "ROAS",                label: "Overall ROAS",              fmt: "d1", kind: "efficiency", betterWhen: "higher" },
+];
+
+export const vsOption = (k: VsKey) => VS_OPTIONS.find((o) => o.key === k) ?? VS_OPTIONS[5];
+export const isVs = (v: string | null | undefined): v is VsKey =>
+  !!v && VS_OPTIONS.some((o) => o.key === v);
 
 export type ViewMode = "table" | "graph";
-export type ViewOpts = { mode: ViewMode; objective: ObjectiveKey; against: Against };
+export type ViewOpts = { mode: ViewMode; objective: ObjectiveKey; vs: VsKey };
 
 /**
  * Attendance, because that is the objective the brief named: "let's say client
@@ -87,7 +131,7 @@ export type ViewOpts = { mode: ViewMode; objective: ObjectiveKey; against: Again
  * default and not a decision — the picker is one click away and the choice
  * lives in the URL.
  */
-export const DEFAULT_OPTS: ViewOpts = { mode: "table", objective: "att", against: "efficiency" };
+export const DEFAULT_OPTS: ViewOpts = { mode: "table", objective: "att", vs: "cpAtt" };
 
 /**
  * Tabs whose cut is one-dimensional, so it can be an x-axis.
@@ -162,7 +206,7 @@ export type ChartModel = {
   left: Series;
   right: Series;
   columns: { key: string; label: string; sub: string | null }[];
-  objective: ObjectiveDef;
+  vs: VsOption;
   /** Cuts that carried nothing on either line. Named under the chart, not hidden. */
   blanks: string[];
 };
@@ -196,13 +240,10 @@ function seriesFor(
  * The Total column is deliberately not passed in by the caller: a total is not
  * a point on a time axis.
  */
-export function chartModel(cuts: Cut[], objective: ObjectiveKey, against: Against): ChartModel {
-  const def = OBJECTIVES[objective];
+export function chartModel(cuts: Cut[], vs: VsKey): ChartModel {
+  const opt = vsOption(vs);
   const left = seriesFor("input", "left", "Ads Spent (SGD)", "spend", "m", cuts);
-  const right =
-    against === "objective"
-      ? seriesFor("against", "right", def.label, def.metric, def.metricFmt, cuts)
-      : seriesFor("against", "right", def.efficiencyLabel, def.efficiency, def.efficiencyFmt, cuts);
+  const right = seriesFor("against", "right", opt.label, opt.metric, opt.fmt, cuts);
 
   const blanks = cuts
     .filter((c) =>
@@ -212,7 +253,7 @@ export function chartModel(cuts: Cut[], objective: ObjectiveKey, against: Agains
   return {
     left, right,
     columns: cuts.map((c) => ({ key: c.cut_key, label: c.cut_label ?? c.cut_key, sub: c.cut_sub ?? null })),
-    objective: def,
+    vs: opt,
     blanks,
   };
 }

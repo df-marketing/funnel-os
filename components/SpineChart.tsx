@@ -2,7 +2,7 @@ import type { Cut } from "@/lib/funnel/data";
 import {
   chartModel, chartWidth, chartHeight, colX, valueY, floorY, lineRuns, ticksFor, cell,
   labelChars, wrapLabel, clipLabel, GEO,
-  type ObjectiveKey, type Against, type Series,
+  type VsKey, type Series,
 } from "@/lib/funnel/chart";
 
 /**
@@ -26,17 +26,16 @@ import {
  * that rule costs nothing visible and changes what the chart says.
  */
 export function SpineChart({
-  title, sub, cuts, objective, against, notice, note,
+  title, sub, cuts, vs, notice, note,
 }: {
   title: string;
   sub: string;
   cuts: Cut[];
-  objective: ObjectiveKey;
-  against: Against;
+  vs: VsKey;
   notice?: React.ReactNode;
   note?: React.ReactNode;
 }) {
-  const model = chartModel(cuts, objective, against);
+  const model = chartModel(cuts, vs);
   const n = cuts.length;
   const W = chartWidth(n);
   const H = chartHeight();
@@ -230,11 +229,11 @@ export function SpineChart({
       <p className="note chart-legend">
         <b>Input against outcome.</b> Ad spend is the input and never changes; the right-hand
         line is what you are reading it against, chosen above.{" "}
-        {against === "efficiency"
-          ? model.objective.betterWhen === "lower"
-            ? "Spend rising while the right line falls is the shape you want."
-            : "Spend rising while the right line rises with it is the shape you want."
-          : "Switch to the efficiency reading to see what a unit of it cost."}{" "}
+        {model.vs.kind === "efficiency"
+          ? model.vs.betterWhen === "lower"
+            ? "On this reading, spend rising while the right line falls is the shape you want."
+            : "On this reading, spend rising while the right line rises with it is the shape you want."
+          : "That is the outcome itself — pick a row below it to see what a unit of it cost."}{" "}
         Each line has its own axis — sharing one would flatten the smaller of the two into
         the floor. A column with no measurement is a gap, and the line breaks across it
         rather than drawing a trend through a number nobody has.

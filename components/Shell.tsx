@@ -6,7 +6,7 @@ import type {
   Client, Stage, StripCard, ImportStatus, Product, ChannelOption, FilterKey, Cadence,
 } from "@/lib/funnel/data";
 import {
-  DEFAULT_OPTS, OBJECTIVE_KEYS, OBJECTIVES, GRAPHABLE, type ViewOpts,
+  DEFAULT_OPTS, OBJECTIVE_KEYS, OBJECTIVES, GRAPHABLE, VS_OPTIONS, type ViewOpts,
 } from "@/lib/funnel/chart";
 
 /**
@@ -25,7 +25,7 @@ const href = (client: string, view: string, f?: FilterKey, o?: ViewOpts) => {
   // reading, instead of dropping you back into the table each time.
   if (o && o.mode !== DEFAULT_OPTS.mode) q.set("mode", o.mode);
   if (o && o.objective !== DEFAULT_OPTS.objective) q.set("objective", o.objective);
-  if (o && o.against !== DEFAULT_OPTS.against) q.set("against", o.against);
+  if (o && o.vs !== DEFAULT_OPTS.vs) q.set("vs", o.vs);
   return `/?${q}`;
 };
 
@@ -447,46 +447,32 @@ export function PaneControls({
         </Link>
       </div>
 
+      {/*
+        One selection across eight, in two labelled rows.
+        Was Objective (four) x Spend-vs (two), which put the same metric name in
+        both rows at once. The rows group; they do not compose.
+      */}
       {opts.mode === "graph" ? (
-        <>
-          <div className="objective">
-            <span className="filter-label">Objective</span>
-            <div className="filter-opts">
-              {OBJECTIVE_KEYS.map((k) => (
-                <Link
-                  key={k}
-                  href={href(client, view, filter, { ...opts, objective: k })}
-                  className="filter-opt"
-                  aria-pressed={opts.objective === k}
-                  title={`Efficiency becomes ${OBJECTIVES[k].efficiencyLabel}`}
-                >
-                  {OBJECTIVES[k].label}
-                </Link>
-              ))}
+        <div className="vs">
+          {(["amount", "efficiency"] as const).map((kind) => (
+            <div className="vs-row" key={kind}>
+              <span className="filter-label">{kind === "amount" ? "Spend vs" : "or efficiency"}</span>
+              <div className="filter-opts">
+                {VS_OPTIONS.filter((o) => o.kind === kind).map((o) => (
+                  <Link
+                    key={o.key}
+                    href={href(client, view, filter, { ...opts, vs: o.key })}
+                    className="filter-opt"
+                    aria-pressed={opts.vs === o.key}
+                    title={`Plot ad spend against ${o.label}`}
+                  >
+                    {o.short}
+                  </Link>
+                ))}
+              </div>
             </div>
-          </div>
-
-          {/* Spend is always the left line. This is the right one. */}
-          <div className="objective">
-            <span className="filter-label">Spend vs</span>
-            <div className="filter-opts">
-              <Link
-                href={href(client, view, filter, { ...opts, against: "objective" })}
-                className="filter-opt"
-                aria-pressed={opts.against === "objective"}
-              >
-                {OBJECTIVES[opts.objective].label}
-              </Link>
-              <Link
-                href={href(client, view, filter, { ...opts, against: "efficiency" })}
-                className="filter-opt"
-                aria-pressed={opts.against === "efficiency"}
-              >
-                {OBJECTIVES[opts.objective].efficiencyLabel}
-              </Link>
-            </div>
-          </div>
-        </>
+          ))}
+        </div>
       ) : null}
     </div>
   );
