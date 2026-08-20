@@ -346,7 +346,9 @@ footer b { color: var(--ink-2); }
 /* Natural size, and scroll rather than shrink. Scaling an SVG down to fit takes
    the value labels with it, and an unreadable number is worse than a scrollbar. */
 .chart-scroll { overflow-x: auto; padding: 0 8px 6px; }
-.chart { display: block; }
+/* Fills the pane it is given, and scrolls once the columns would be narrower
+   than their own labels. Shrinking to fit would take the value labels with it. */
+.chart { display: block; width: 100%; height: auto; }
 
 .chart-tick  { font: 10.5px var(--mono); }
 .chart-value { font: 600 11px var(--mono); }

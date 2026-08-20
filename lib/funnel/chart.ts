@@ -229,16 +229,75 @@ export const GEO = {
   padL: 80,      // left axis labels — money, and money is wide
   padR: 80,      // right axis labels
   padT: 18,      // above the plot
-  col: 118,      // one column's full width
+  minCol: 132,   // narrowest a column may get before the chart starts scrolling
   plotH: 300,
-  axisH: 52,     // x labels, and their sub-labels
+  axisH: 64,     // x labels, which may run to two lines, and their sub-labels
+  /**
+   * The width the plot spreads itself across when it can.
+   *
+   * Columns are not a fixed size. Two rounds drawn at a fixed column width left
+   * the chart huddled in the left third of the pane with the rest empty, so the
+   * width is a target and the columns divide it — the same drawing spread out,
+   * rather than a small drawing in a big box. Past `minCol` per column it stops
+   * dividing and starts scrolling instead, because squeezing further would just
+   * pile the labels back on top of each other.
+   */
+  targetW: 1400,
+  /** Roughly one character of the x-axis label font, for fitting text. */
+  charW: 6.6,
 } as const;
 
-export const chartWidth = (n: number) => GEO.padL + Math.max(1, n) * GEO.col + GEO.padR;
+/** How wide each column is, given how many there are. */
+export const colWidth = (n: number) =>
+  Math.max(GEO.minCol, (GEO.targetW - GEO.padL - GEO.padR) / Math.max(1, n));
+
+export const chartWidth = (n: number) => GEO.padL + Math.max(1, n) * colWidth(n) + GEO.padR;
 export const chartHeight = () => GEO.padT + GEO.plotH + GEO.axisH;
 
 /** Centre of column i, in viewBox x units. */
-export const colX = (i: number) => GEO.padL + i * GEO.col + GEO.col / 2;
+export const colX = (i: number, n: number) => GEO.padL + i * colWidth(n) + colWidth(n) / 2;
+
+/** How many characters of label fit in one column, with a little air either side. */
+export const labelChars = (n: number) => Math.max(6, Math.floor((colWidth(n) - 14) / GEO.charW));
+
+/**
+ * An x-axis label, broken over at most two lines so it fits its column.
+ *
+ * Ad set names are the reason this exists: "Cold_ConsultantsServiceProviders" is
+ * five times its column wide, and six of them side by side rendered as one
+ * unreadable smear across the axis. SVG does not wrap text, so the break has to
+ * be chosen here.
+ *
+ * Split at a seam the name already has — an underscore, a space, a hyphen, or
+ * the join in camelCase — nearest the middle, so the two halves come out as
+ * even as the name allows. Only when there is no seam does it cut mid-word, and
+ * only what still doesn't fit is truncated, with an ellipsis to say so. The full
+ * text goes in a <title> either way, so nothing is lost, only folded.
+ */
+export function wrapLabel(label: string, max: number): string[] {
+  const text = label.trim();
+  if (text.length <= max) return [text];
+
+  const seams: number[] = [];
+  for (let i = 1; i < text.length; i++) {
+    const prev = text[i - 1];
+    if ("_ -·/".includes(prev)) seams.push(i);
+    else if (/[a-z0-9]/.test(prev) && /[A-Z]/.test(text[i])) seams.push(i);
+  }
+
+  const mid = text.length / 2;
+  const fits = seams.filter((i) => i <= max && text.length - i <= max);
+  const pick = (list: number[]) =>
+    list.reduce((best, i) => (Math.abs(i - mid) < Math.abs(best - mid) ? i : best), list[0]);
+
+  const at = fits.length ? pick(fits) : seams.length ? pick(seams) : Math.min(max, Math.ceil(mid));
+  const clip = (t: string) => (t.length <= max ? t : t.slice(0, Math.max(1, max - 1)) + "…");
+  return [clip(text.slice(0, at).trim()), clip(text.slice(at).trim())].filter(Boolean);
+}
+
+/** One line, cut to fit. Used for the smaller sub-label under each column. */
+export const clipLabel = (label: string, max: number) =>
+  label.length <= max ? label : label.slice(0, Math.max(1, max - 1)) + "…";
 
 /** The plot floor — y grows downward, so this is the largest y in the plot. */
 export const floorY = () => GEO.padT + GEO.plotH;
@@ -262,13 +321,14 @@ export const ticksFor = (max: number) =>
 export function lineRuns(points: Point[], max: number): Array<Array<[number, number]>> {
   const runs: Array<Array<[number, number]>> = [];
   let run: Array<[number, number]> = [];
+  const n = points.length;
   points.forEach((p, i) => {
     if (p.value === null) {
       if (run.length) runs.push(run);
       run = [];
       return;
     }
-    run.push([colX(i), valueY(p.value, max)]);
+    run.push([colX(i, n), valueY(p.value, max)]);
   });
   if (run.length) runs.push(run);
   return runs;

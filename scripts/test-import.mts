@@ -24,6 +24,7 @@ import { planImport, commitPlan, ImportError } from "../lib/import/pipeline";
 import { cadencesFor, resolveSpine } from "../lib/funnel/cadence";
 import {
   niceMax, axisMax, num, chartModel, lineRuns, colX, valueY, floorY, ticksFor, TICKS, GEO,
+  colWidth, chartWidth, labelChars, wrapLabel,
 } from "../lib/funnel/chart";
 
 let pass = 0, fail = 0;
@@ -1104,7 +1105,28 @@ console.log("\nCommit — re-importing a source retires the batch it replaces");
   eq("a value at the ceiling reaches the top of the plot", valueY(2000, 2000), floorY() - GEO.plotH);
   eq("half the ceiling is half way up", valueY(1000, 2000), floorY() - GEO.plotH / 2);
   eq("zero sits on the floor", valueY(0, 2000), floorY());
-  eq("columns are evenly spaced", colX(1) - colX(0), GEO.col);
+  eq("columns are evenly spaced", Math.round(colX(1, 6) - colX(0, 6)), Math.round(colWidth(6)));
+
+  // Columns divide the target width instead of being a fixed size, so two
+  // rounds spread across the pane rather than huddling in its left third.
+  eq("two columns split the plot between them", Math.round(colWidth(2)), 620);
+  eq("and the chart still fills the target width", chartWidth(2), GEO.targetW);
+  eq("enough columns and each one hits the floor width", colWidth(10), GEO.minCol);
+  eq("past the floor it stops shrinking and starts scrolling", colWidth(40), GEO.minCol);
+  eq("so forty columns are wider than the target", chartWidth(40) > GEO.targetW, true);
+
+  // Ad set names are five times their column wide; SVG does not wrap text.
+  eq("a short label is left alone", wrapLabel("0526-02", 20).join("|"), "0526-02");
+  eq("a long name breaks at the seam nearest its middle",
+     wrapLabel("Cold_ConsultantsServiceProviders", 18).join("|"), "Cold_Consultants|ServiceProviders");
+  eq("camelCase counts as a seam",
+     wrapLabel("ConsultantsServiceProviders", 16).join("|"), "Consultants|ServiceProviders");
+  eq("a name with no seam at all is cut mid-word, not dropped",
+     wrapLabel("A".repeat(24), 10).join("|"), "AAAAAAAAAA|AAAAAAAAA…");
+  eq("and what it cut is flagged with an ellipsis",
+     wrapLabel("A".repeat(24), 10)[1].endsWith("…"), true);
+  eq("and never more than two lines", wrapLabel("a_b_c_d_e_f_g_h_i_j_k_l", 6).length, 2);
+  eq("more columns means fewer characters each", labelChars(20) < labelChars(4), true);
 
   eq("the revenue objective reads efficiency as ROAS",
      chartModel([cut("x", { rev: "5067" })], "rev", "efficiency").right.label, "Overall ROAS");

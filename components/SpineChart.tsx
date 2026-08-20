@@ -1,6 +1,7 @@
 import type { Cut } from "@/lib/funnel/data";
 import {
-  chartModel, chartWidth, chartHeight, colX, valueY, floorY, lineRuns, ticksFor, cell, GEO,
+  chartModel, chartWidth, chartHeight, colX, valueY, floorY, lineRuns, ticksFor, cell,
+  labelChars, wrapLabel, clipLabel, GEO,
   type ObjectiveKey, type Against, type Series,
 } from "@/lib/funnel/chart";
 
@@ -36,9 +37,11 @@ export function SpineChart({
   note?: React.ReactNode;
 }) {
   const model = chartModel(cuts, objective, against);
-  const W = chartWidth(cuts.length);
+  const n = cuts.length;
+  const W = chartWidth(n);
   const H = chartHeight();
   const floor = floorY();
+  const chars = labelChars(n);
 
   if (!cuts.length) {
     return (
@@ -84,10 +87,10 @@ export function SpineChart({
         {s.points.map((p, i) =>
           p.value === null ? null : (
             <g key={p.key}>
-              <circle className="chart-dot" cx={colX(i)} cy={valueY(p.value, s.max)} r={4.5} />
+              <circle className="chart-dot" cx={colX(i, s.points.length)} cy={valueY(p.value, s.max)} r={4.5} />
               <text
                 className="chart-value"
-                x={colX(i)}
+                x={colX(i, s.points.length)}
                 y={labelY(valueY(p.value, s.max), labelAbove)}
                 textAnchor="middle"
               >
@@ -133,6 +136,9 @@ export function SpineChart({
             viewBox={`0 0 ${W} ${H}`}
             width={W}
             height={H}
+            // stretches to the pane, and scrolls rather than shrinking below the
+            // width its own labels need
+            style={{ minWidth: W }}
             role="img"
             aria-label={`${model.left.label} against ${model.right.label}, across ${cuts.length} columns.`}
           >
@@ -178,16 +184,29 @@ export function SpineChart({
               return (
                 <g key={c.key}>
                   {blank ? (
-                    <text className="chart-gap" x={colX(i)} y={floor - 10} textAnchor="middle">
+                    <text className="chart-gap" x={colX(i, n)} y={floor - 10} textAnchor="middle">
                       —
                     </text>
                   ) : null}
-                  <text className="chart-x" x={colX(i)} y={floor + 22} textAnchor="middle">
-                    {c.label}
+                  {/* SVG doesn't wrap, so the label is folded here and each line
+                      placed itself. The untruncated name stays in <title>. */}
+                  <text className="chart-x" x={colX(i, n)} y={floor + 22} textAnchor="middle">
+                    <title>{c.sub ? `${c.label} — ${c.sub}` : c.label}</title>
+                    {wrapLabel(c.label, chars).map((line, li) => (
+                      <tspan key={li} x={colX(i, n)} dy={li === 0 ? 0 : 14}>
+                        {line}
+                      </tspan>
+                    ))}
                   </text>
                   {c.sub ? (
-                    <text className="chart-xsub" x={colX(i)} y={floor + 38} textAnchor="middle">
-                      {c.sub}
+                    <text
+                      className="chart-xsub"
+                      x={colX(i, n)}
+                      y={floor + 22 + wrapLabel(c.label, chars).length * 14 + 4}
+                      textAnchor="middle"
+                    >
+                      {/* the sub-label is a size smaller, so more of it fits in the same column */}
+                      {clipLabel(c.sub, chars + 8)}
                     </text>
                   ) : null}
                 </g>
