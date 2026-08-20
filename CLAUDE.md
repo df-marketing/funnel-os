@@ -89,3 +89,5 @@
 - five import bugs discovered and fixed by testing against real exports
 - A client sells more than one thing, and buys traffic in more than one place — foundational domain invariant that the app must support multi-product sales and multi-source ad spend.
 - Sprint execution: a round runs however many classes it runs, and weeks don't wait for one.
+- ad set names were colliding and have been deduplicated (likely via dedupe key changes).
+- plot now fills its pane (layout/rendering fix).
