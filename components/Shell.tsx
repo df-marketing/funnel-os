@@ -249,7 +249,9 @@ function FilterBar({
       {filter.channel ? (
         <p className="filter-note">
           Channel narrows spend and delivery only. Leads, attendance and sales carry no
-          platform, so they are shown in full.
+          platform, so they are shown in full — and <b>ROAS, CPA, CPL and Lead gen % go
+          blank</b>, because dividing all of the revenue by one channel&rsquo;s spend
+          credits that channel with the other&rsquo;s results. Clear the channel to see them.
         </p>
       ) : null}
     </div>
