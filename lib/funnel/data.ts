@@ -136,6 +136,13 @@ export type Dashboard = {
   byAdset: Cut[];
   bySource: Cut[];
   byRoundSource: Cut[];
+  /**
+   * The open tab's columns, whichever cut it reads. The per-cut arrays above
+   * exist so each pane can name the one it means; this is the same list under a
+   * name that doesn't, for the graph — which draws whatever the tab is showing
+   * and has no reason to know which tab that is.
+   */
+  columns: Cut[];
   imports: ImportStatus[];
   unmatched: UnmatchedSummary | null;
   unmatchedReasons: UnmatchedReason[];
@@ -163,6 +170,7 @@ const EMPTY: Omit<Dashboard, "error" | "errorHint" | "view"> = {
   products: [], channels: [], periods: [], filter: NO_FILTER, cadences: ["round"],
   byMonth: [], byWeek: [], byRound: [], byAdset: [], bySource: [], byRoundSource: [],
   byAd: [], bySession: [], byOffer: [], thisRound: [],
+  columns: [],
   imports: [], unmatched: null,
   unmatchedReasons: [], unmatchedRows: [],
 };
@@ -546,6 +554,7 @@ async function build(
     byAdset: NEEDS_ADSETS.has(view) ? (metrics?.columns ?? []) : [],
     bySource: NEEDS_SOURCES.has(view) ? (metrics?.columns ?? []) : [],
     byRoundSource: NEEDS_ROUND_SOURCE.has(view) ? (metrics?.columns ?? []) : [],
+    columns: metrics?.columns ?? [],
     unmatchedReasons: detail?.reasons ?? [],
     unmatchedRows: detail?.rows ?? [],
     view,

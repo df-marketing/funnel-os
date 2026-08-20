@@ -5,6 +5,9 @@ import { SOURCES, type SourceKey } from "@/lib/import/sources";
 import type {
   Client, Stage, StripCard, ImportStatus, Product, ChannelOption, FilterKey, Cadence,
 } from "@/lib/funnel/data";
+import {
+  DEFAULT_OPTS, OBJECTIVE_KEYS, OBJECTIVES, GRAPHABLE, type ViewOpts,
+} from "@/lib/funnel/chart";
 
 /**
  * Every link carries the whole filter, so a filtered screen survives clicking
@@ -12,12 +15,16 @@ import type {
  * Empty values are dropped rather than sent as "" — the URL should say what is
  * set, not carry four blanks on every page.
  */
-const href = (client: string, view: string, f?: FilterKey) => {
+const href = (client: string, view: string, f?: FilterKey, o?: ViewOpts) => {
   const q = new URLSearchParams({ client, view });
   if (f?.product) q.set("product", f.product);
   if (f?.channel) q.set("channel", f.channel);
   if (f?.from) q.set("from", f.from);
   if (f?.to) q.set("to", f.to);
+  // Carried on every link so switching tabs keeps you in the graph you were
+  // reading, instead of dropping you back into the table each time.
+  if (o && o.mode !== DEFAULT_OPTS.mode) q.set("mode", o.mode);
+  if (o && o.objective !== DEFAULT_OPTS.objective) q.set("objective", o.objective);
   return `/?${q}`;
 };
 
@@ -122,12 +129,13 @@ export function TopBar({
 }
 
 export function JourneyStrip({
-  strip, client, view, filter,
+  strip, client, view, filter, opts,
 }: {
   strip: StripCard[];
   client: string;
   view: string;
   filter: FilterKey;
+  opts: ViewOpts;
 }) {
   return (
     <section className="journey">
@@ -140,7 +148,7 @@ export function JourneyStrip({
           <Link
             className="stage"
             key={s.stage_slug}
-            href={href(client, s.stage_slug, filter)}
+            href={href(client, s.stage_slug, filter, opts)}
             aria-current={view === s.stage_slug}
           >
             <span className="sname">{s.stage_name}</span>
@@ -169,11 +177,12 @@ export function JourneyStrip({
  * the client has no products; showing one says they have exactly one.
  */
 function FilterBar({
-  client, view, filter, products, channels, periods,
+  client, view, filter, products, channels, periods, opts,
 }: {
   client: string;
   view: string;
   filter: FilterKey;
+  opts: ViewOpts;
   products: Product[];
   channels: ChannelOption[];
   periods: { key: string; label: string; from: string | null; to: string | null }[];
@@ -190,7 +199,7 @@ function FilterBar({
         {options.map((o) => (
           <Link
             key={o.key ?? "all"}
-            href={href(client, view, build(o.key))}
+            href={href(client, view, build(o.key), opts)}
             className={`filter-opt${o.dim ? " dim" : ""}`}
             aria-pressed={active === o.key}
             title={o.sub}
@@ -261,7 +270,7 @@ function FilterBar({
 }
 
 export function SideNav({
-  stages, client, view, unmatchedCount, filter, products, channels, periods, cadences,
+  stages, client, view, unmatchedCount, filter, products, channels, periods, cadences, opts,
 }: {
   stages: Stage[];
   client: string;
@@ -273,9 +282,10 @@ export function SideNav({
   periods: { key: string; label: string; from: string | null; to: string | null }[];
   /** Which of By week and By round this selection has something to put in. */
   cadences: Cadence[];
+  opts: ViewOpts;
 }) {
   const item = (slug: string, label: React.ReactNode) => (
-    <Link key={slug} href={href(client, slug, filter)} aria-current={view === slug ? "page" : undefined}>
+    <Link key={slug} href={href(client, slug, filter, opts)} aria-current={view === slug ? "page" : undefined}>
       {label}
     </Link>
   );
@@ -286,6 +296,7 @@ export function SideNav({
         client={client}
         view={view}
         filter={filter}
+        opts={opts}
         products={products}
         channels={channels}
         periods={periods}
@@ -321,6 +332,58 @@ export function SideNav({
       <div className="nav-group">Now</div>
       {item("analysis", "This round")}
     </nav>
+  );
+}
+
+/**
+ * Table / Graph, and what the graph is about.
+ *
+ * Sits in the pane head rather than the sidebar because it describes THIS tab,
+ * not the whole account — and it is links, like everything else, so a graph of
+ * cost per attendance by round is an address someone else can open.
+ *
+ * The objective picker only appears in graph mode. In the table every metric is
+ * already on screen, so choosing one would change nothing and imply it did.
+ */
+export function PaneControls({
+  client, view, filter, opts,
+}: {
+  client: string;
+  view: string;
+  filter: FilterKey;
+  opts: ViewOpts;
+}) {
+  if (!GRAPHABLE.has(view)) return null;
+  return (
+    <div className="pane-controls">
+      <div className="seg small" role="group" aria-label="View">
+        <Link href={href(client, view, filter, { ...opts, mode: "table" })} aria-pressed={opts.mode === "table"}>
+          Table
+        </Link>
+        <Link href={href(client, view, filter, { ...opts, mode: "graph" })} aria-pressed={opts.mode === "graph"}>
+          Graph
+        </Link>
+      </div>
+
+      {opts.mode === "graph" ? (
+        <div className="objective">
+          <span className="filter-label">Objective</span>
+          <div className="filter-opts">
+            {OBJECTIVE_KEYS.map((k) => (
+              <Link
+                key={k}
+                href={href(client, view, filter, { ...opts, objective: k })}
+                className="filter-opt"
+                aria-pressed={opts.objective === k}
+                title={`Efficiency becomes ${OBJECTIVES[k].efficiencyLabel}`}
+              >
+                {OBJECTIVES[k].label}
+              </Link>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

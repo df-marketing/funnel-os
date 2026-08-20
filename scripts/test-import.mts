@@ -22,6 +22,7 @@ import { buildIndex, matchRow, normPhone, normEmail, stripPlus } from "../lib/im
 import { attributeLead, closeRoundFor, resolveProduct, roundFromCampaign, resolveRoundRef } from "../lib/import/attribute";
 import { planImport, commitPlan, ImportError } from "../lib/import/pipeline";
 import { cadencesFor, resolveSpine } from "../lib/funnel/cadence";
+import { niceMax, axisMax, num, chartModel, lineRuns, colX, barH, GEO } from "../lib/funnel/chart";
 
 let pass = 0, fail = 0;
 const ok = (name: string, cond: boolean, extra = "") => {
@@ -1027,6 +1028,81 @@ console.log("\nCommit — re-importing a source retires the batch it replaces");
   eq("both cadences leave By week alone", resolveSpine("week", ["round", "week"]), "week");
   eq("a tab that is neither is never rewritten", resolveSpine("source", ["week"]), "source");
   eq("including the one it would otherwise collide with", resolveSpine("month", ["week"]), "month");
+}
+
+/**
+ * ── CHART ──────────────────────────────────────────────────────────────────
+ * A chart fails silently by construction: nothing throws when a bar is the
+ * wrong height, and a missing month drawn as a zero looks like a measured
+ * collapse. These pin the two things that would be wrong without being loud.
+ */
+{
+  const cut = (k: string, m: Record<string, unknown>) =>
+    ({ cut_key: k, cut_label: k, cut_sub: null, m }) as never;
+
+  eq("a round axis top sits above the tallest bar", niceMax(1294.04), 2000);
+  eq("and lands on a round number, not the value", niceMax(41), 50);
+  eq("an all-zero panel still gets a usable ceiling", niceMax(0), 1);
+  eq("so does a panel of nothing but blanks", niceMax(-Infinity), 1);
+
+  // A count panel's middle gridline must land on a whole person.
+  eq("an integer axis gets an even ceiling so the midpoint is whole", axisMax(21, "i"), 26);
+  eq("which is what 21 attendees needed", axisMax(21, "i") / 2, 13);
+  eq("money keeps the round ceiling", axisMax(1294.04, "m"), 2000);
+  eq("and its midpoint is already exact", axisMax(1294.04, "m") / 2, 1000);
+
+  eq("a numeric string from PostgREST is a number", num("1294.04"), 1294.04);
+  eq("null stays null", num(null), null);
+  eq("empty string is absent, not zero", num(""), null);
+  eq("and so is a value that isn't a number", num("n/a"), null);
+
+  const m = chartModel(
+    [
+      cut("0526-02", { spend: "1294.04", att: 21, cpAtt: "61.62" }),
+      cut("0526-03", { spend: "1153.22", att: 19, cpAtt: "60.70" }),
+      cut("DEMO-W1", { spend: "500.00", att: null, cpAtt: null }),
+    ],
+    "att",
+  );
+  eq("three panels, in argument order",
+     m.panels.map((p) => p.role).join(" -> "), "input -> objective -> efficiency");
+  eq("the objective picks its own efficiency metric", m.panels[2].title, "Cost per attendance (SGD)");
+  eq("a blank attendance stays blank rather than becoming 0", m.panels[1].points[2].value, null);
+  eq("but its spend is still plotted", m.panels[0].points[2].value, 500);
+  eq("no panel is marked empty while it has values", m.panels[1].empty, false);
+
+  // The one that matters: the line must not run through a round nobody measured.
+  const runs = lineRuns(m.panels[2].points, m.panels[2].max, 0);
+  eq("the efficiency line stops at the gap instead of crossing it", runs.length, 1);
+  eq("and covers only the rounds that have a number", runs[0].length, 2);
+
+  const holed = chartModel(
+    [
+      cut("a", { cpAtt: "10" }),
+      cut("b", { cpAtt: null }),
+      cut("c", { cpAtt: "30" }),
+    ],
+    "att",
+  );
+  const r2 = lineRuns(holed.panels[2].points, holed.panels[2].max, 0);
+  eq("a gap in the middle splits the line into two runs", r2.length, 2);
+  eq("left run has one point", r2[0].length, 1);
+  eq("right run has one point", r2[1].length, 1);
+
+  eq("a round with nothing at all is named under the chart",
+     chartModel([cut("Q", { spend: null, att: null, cpAtt: null })], "att").blanks.join(","), "Q");
+  eq("a round with any value is not", m.blanks.length, 0);
+
+  // Geometry: the tallest bar reaches the ceiling, zero has no height.
+  eq("a value at the ceiling fills the panel", barH(2000, 2000), GEO.panelH);
+  eq("half the ceiling is half the panel", barH(1000, 2000), GEO.panelH / 2);
+  eq("zero has no height", barH(0, 2000), 0);
+  eq("columns are evenly spaced", colX(1) - colX(0), GEO.col);
+
+  eq("the revenue objective flips to ROAS",
+     chartModel([cut("x", { rev: "5067" })], "rev").panels[2].title, "Overall ROAS");
+  eq("and reads up as better",
+     chartModel([cut("x", { rev: "5067" })], "rev").objective.betterWhen, "higher");
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

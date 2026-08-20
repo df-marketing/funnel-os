@@ -312,3 +312,45 @@ footer b { color: var(--ink-2); }
 .tmpl { display: inline-block; margin-top: 7px; font-size: 11.5px; color: var(--accent);
   text-decoration: none; border-bottom: 1px solid transparent; align-self: flex-start; }
 .tmpl:hover { border-bottom-color: var(--accent); }
+
+/* ── graph view ──────────────────────────────────────────────────────────── */
+/* Floated so the toggle sits on the title's line without the pane-head markup
+   having to know it exists — every view block keeps its own <h1> untouched. */
+.pane-controls { float: right; display: flex; align-items: center; gap: 14px;
+  margin: 2px 0 6px 16px; flex-wrap: wrap; }
+.seg.small a { font-size: 11.5px; padding: 4px 10px; }
+.objective { display: flex; align-items: center; gap: 8px; }
+.objective .filter-label { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-3); }
+.objective .filter-opts { display: flex; gap: 4px; flex-wrap: wrap; }
+.objective .filter-opt { font-size: 11.5px; padding: 3px 8px; border: 1px solid var(--line);
+  border-radius: var(--r); color: var(--ink-2); background: var(--surface); }
+.objective .filter-opt[aria-pressed="true"] { background: var(--accent-wash);
+  border-color: var(--accent); color: var(--accent-ink); }
+
+/* Natural size, and scroll rather than shrink. Scaling an SVG down to fit takes
+   the value labels with it, and an unreadable number is worse than a scrollbar. */
+.chart-scroll { overflow-x: auto; border: 1px solid var(--line); background: var(--surface);
+  border-radius: var(--r); padding: 12px 8px 4px; margin-bottom: 12px; }
+.chart { display: block; }
+
+.chart-title { font: 600 12px var(--sans); fill: var(--ink-2); }
+.chart-tick  { font: 10.5px var(--mono); fill: var(--ink-3); }
+.chart-value { font: 600 11px var(--mono); fill: var(--ink-2); }
+.chart-x     { font: 600 11.5px var(--sans); fill: var(--ink); }
+.chart-xsub  { font: 10.5px var(--sans); fill: var(--ink-3); }
+.chart-gap   { font: 12px var(--mono); fill: var(--ink-3); }
+.chart-blank { font: italic 11.5px var(--sans); fill: var(--ink-3); }
+
+.chart-grid { stroke: var(--line-soft); stroke-width: 1; stroke-dasharray: 3 3; }
+.chart-axis { stroke: var(--line); stroke-width: 1; }
+
+/* Input is the money going in, objective is what came back — two different
+   things, so two different fills rather than one colour used twice. */
+.chart-bar.input     { fill: var(--ink-3); }
+.chart-bar.objective { fill: var(--accent); }
+.chart-line { fill: none; stroke: var(--accent-ink); stroke-width: 2;
+  stroke-linejoin: round; stroke-linecap: round; }
+.chart-dot  { fill: var(--surface); stroke: var(--accent-ink); stroke-width: 2; }
+
+.chart-legend { clear: both; }

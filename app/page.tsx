@@ -1,7 +1,11 @@
 import { getDashboard, type FilterKey } from "@/lib/funnel/data";
 import { SpineTable } from "@/components/SpineTable";
-import { TopBar, JourneyStrip, SideNav, NotWired, WIRED } from "@/components/Shell";
+import { SpineChart } from "@/components/SpineChart";
+import { TopBar, JourneyStrip, SideNav, NotWired, PaneControls, WIRED } from "@/components/Shell";
 import { ImportPane, UnmatchedPane } from "@/components/DataPanes";
+import {
+  DEFAULT_OPTS, GRAPHABLE, isObjective, OBJECTIVES, type ViewOpts,
+} from "@/lib/funnel/chart";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +40,7 @@ export default async function Page({
   searchParams: Promise<{
     client?: string; view?: string;
     product?: string; channel?: string; from?: string; to?: string;
+    mode?: string; objective?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -50,6 +55,11 @@ export default async function Page({
     channel: params.channel || null,
     from: params.from || null,
     to: params.to || null,
+  };
+  /** Table or graph, and what the graph is about. Same rule: the URL is the state. */
+  const opts: ViewOpts = {
+    mode: params.mode === "graph" ? "graph" : "table",
+    objective: isObjective(params.objective) ? params.objective : DEFAULT_OPTS.objective,
   };
   const data = await getDashboard(params.client, params.view ?? "round", filter);
 
@@ -79,11 +89,24 @@ export default async function Page({
   const current = data.clients.find((c) => c.client_id === params.client) ?? data.clients[0];
   const view = data.view;
   const [title, blurb] = TITLES[view] ?? [view, ""];
+  /**
+   * The graph replaces the table rather than sitting beside it. Two renderings
+   * of the same numbers on one screen invites the question of which is
+   * authoritative, and the answer would have to be "neither, they're the same",
+   * which nobody believes about a chart and a table that disagree by a rounding.
+   */
+  const showGraph = opts.mode === "graph" && GRAPHABLE.has(view) && WIRED.has(view);
 
   return (
     <>
       <TopBar clients={data.clients} current={current} imports={data.imports} />
-      <JourneyStrip strip={data.strip} client={current.client_id} view={view} filter={data.filter} />
+      <JourneyStrip
+        strip={data.strip}
+        client={current.client_id}
+        view={view}
+        filter={data.filter}
+        opts={opts}
+      />
 
       <div className="shell">
         <SideNav
@@ -96,9 +119,42 @@ export default async function Page({
           channels={data.channels}
           periods={data.periods}
           cadences={data.cadences}
+          opts={opts}
         />
 
         <main className="main">
+          <PaneControls client={current.client_id} view={view} filter={data.filter} opts={opts} />
+
+          {showGraph ? (
+            <>
+              <div className="pane-head">
+                <h1>{title}</h1>
+                <p>{blurb}</p>
+              </div>
+              <SpineChart
+                title="Input → objective → efficiency"
+                sub={`spend, then ${OBJECTIVES[opts.objective].label.toLowerCase()}, then ${OBJECTIVES[opts.objective].efficiencyLabel.toLowerCase()}`}
+                cuts={data.columns}
+                objective={opts.objective}
+                notice={
+                  <>
+                    <b>The Total column is not plotted.</b> A total is not a point on this
+                    axis — drawn beside the columns it is made of, it would tower over every
+                    one of them and flatten the comparison the chart exists to show. It is on
+                    the <b>Table</b> view, where a column of its own is exactly what it is.
+                  </>
+                }
+                note={
+                  <>
+                    Switch objective above to ask a different question of the same rounds; the
+                    efficiency panel follows it, because cost per attendee under a revenue
+                    objective would be two questions on one screen.
+                  </>
+                }
+              />
+            </>
+          ) : null}
+
           {view === "import" ? <ImportPane imports={data.imports} client={current.client_id} /> : null}
 
           {view === "unmatched" ? (
@@ -109,7 +165,7 @@ export default async function Page({
             />
           ) : null}
 
-          {view === "month" ? (
+          {view === "month" && !showGraph ? (
             <>
               <div className="pane-head">
                 <h1>{title}</h1>
@@ -146,7 +202,7 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "week" ? (
+          {view === "week" && !showGraph ? (
             <>
               <div className="pane-head">
                 <h1>{title}</h1>
@@ -180,7 +236,7 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "round" ? (
+          {view === "round" && !showGraph ? (
             <>
               <div className="pane-head">
                 <h1>{title}</h1>
@@ -213,7 +269,7 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "source" ? (
+          {view === "source" && !showGraph ? (
             <>
               <div className="pane-head">
                 <h1>{title}</h1>
@@ -245,7 +301,7 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "roundsource" ? (
+          {view === "roundsource" && !showGraph ? (
             <>
               <div className="pane-head">
                 <h1>{title}</h1>
@@ -276,7 +332,7 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "targeting" ? (
+          {view === "targeting" && !showGraph ? (
             <>
               <div className="pane-head">
                 <h1>{title}</h1>
@@ -311,7 +367,7 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "ads" ? (
+          {view === "ads" && !showGraph ? (
             <>
               <div className="pane-head">
                 <h1>{title}</h1>
@@ -362,7 +418,7 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "class" ? (
+          {view === "class" && !showGraph ? (
             <>
               <div className="pane-head">
                 <h1>{title}</h1>
@@ -394,7 +450,7 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "preview" || view === "middle" ? (
+          {(view === "preview" || view === "middle") && !showGraph ? (
             <>
               <div className="pane-head">
                 <h1>{title}</h1>
@@ -426,7 +482,7 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "analysis" ? (
+          {view === "analysis" && !showGraph ? (
             <>
               <div className="pane-head">
                 <h1>{title}</h1>
