@@ -209,8 +209,10 @@ export function JourneyStrip({
  * the client has no products; showing one says they have exactly one.
  */
 function FilterBar({
-  client, view, filter, products, channels, periods, opts,
+  client, view, filter, products, channels, periods, opts, channelBlanked,
 }: {
+  /** True only when choosing this channel actually blanked some rates. */
+  channelBlanked: boolean;
   client: string;
   view: string;
   filter: FilterKey;
@@ -287,14 +289,31 @@ function FilterBar({
           return { ...filter, from: p?.from ?? null, to: p?.to ?? null };
         },
       )}
+      {/*
+        Said only while a channel is chosen, and the second half only when
+        something actually went blank. The old version explained the blanking
+        rule every time, including on an account where only one channel has ever
+        run and nothing blanks — a paragraph of theory above a screen it did not
+        apply to.
+      */}
       {filter.channel ? (
         <p className="filter-note">
-          Channel narrows spend and delivery only. Leads, attendance and sales carry no
-          platform, so they are shown in full. Where more than one channel ran in what
-          you&rsquo;re looking at, <b>ROAS, CPA, CPL and Lead gen % go blank</b> — dividing
-          all of the revenue by one channel&rsquo;s spend would credit it with the
-          other&rsquo;s results. Where only one ran, this filter took nothing away and they
-          stay.
+          Spend and delivery narrow to {filter.channel}. Leads, attendance and sales
+          don&rsquo;t carry a platform, so they stay whole.
+          {channelBlanked ? (
+            <>
+              {" "}
+              <b>ROAS, CPA, CPL and Lead gen % are blank</b> because more than one channel ran
+              here — dividing all the revenue by one channel&rsquo;s spend would credit it with
+              the other&rsquo;s results.
+            </>
+          ) : (
+            <>
+              {" "}
+              Only {filter.channel} ran here, so this filter took nothing away and every rate
+              still stands.
+            </>
+          )}
         </p>
       ) : null}
     </div>
@@ -303,6 +322,7 @@ function FilterBar({
 
 export function SideNav({
   stages, client, view, unmatchedCount, filter, products, channels, periods, cadences, opts,
+  channelBlanked,
 }: {
   stages: Stage[];
   client: string;
@@ -315,6 +335,7 @@ export function SideNav({
   /** Which of By week and By round this selection has something to put in. */
   cadences: Cadence[];
   opts: ViewOpts;
+  channelBlanked: boolean;
 }) {
   const item = (slug: string, label: React.ReactNode) => (
     <Link key={slug} href={href(client, slug, filter, opts)} aria-current={view === slug ? "page" : undefined}>
@@ -329,6 +350,7 @@ export function SideNav({
         view={view}
         filter={filter}
         opts={opts}
+        channelBlanked={channelBlanked}
         products={products}
         channels={channels}
         periods={periods}

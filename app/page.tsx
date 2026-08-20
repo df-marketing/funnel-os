@@ -98,6 +98,17 @@ export default async function Page({
    * which nobody believes about a chart and a table that disagree by a rounding.
    */
   const showGraph = opts.mode === "graph" && GRAPHABLE.has(view) && WIRED.has(view);
+  /**
+   * Did choosing this channel actually blank anything?
+   *
+   * Read off the result rather than recomputed: with spend and revenue both
+   * present, ROAS is arithmetic and cannot be null — so a null one under a
+   * channel filter is 0028 having removed it. Asking the database again would
+   * be a second round trip to learn what the first one already showed.
+   */
+  const m = (data.total?.m ?? {}) as Record<string, unknown>;
+  const channelBlanked =
+    !!data.filter.channel && m.roas == null && Number(m.spend ?? 0) > 0 && m.rev != null;
 
   return (
     <>
@@ -122,6 +133,7 @@ export default async function Page({
           periods={data.periods}
           cadences={data.cadences}
           opts={opts}
+          channelBlanked={channelBlanked}
         />
 
         <main className="main">
