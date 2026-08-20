@@ -9,7 +9,8 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "seed": "node scripts/generate-seed.mjs",
-    "test:import": "npx --yes tsx@4 scripts/test-import.mts"
+    "test:import": "npx --yes tsx@4 scripts/test-import.mts",
+    "render:round": "npx --yes tsx@4 --tsconfig scripts/tsconfig.render.json scripts/render-round.mts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.0",

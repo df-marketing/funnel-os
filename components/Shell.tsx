@@ -354,7 +354,35 @@ export function PaneControls({
   filter: FilterKey;
   opts: ViewOpts;
 }) {
-  if (!GRAPHABLE.has(view)) return null;
+  /**
+   * This round has no table/graph switch — it is neither — but it does have an
+   * objective, and it is the same objective the graph uses. One choice, carried
+   * in one URL parameter, meaning the same thing on both screens.
+   */
+  const objectiveOnly = view === "analysis";
+  if (!GRAPHABLE.has(view) && !objectiveOnly) return null;
+  if (objectiveOnly) {
+    return (
+      <div className="pane-controls">
+        <div className="objective">
+          <span className="filter-label">Objective</span>
+          <div className="filter-opts">
+            {OBJECTIVE_KEYS.map((k) => (
+              <Link
+                key={k}
+                href={href(client, view, filter, { ...opts, objective: k })}
+                className="filter-opt"
+                aria-pressed={opts.objective === k}
+                title={`The goal metric on this screen`}
+              >
+                {OBJECTIVES[k].label}
+              </Link>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="pane-controls">
       <div className="seg small" role="group" aria-label="View">

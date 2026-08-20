@@ -1,6 +1,7 @@
 import { getDashboard, type FilterKey } from "@/lib/funnel/data";
 import { SpineTable } from "@/components/SpineTable";
 import { SpineChart } from "@/components/SpineChart";
+import { RoundAnalysis } from "@/components/RoundAnalysis";
 import { TopBar, JourneyStrip, SideNav, NotWired, PaneControls, WIRED } from "@/components/Shell";
 import { ImportPane, UnmatchedPane } from "@/components/DataPanes";
 import {
@@ -486,36 +487,16 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "analysis" && !showGraph ? (
-            <>
-              <div className="pane-head">
-                <h1>{title}</h1>
-                <p>{blurb}</p>
-              </div>
-              <SpineTable
-                title="This round against the last"
-                sub="the newest round that has started, beside the one before it"
-                baseline={data.baseline}
-                total={data.total}
-                cuts={data.thisRound}
-                notice={
-                  <>
-                    <b>&ldquo;This round&rdquo; is the newest round that has started</b> — the live
-                    one while a round is running, and the one just finished otherwise. A tab that
-                    empties itself the day a round ends is a tab nobody checks. Rounds that
-                    haven&rsquo;t started are left out: a scheduled round has no figures, and showing
-                    it would answer &ldquo;how is it going&rdquo; with a blank.
-                  </>
-                }
-                note={
-                  <>
-                    Two columns, because a single number with nothing beside it isn&rsquo;t analysis.
-                    Reading them against <b>Baseline</b> on the left gives the same comparison every
-                    other tab uses.
-                  </>
-                }
-              />
-            </>
+          {view === "analysis" ? (
+            <RoundAnalysis
+              cuts={data.columns}
+              baseline={data.baseline}
+              context={data.roundContext}
+              objective={opts.objective}
+              /* rendered on the server, so the day is named rather than inherited
+                 from whatever zone the machine happens to be in */
+              today={new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Singapore" })}
+            />
           ) : null}
 
           {!WIRED.has(view) ? (

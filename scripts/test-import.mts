@@ -26,6 +26,10 @@ import {
   niceMax, axisMax, num, chartModel, lineRuns, colX, valueY, floorY, ticksFor, TICKS, GEO,
   colWidth, chartWidth, labelChars, wrapLabel,
 } from "../lib/funnel/chart";
+import {
+  compare, movesFor, issuesIn, tooThinIn, missedTargetIn, diffAssets, candidatesFrom,
+  roundProgress, moveChip, MIN_SAMPLE,
+} from "../lib/funnel/analysis";
 
 let pass = 0, fail = 0;
 const ok = (name: string, cond: boolean, extra = "") => {
@@ -1132,6 +1136,96 @@ console.log("\nCommit — re-importing a source retires the batch it replaces");
      chartModel([cut("x", { rev: "5067" })], "rev", "efficiency").right.label, "Overall ROAS");
   eq("and up is better there",
      chartModel([cut("x", { rev: "5067" })], "rev", "efficiency").objective.betterWhen, "higher");
+}
+
+/**
+ * ── THIS ROUND · THE CRO STEPS ─────────────────────────────────────────────
+ * This screen makes CLAIMS -- that a metric got worse, that something changed
+ * upstream, that an audience is worth cutting. Every one of them is arithmetic
+ * that can be wrong quietly, so every one of them is pinned here.
+ */
+{
+  const M = (o: Record<string, unknown>) => o as never;
+
+  // Direction: a cost going up is bad, a rate going up is good, spend is neither.
+  eq("a rising cost per lead is worse", compare("cpl", M({ cpl: 12, leads: 100 }), M({ cpl: 10 }), null, null).verdict, "worse");
+  eq("a falling cost per lead is better", compare("cpl", M({ cpl: 8, leads: 100 }), M({ cpl: 10 }), null, null).verdict, "better");
+  eq("a rising attendance rate is better", compare("attPct", M({ attPct: 30, leads: 100 }), M({ attPct: 20 }), null, null).verdict, "better");
+  eq("spend is never judged", compare("spend", M({ spend: 9999 }), M({ spend: 10 }), null, null).verdict, "flat");
+  eq("a 1% wobble is not a move", compare("roas", M({ roas: 1.01, prevBuy: 50 }), M({ roas: 1.0 }), null, null).verdict, "flat");
+
+  // Absent must never be compared to anything.
+  eq("absent now means no verdict", compare("cpl", M({ cpl: null }), M({ cpl: 10 }), null, null).verdict, "unknown");
+  eq("absent before means no verdict", compare("cpl", M({ cpl: 10 }), M({ cpl: null }), null, null).verdict, "unknown");
+  eq("and no percentage either", compare("cpl", M({ cpl: 10 }), M({ cpl: null }), null, null).deltaPct, null);
+  eq("a move from zero has no percentage", compare("leads", M({ leads: 40 }), M({ leads: 0 }), null, null).deltaPct, null);
+  eq("but it is still judged", compare("leads", M({ leads: 40 }), M({ leads: 0 }), null, null).verdict, "better");
+
+  // The promise in the mockup's own footer: never rank on a thin denominator.
+  const thinRate = compare("prevPct", M({ prevPct: 10, att: 6 }), M({ prevPct: 20 }), null, null);
+  eq("a rate on six attendees is marked thin", thinRate.thin, true);
+  eq("and it says what it rests on", thinRate.sample, 6);
+  eq("the same rate on forty is not thin",
+     compare("prevPct", M({ prevPct: 10, att: 40 }), M({ prevPct: 20 }), null, null).thin, false);
+  eq("a count is never thin -- it IS the count",
+     compare("leads", M({ leads: 3 }), M({ leads: 9 }), null, null).thin, false);
+
+  // A round with plenty of leads and almost no buyers: the rates resting on
+  // leads are actionable, the ones resting on attendance and purchases are not.
+  const now = M({ spend: 1000, leads: 100, att: 12, prevBuy: 1, cpl: 20, attPct: 10, prevPct: 5, roas: 0.5 });
+  const before = M({ spend: 900, leads: 120, att: 12, prevBuy: 1, cpl: 7.5, attPct: 41, prevPct: 12, roas: 2.0 });
+  const moves = movesFor(now, before, null, { cpl: 9 });
+
+  eq("issues are the material, non-thin, worse ones",
+     issuesIn(moves).map((m) => m.key).sort().join(","), "attPct,cpl,leads");
+  eq("rates resting on 12 attendees and 1 buyer are held back",
+     tooThinIn(moves).map((m) => m.key).sort().join(","), "prevPct,roas");
+  eq("ROAS on a single sale is never ranked, however far it fell",
+     issuesIn(moves).some((m) => m.key === "roas"), false);
+  eq("missing a target is reported separately",
+     missedTargetIn(moves).map((m) => m.key).join(","), "cpl");
+  eq("and only where a target exists", missedTargetIn(movesFor(now, before, null, {})).length, 0);
+
+  // The arrow follows the number; the colour follows whether that is good.
+  eq("a cost going up shows an up arrow", moveChip(issuesIn(moves).find((m) => m.key === "cpl")!).text.startsWith("▲"), true);
+  eq("and reads bad", moveChip(issuesIn(moves).find((m) => m.key === "cpl")!).tone, "bad");
+
+  // Step 3 -- what changed upstream. Share, not amount: a round that spent twice
+  // as much moved every amount and redistributed nothing.
+  const A = (name: string, spend: number, leads: number, share: number, round = "R2") =>
+    ({ round_id: round, kind: "audience" as const, name, spend, leads, spend_share: share });
+  const changes = diffAssets(
+    [A("Broad", 400, 20, 40), A("Coaches", 300, 10, 30), A("New_One", 300, 5, 30)],
+    [A("Broad", 200, 20, 20, "R1"), A("Coaches", 300, 10, 30, "R1"), A("Gone", 500, 9, 50, "R1")],
+  );
+  eq("a new audience is flagged", changes.filter((c) => c.change === "added").map((c) => c.name).join(","), "New_One");
+  eq("one that stopped running is flagged", changes.filter((c) => c.change === "dropped").map((c) => c.name).join(","), "Gone");
+  eq("a 20-point share move is a redistribution",
+     changes.filter((c) => c.change === "reweighted").map((c) => c.name).join(","), "Broad");
+  eq("and an unchanged share is not mentioned", changes.some((c) => c.name === "Coaches"), false);
+  eq("doubling every amount with the same shares changes nothing",
+     diffAssets([A("Broad", 800, 20, 50), A("Coaches", 800, 10, 50)],
+                [A("Broad", 400, 20, 50, "R1"), A("Coaches", 400, 10, 50, "R1")]).length, 0);
+
+  // Step 7 -- candidates, and the two cases the arithmetic can stand behind.
+  const cands = candidatesFrom(
+    [A("Dead", 500, 0, 25), A("Pricey", 600, 4, 30), A("Fine", 900, 60, 45)],
+    "0826-01",
+  );
+  eq("money spent for no leads is a candidate to cut",
+     cands.filter((c) => c.kind === "cut").map((c) => c.headline.split(" ")[0]).join(","), "Dead");
+  eq("a CPL far off the round's own is a candidate to watch",
+     cands.filter((c) => c.kind === "watch").map((c) => c.headline.split(" ")[0]).join(","), "Pricey");
+  eq("and a normal one is left alone", cands.some((c) => c.headline.startsWith("Fine")), false);
+  eq("no spend at all proposes nothing", candidatesFrom([], "0826-01").length, 0);
+
+  // How far through the round we are -- the difference between judging a round
+  // on day 2 and on day 12.
+  eq("mid-round says which day", roundProgress("2026-08-05", "2026-08-18", "2026-08-10"), "day 6 of 14");
+  eq("the first day is day 1", roundProgress("2026-08-05", "2026-08-18", "2026-08-05"), "day 1 of 14");
+  eq("a finished round says so", roundProgress("2026-08-05", "2026-08-18", "2026-08-20"), "finished · ran 14 days");
+  eq("one that hasn't started counts down", roundProgress("2026-08-05", "2026-08-18", "2026-08-01"), "starts in 4 days");
+  eq("and no dates means no claim", roundProgress(null, "2026-08-18", "2026-08-10"), null);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

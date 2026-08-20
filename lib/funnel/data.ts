@@ -62,6 +62,29 @@ export type UnmatchedSummary = {
   source_count: number;
 };
 
+/** One audience or creative inside one round — step 3's raw material. */
+export type RoundAsset = {
+  round_id: string;
+  kind: "audience" | "creative";
+  name: string;
+  spend: number | null;
+  leads: number;
+  spend_share: number | null;
+};
+
+/**
+ * Everything "This round" needs beyond the two round columns it already gets.
+ * Loaded only for that tab — no other screen asks any of these questions.
+ */
+export type RoundContext = {
+  /** The month the round sits in, and the one before it. Step 1. */
+  months: Cut[];
+  /** Assets in this round and in the previous one. Step 3. */
+  assets: RoundAsset[];
+  /** Agreed numbers, by spine metric key. Empty until someone sets one. */
+  targets: Record<string, number>;
+};
+
 export type UnmatchedReason = { reason: string; rows_waiting: number; revenue_held: number | null };
 
 export type UnmatchedRow = {
@@ -143,6 +166,8 @@ export type Dashboard = {
    * and has no reason to know which tab that is.
    */
   columns: Cut[];
+  /** Only on This round — the extra context the CRO steps need. */
+  roundContext: RoundContext | null;
   imports: ImportStatus[];
   unmatched: UnmatchedSummary | null;
   unmatchedReasons: UnmatchedReason[];
@@ -170,7 +195,7 @@ const EMPTY: Omit<Dashboard, "error" | "errorHint" | "view"> = {
   products: [], channels: [], periods: [], filter: NO_FILTER, cadences: ["round"],
   byMonth: [], byWeek: [], byRound: [], byAdset: [], bySource: [], byRoundSource: [],
   byAd: [], bySession: [], byOffer: [], thisRound: [],
-  columns: [],
+  columns: [], roundContext: null,
   imports: [], unmatched: null,
   unmatchedReasons: [], unmatchedRows: [],
 };
@@ -426,6 +451,51 @@ const loadFilterOptions = unstable_cache(
   { tags: [FUNNEL_TAG], revalidate: 3600 },
 );
 
+/**
+ * The rest of what "This round" needs: the month it sits in, what carried money
+ * in it and in the round before, and any agreed targets.
+ *
+ * Assets are NOT filtered through fo_cut. They are read for two named rounds,
+ * and the product/period filter has already decided which two those are — a
+ * second filter would only ever remove one of the pair and leave the screen
+ * comparing a round against nothing.
+ */
+const loadRoundContext = unstable_cache(
+  async (id: string, f: FilterKey): Promise<RoundContext> => {
+    const db = createReadClient();
+    const scope = { p_client: id, p_product: f.product, p_channel: f.channel, p_from: f.from, p_to: f.to };
+
+    const [rounds, months, targets] = await Promise.all([
+      db.rpc("fo_cut", { p_view: "v_metrics_this_round", ...scope }),
+      db.rpc("fo_cut", { p_view: "v_metrics_by_month", ...scope }),
+      db.from("v_client_targets").select("metric, target").eq("client_id", id),
+    ]);
+
+    const twoRounds = (ok(rounds, "v_metrics_this_round") as Cut[] | null) ?? [];
+    const ids = twoRounds.map((r) => r.cut_key);
+
+    const assets = ids.length
+      ? ((ok(
+          await db.from("v_round_assets")
+            .select("round_id, kind, name, spend, leads, spend_share")
+            .eq("client_id", id)
+            .in("round_id", ids),
+          "v_round_assets",
+        ) as RoundAsset[] | null) ?? [])
+      : [];
+
+    const rows = (ok(targets, "v_client_targets") as { metric: string; target: string | number }[] | null) ?? [];
+    return {
+      // the two most recent months, newest last, same order as the cut
+      months: ((ok(months, "v_metrics_by_month") as Cut[] | null) ?? []).slice(-2),
+      assets,
+      targets: Object.fromEntries(rows.map((r) => [r.metric, Number(r.target)])),
+    };
+  },
+  ["funnel-round-context"],
+  { tags: [FUNNEL_TAG], revalidate: 300 },
+);
+
 /** The parked queue, only for the tab that shows it. */
 const loadUnmatchedDetail = unstable_cache(
   async (id: string) => {
@@ -519,6 +589,9 @@ async function build(
     NEEDS_UNMATCHED_DETAIL.has(requested) ? loadUnmatchedDetail(id) : null,
   ]);
 
+  // Only This round asks these questions, so only This round pays for them.
+  const context = NEEDS_THIS_ROUND.has(requested) ? await loadRoundContext(id, filter) : null;
+
   const cadences = cadencesFor(options.products, filter.product);
   const view = resolveSpine(
     resolveView(requested, new Set(chrome.stages.map((s) => s.stage_slug))),
@@ -555,6 +628,7 @@ async function build(
     bySource: NEEDS_SOURCES.has(view) ? (metrics?.columns ?? []) : [],
     byRoundSource: NEEDS_ROUND_SOURCE.has(view) ? (metrics?.columns ?? []) : [],
     columns: metrics?.columns ?? [],
+    roundContext: context,
     unmatchedReasons: detail?.reasons ?? [],
     unmatchedRows: detail?.rows ?? [],
     view,

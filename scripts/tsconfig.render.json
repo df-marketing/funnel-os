@@ -1,0 +1,5 @@
+{
+  "//": "The app's tsconfig sets jsx:preserve, because Next does the transform. A plain tsx run has no Next, so the components would arrive untransformed and fail on a missing React global. This turns the automatic runtime on for the render harness only.",
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "jsx": "react-jsx" }
+}
