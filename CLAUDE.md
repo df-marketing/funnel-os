@@ -24,6 +24,8 @@
 - staleness rule counts the gap between the last-committed date and the metric's own observation date, not the days-since-import
 - The 'By week' tab was removed — it was just a 'By round' tab with a misleading heading.
 - graph was redone as one plot with two axes instead of three stacked panels.
+- campaign was added to the ads dedupe key.
+- audience and ad tags are read from the tags GoHighLevel actually writes, not from arbitrary/assumed tags.
 
 ## Architecture
 
@@ -61,6 +63,7 @@
 - Column pinning is now actually enforced in the UI (previously claimed but not implemented)
 - A round outside the filter must not leave an empty column behind — filtering logic needs to handle column cleanup.
 - Channel ratios are blanked only when the channel filter actually removes something — if the filter takes nothing, ratios remain shown.
+- first real run of the import pipeline revealed four faults, none of which threw an exception — silent data corruption is possible if validation is missing.
 
 ## Notes
 
