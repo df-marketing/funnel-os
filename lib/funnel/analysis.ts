@@ -27,7 +27,7 @@
 
 import type { Metrics, MetricKey, Fmt } from "./spine";
 import { SPINE, isGroup } from "./spine";
-import { num } from "./chart";
+import { num, OBJECTIVES, type ObjectiveKey } from "./chart";
 
 /** Which way is good. `neutral` metrics are reported and never judged. */
 export type Direction = "up" | "down" | "neutral";
@@ -171,6 +171,32 @@ export const issuesIn = (moves: Move[]) =>
   moves.filter((m) => m.verdict === "worse" && !m.thin
     && (m.deltaPct === null || Math.abs(m.deltaPct) >= MATERIAL_PCT));
 
+export type RankedMove = Move & { onObjective: boolean };
+
+/**
+ * Step 5, ordered by the objective rather than by the spine.
+ *
+ * Ranked, never filtered. If the client's objective is attendance and CTR has
+ * collapsed, that still belongs on the screen — a problem does not stop being a
+ * problem because it sits upstream of what you said you cared about. What
+ * changes is the order, and that the two metrics the round is being judged on
+ * are marked as such, so a list of seven does not read as seven equals.
+ *
+ * Within each group the biggest move comes first, which is the order it was in
+ * before this existed.
+ */
+export function rankedIssues(moves: Move[], objective: ObjectiveKey): RankedMove[] {
+  const o = OBJECTIVES[objective];
+  const own = new Set<MetricKey>([o.metric, o.efficiency]);
+  return issuesIn(moves)
+    .map((m) => ({ ...m, onObjective: own.has(m.key) }))
+    .sort(
+      (a, b) =>
+        Number(b.onObjective) - Number(a.onObjective) ||
+        Math.abs(b.deltaPct ?? 0) - Math.abs(a.deltaPct ?? 0),
+    );
+}
+
 export const tooThinIn = (moves: Move[]) =>
   moves.filter((m) => m.verdict === "worse" && m.thin);
 
@@ -189,6 +215,16 @@ export type Asset = {
   spend_share: number | null;
   /** Only on '(ad ids)' — how many untracked ads that one row stands for. */
   id_count?: number | null;
+  /**
+   * What the asset produced beyond the opt-in — appended by 0033, attributed
+   * through each person's lead row because only leads carry an ad set.
+   *
+   * Optional so a database that has not run 0033 degrades to the lead-only
+   * behaviour instead of reading every asset as having produced nobody.
+   */
+  att?: number | null;
+  prev_buys?: number | null;
+  rev?: number | null;
 };
 
 export type AssetChange = {
@@ -220,9 +256,36 @@ export const SHARE_SHIFT_PTS = 5;
  * MIN_SPEND_MULTIPLE guards the other candidate: an asset that spent less than
  * two leads' worth cannot be blamed for producing no leads.
  */
-export const MIN_ASSET_LEADS = 10;
+export const MIN_ASSET_OUTCOME = 10;
 export const MIN_SPEND_MULTIPLE = 2;
-export const CPL_MULTIPLE = 1.5;
+/** How far off the round's own rate an asset has to be to be worth a test. */
+export const RATE_MULTIPLE = 1.5;
+
+/**
+ * Which outcome each objective judges an asset on, and what to call it.
+ *
+ * Revenue counts PREVIEW PURCHASES, not sales of every kind, because that is
+ * already what the app says ROAS rests on — see DENOM.roas above. A ratio and
+ * the sample it is trusted on have to agree, or the screen would refuse to rank
+ * ROAS on six purchases in step 2 and then rank an audience on two in step 7.
+ */
+export const OBJECTIVE_OUTCOME: Record<
+  ObjectiveKey,
+  { count: "leads" | "att" | "prev_buys"; noun: string; rate: string }
+> = {
+  leads:   { count: "leads",     noun: "lead",             rate: "cost per lead" },
+  att:     { count: "att",       noun: "attendee",         rate: "cost per attendance" },
+  prevBuy: { count: "prev_buys", noun: "preview purchase", rate: "cost per purchase" },
+  rev:     { count: "prev_buys", noun: "preview purchase", rate: "ROAS" },
+};
+
+/** What this asset produced, for the objective in play. Null = 0033 not run. */
+export function outcomeOf(a: Asset, objective: ObjectiveKey): number | null {
+  const field = OBJECTIVE_OUTCOME[objective].count;
+  if (field === "leads") return a.leads;
+  const v = a[field];
+  return v === undefined || v === null ? null : v;
+}
 
 /**
  * Which audiences and creatives are new, gone, or carrying a different share.
@@ -288,55 +351,198 @@ export type Candidate = {
  */
 export const MAX_CANDIDATES = 6;
 
+export type Candidates = {
+  shown: Candidate[];
+  dropped: number;
+  /** The outcome these were judged on — "attendee", "lead". */
+  noun: string;
+  /**
+   * Set when the objective's outcome exists but is too small to rank any asset
+   * on. Carries the best any asset managed, so the screen can say how far short
+   * the data fell rather than showing an empty list that reads as "all clear".
+   */
+  tooThin: { noun: string; best: number; floor: number } | null;
+  /**
+   * Set when the whole round produced none of this outcome. No asset can be
+   * blamed for a nought every asset shares — a round with no attendance file
+   * imported would otherwise propose cutting every audience it has.
+   */
+  roundHasNone: boolean;
+  /**
+   * The round DID produce this outcome, but none of it through an asset that
+   * spent. Carries how many, because the number is the finding.
+   *
+   * This is 0526-03 exactly: all six preview purchases arrived through
+   * '(unsplit)', which holds no spend, so no audience can be credited or
+   * blamed. Reporting it as "the round produced none" would be a false
+   * statement about a round that produced six.
+   */
+  untracked: number | null;
+  /** True when 0033 has not been applied, so only leads are available. */
+  unavailable: boolean;
+};
+
 export function candidatesFrom(
   assets: Asset[],
   roundLabel: string,
-): { shown: Candidate[]; dropped: number } {
-  const paid = assets.filter((a) => (a.spend ?? 0) > 0);
-  if (!paid.length) return { shown: [], dropped: 0 };
+  objective: ObjectiveKey = "leads",
+): Candidates {
+  const { count, noun, rate } = OBJECTIVE_OUTCOME[objective];
+  const blank: Candidates = {
+    shown: [], dropped: 0, noun, tooThin: null,
+    roundHasNone: false, untracked: null, unavailable: false,
+  };
 
+  const paid = assets.filter((a) => (a.spend ?? 0) > 0);
+  if (!paid.length) return blank;
+
+  // A database that has not run 0033 has no attendance or purchases per asset.
+  // Reading the missing column as 0 would propose cutting every audience in the
+  // round, so it is reported as unmeasured instead.
+  if (paid.some((a) => outcomeOf(a, objective) === null)) {
+    return { ...blank, unavailable: true };
+  }
+
+  const got = (a: Asset) => outcomeOf(a, objective) ?? 0;
   const totalSpend = paid.reduce((s, a) => s + (a.spend ?? 0), 0);
-  const totalLeads = paid.reduce((s, a) => s + a.leads, 0);
-  const roundCpl = totalLeads > 0 ? totalSpend / totalLeads : null;
+  const totalGot = paid.reduce((s, a) => s + got(a), 0);
+  const totalRev = paid.reduce((s, a) => s + (a.rev ?? 0), 0);
+
+  /**
+   * The same outcome counted across every asset, spending or not.
+   *
+   * Per kind and then the larger of the two, because `assets` holds audiences
+   * AND creatives — two complete partitions of the same round. Summing both
+   * would report every outcome twice.
+   */
+  const acrossAll = (kind: Asset["kind"]) =>
+    assets.filter((a) => a.kind === kind).reduce((s, a) => s + (outcomeOf(a, objective) ?? 0), 0);
+  const allGot = Math.max(acrossAll("audience"), acrossAll("creative"));
+
+  if (totalGot === 0) {
+    // Produced some, but none of it on an asset that spent — a tracking gap,
+    // not a performance one, and the opposite advice follows from it.
+    return allGot > 0
+      ? { ...blank, untracked: allGot }
+      : { ...blank, roundHasNone: true };
+  }
+
+  /** The round's own rate — what one of these cost it on average. */
+  const roundCost = totalSpend / totalGot;
+  /** For the revenue objective the ratio is a return, and it runs the other way. */
+  const roundRoas = totalSpend > 0 ? totalRev / totalSpend : null;
   const money = (v: number) => v.toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const where = (a: Asset) => (a.kind === "audience" ? "this audience" : "this creative");
+  const tab = (a: Asset) => (a.kind === "audience" ? "Targeted views" : "Ads");
 
   const out: Candidate[] = [];
 
-  // Spent enough to have bought a lead at the round's own rate, and bought none.
-  const couldHaveBought = (a: Asset) =>
-    roundCpl === null || (a.spend ?? 0) >= roundCpl * MIN_SPEND_MULTIPLE;
+  /**
+   * Spent enough to have bought one at the round's own rate, and bought none.
+   *
+   * For revenue "none" means no money back, which is a stronger claim than no
+   * purchases — an asset can produce a middle-offer sale and no preview one.
+   */
+  const producedNothing = (a: Asset) =>
+    objective === "rev" ? (a.rev ?? 0) === 0 : got(a) === 0;
 
   for (const a of paid
-    .filter((a) => a.leads === 0 && couldHaveBought(a))
+    .filter((a) => producedNothing(a) && (a.spend ?? 0) >= roundCost * MIN_SPEND_MULTIPLE)
     .sort((x, y) => (y.spend ?? 0) - (x.spend ?? 0))) {
+    /**
+     * Two different findings wear the same "produced none" shape, and telling
+     * them apart is most of the value.
+     *
+     * No leads either means the money never reached a person this app can see —
+     * which is as likely to be a tracking fault as a bad audience, and saying
+     * "cut it" would be wrong. Leads but none of the objective's outcome is the
+     * real one: the audience works and the people it brings do not convert. It
+     * is invisible to a screen that only knows cost per lead, and it is the
+     * reason this step follows the objective at all.
+     */
+    const gotLeads = a.leads > 0;
+    const reached =
+      objective === "rev" ? "bought anything" : noun === "attendee" ? "turned up" : "bought";
+
     out.push({
       kind: "cut",
-      headline: `${a.name} spent and returned nothing`,
-      detail: `SGD ${money(a.spend ?? 0)} on ${a.kind === "audience" ? "this audience" : "this creative"} in ${roundLabel}, and no lead carries its name. Worth checking the tracking before cutting it — an untagged lead looks exactly like no lead.`,
-      evidence: `${a.name} · SGD ${money(a.spend ?? 0)} · 0 leads · ${a.spend_share ?? "—"}% of round spend`,
+      headline: gotLeads
+        ? `${a.name} brought ${a.leads} leads and ${objective === "rev" ? "no revenue" : `no ${noun}s`}`
+        : `${a.name} spent and returned nothing`,
+      detail: gotLeads
+        ? `SGD ${money(a.spend ?? 0)} on ${where(a)} in ${roundLabel} produced ${a.leads} ` +
+          `lead${a.leads === 1 ? "" : "s"}, and not one of them ${reached}. On cost per lead this ` +
+          `looks like a working audience — it is only visible as a problem because the objective ` +
+          `is ${noun}s. One round is not proof; check it on the ${tab(a)} tab before cutting it.`
+        : `SGD ${money(a.spend ?? 0)} on ${where(a)} in ${roundLabel}, and no lead carries its ` +
+          `name at all. Worth checking the tracking before cutting it — an untagged lead looks ` +
+          `exactly like no lead.`,
+      evidence:
+        `${a.name} · SGD ${money(a.spend ?? 0)} · ${a.leads} leads · ` +
+        `0 ${noun}s · ${a.spend_share ?? "—"}% of round spend`,
     });
   }
 
-  if (roundCpl !== null) {
-    for (const a of paid.filter((a) => a.leads >= MIN_ASSET_LEADS)) {
-      const cpl = (a.spend ?? 0) / a.leads;
-      if (cpl >= roundCpl * CPL_MULTIPLE) {
+  /**
+   * Far off the round's own rate — but only where the asset produced enough of
+   * the thing that one more would not have changed the answer.
+   *
+   * On real data this floor bites hard for every objective except leads: the
+   * best audience in 0526-03 produced three attendees. That is reported rather
+   * than ranked, which is the whole reason the floor exists.
+   */
+  const ranked = paid.filter((a) => got(a) >= MIN_ASSET_OUTCOME);
+
+  for (const a of ranked) {
+    if (objective === "rev") {
+      if (roundRoas === null || roundRoas === 0) continue;
+      const roas = (a.rev ?? 0) / (a.spend ?? 1);
+      if (roas <= roundRoas / RATE_MULTIPLE) {
         out.push({
           kind: "watch",
-          headline: `${a.name} costs ${(cpl / roundCpl).toFixed(1)}× the round's own CPL`,
-          detail: `One round is not enough to call it — compare it on the ${a.kind === "audience" ? "Targeted views" : "Ads"} tab, where every round is summed, before moving budget.`,
-          evidence: `${a.name} · CPL ${money(cpl)} vs ${money(roundCpl)} for ${roundLabel} · ${a.leads} leads`,
+          headline: `${a.name} returns ${(roas / roundRoas).toFixed(1)}× the round's own ROAS`,
+          detail: `One round is not enough to call it — compare it on the ${tab(a)} tab, where every round is summed, before moving budget.`,
+          evidence: `${a.name} · ROAS ${roas.toFixed(1)} vs ${roundRoas.toFixed(1)} for ${roundLabel} · ${got(a)} ${noun}s`,
         });
       }
+      continue;
+    }
+    const cost = (a.spend ?? 0) / got(a);
+    if (cost >= roundCost * RATE_MULTIPLE) {
+      out.push({
+        kind: "watch",
+        headline: `${a.name} costs ${(cost / roundCost).toFixed(1)}× the round's own ${rate}`,
+        detail: `One round is not enough to call it — compare it on the ${tab(a)} tab, where every round is summed, before moving budget.`,
+        evidence: `${a.name} · ${money(cost)} per ${noun} vs ${money(roundCost)} for ${roundLabel} · ${got(a)} ${noun}s`,
+      });
     }
   }
+
+  /**
+   * Nothing cleared the floor. An empty step 7 reads as "no candidates", which
+   * is a finding; "nothing produced enough to compare" is a different finding
+   * and the one that is true here. The best any asset managed goes with it, so
+   * the reader can see how far short the data fell.
+   */
+  const tooThin =
+    !ranked.length && paid.length
+      ? { noun, best: Math.max(...paid.map(got)), floor: MIN_ASSET_OUTCOME }
+      : null;
 
   /**
    * Capped, and the cap is reported. A list that quietly stops at six reads as
    * "these are all of them", which is the one thing a truncated list must not
    * say. The count of what was left out goes back to the caller to print.
    */
-  return { shown: out.slice(0, MAX_CANDIDATES), dropped: Math.max(0, out.length - MAX_CANDIDATES) };
+  return {
+    shown: out.slice(0, MAX_CANDIDATES),
+    dropped: Math.max(0, out.length - MAX_CANDIDATES),
+    noun,
+    tooThin,
+    roundHasNone: false,
+    untracked: null,
+    unavailable: false,
+  };
 }
 
 // ── Presentation helpers ───────────────────────────────────────────────────

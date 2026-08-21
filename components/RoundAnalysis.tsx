@@ -4,10 +4,10 @@ import { OBJECTIVES, num, type ObjectiveKey } from "@/lib/funnel/chart";
 import { runsFor } from "@/lib/funnel/scroll";
 import { ScrollPanel } from "./ScrollPanel";
 import {
-  movesFor, issuesIn, tooThinIn, missedTargetIn, diffAssets, candidatesFrom,
+  movesFor, issuesIn, rankedIssues, tooThinIn, missedTargetIn, diffAssets, candidatesFrom,
   moveChip, roundProgress, MIN_SAMPLE, MATERIAL_PCT, SHARE_SHIFT_PTS,
-  MIN_ASSET_LEADS, MIN_SPEND_MULTIPLE, MAX_CANDIDATES,
-  type Move, type Asset,
+  MIN_ASSET_OUTCOME, MIN_SPEND_MULTIPLE, MAX_CANDIDATES, RATE_MULTIPLE, OBJECTIVE_OUTCOME,
+  type Move, type RankedMove, type Asset,
 } from "@/lib/funnel/analysis";
 
 /**
@@ -23,7 +23,22 @@ import {
  * Where a number is too thin to act on, it says so instead of ranking it.
  */
 
-const KPIS: MetricKey[] = ["spend", "leads", "attPct", "prevPct", "roas"];
+/**
+ * The five figures above the steps, led by whatever the round is being judged on.
+ *
+ * Spend first always — it is the input, and every rate below is a rate per
+ * pound of it. Then the objective's own metric and what a unit of it cost,
+ * because a screen that asks you to pick an objective and then doesn't show it
+ * is asking a question it ignores. The remainder fills from the standing
+ * context rates, minus anything already up there.
+ */
+const CONTEXT_KPIS: MetricKey[] = ["leads", "attPct", "prevPct", "roas"];
+
+function kpisFor(objective: ObjectiveKey): MetricKey[] {
+  const o = OBJECTIVES[objective];
+  const head: MetricKey[] = ["spend", o.metric, o.efficiency];
+  return [...head, ...CONTEXT_KPIS.filter((k) => !head.includes(k))].slice(0, 5);
+}
 
 const money = (v: number | null) => (v === null ? "—" : (fmt(v, "m") ?? "—"));
 
@@ -82,7 +97,12 @@ function Step({
 function MoveTable({
   moves, nowLabel, prevLabel, showTarget,
 }: {
-  moves: Move[];
+  /**
+   * Steps 1 and 2 pass plain moves; step 5 passes ranked ones. The marker is
+   * driven off the flag rather than off a second prop, so a table that was
+   * never ranked cannot accidentally claim a row is on the objective.
+   */
+  moves: Array<Move | RankedMove>;
   nowLabel: string;
   prevLabel: string;
   showTarget: boolean;
@@ -103,9 +123,14 @@ function MoveTable({
         </thead>
         <tbody>
           {moves.map((m) => (
-            <tr key={m.key}>
+            <tr key={m.key} className={"onObjective" in m && m.onObjective ? "on-objective" : undefined}>
               <th scope="row">
                 {m.label}
+                {"onObjective" in m && m.onObjective ? (
+                  <i className="goal" title="This is what the round is being judged on">
+                    objective
+                  </i>
+                ) : null}
                 {m.thin ? (
                   <i
                     className="thin"
@@ -161,7 +186,7 @@ export function RoundAnalysis({
   const targets = context?.targets ?? {};
   const moves = movesFor(now.m as Metrics, (prev?.m ?? null) as Metrics | null, (baseline?.m ?? null) as Metrics | null, targets);
   const byKey = new Map(moves.map((m) => [m.key, m]));
-  const issues = issuesIn(moves);
+  const issues = rankedIssues(moves, objective);
   const thin = tooThinIn(moves);
   const missed = missedTargetIn(moves);
   const hasTargets = Object.keys(targets).length > 0;
@@ -193,7 +218,7 @@ export function RoundAnalysis({
   const nowAssets = assets.filter((a) => a.round_id === roundId);
   const prevAssets = prevId ? assets.filter((a) => a.round_id === prevId) : [];
   const changes = prevId ? diffAssets(nowAssets, prevAssets) : [];
-  const candidates = candidatesFrom(nowAssets, roundId);
+  const candidates = candidatesFrom(nowAssets, roundId, objective);
 
   return (
     <>
@@ -207,7 +232,7 @@ export function RoundAnalysis({
 
       {/* The five figures worth knowing before reading anything else. */}
       <div className="kpis">
-        {KPIS.map((k) => {
+        {kpisFor(objective).map((k) => {
           const m = byKey.get(k);
           if (!m) return null;
           return (
@@ -390,9 +415,31 @@ export function RoundAnalysis({
         ) : null}
       </Step>
 
-      <Step n="05" title="Results — metrics with issues" aim={`worse than ${prevId ?? "the previous round"} by ${MATERIAL_PCT}% or more`}>
+      <Step
+        n="05"
+        title="Results — metrics with issues"
+        aim={`worse than ${prevId ?? "the previous round"} by ${MATERIAL_PCT}% or more · ${OBJECTIVES[objective].label.toLowerCase()} first`}
+      >
         {issues.length ? (
-          <MoveTable moves={issues} nowLabel={roundId} prevLabel={prevId ?? "Previous"} showTarget={hasTargets} />
+          <>
+            <MoveTable moves={issues} nowLabel={roundId} prevLabel={prevId ?? "Previous"} showTarget={hasTargets} />
+            {issues.some((m) => m.onObjective) ? (
+              <p className="cro-foot">
+                The rows marked <i className="goal">objective</i> are the two this round is being
+                judged on — {OBJECTIVES[objective].label} and{" "}
+                {OBJECTIVES[objective].efficiencyLabel}. They are sorted to the top, not filtered
+                to it: everything else here is still a real problem, and one of them may well be
+                what moved the objective.
+              </p>
+            ) : (
+              <p className="cro-foot">
+                <b>Nothing on the objective itself got worse.</b> {OBJECTIVES[objective].label} and{" "}
+                {OBJECTIVES[objective].efficiencyLabel} both held. What is listed above sits
+                upstream of them, which is where to look before this round&rsquo;s result becomes
+                next round&rsquo;s.
+              </p>
+            )}
+          </>
         ) : (
           <p className="cro-lead">
             <b>Nothing got materially worse.</b> No metric fell by {MATERIAL_PCT}% or more against{" "}
@@ -463,7 +510,11 @@ export function RoundAnalysis({
         )}
       </Step>
 
-      <Step n="07" title="Solution — things to test next round" aim="candidates, not decisions">
+      <Step
+        n="07"
+        title="Solution — things to test next round"
+        aim={`candidates, not decisions · judged on ${candidates.noun}s`}
+      >
         {candidates.shown.length ? (
           <ul className="cands">
             {candidates.shown.map((c, i) => (
@@ -477,11 +528,50 @@ export function RoundAnalysis({
               </li>
             ))}
           </ul>
+        ) : candidates.unavailable ? (
+          <p className="cro-lead">
+            <b>This database cannot break {candidates.noun}s down by audience yet.</b> Only leads
+            carry an ad set, so attendance and purchases have to be attributed through each
+            person&rsquo;s lead row — which migration <span className="num">0033</span> adds. Until
+            it runs, this step can only be answered for the Leads objective. Nothing is guessed in
+            the meantime.
+          </p>
+        ) : candidates.untracked !== null ? (
+          <p className="cro-lead">
+            <b>
+              {roundId} produced {candidates.untracked} {candidates.noun}
+              {candidates.untracked === 1 ? "" : "s"}, and not one of them can be traced to an
+              audience that spent.
+            </b>{" "}
+            They all arrived through <span className="num">(unsplit)</span> — the bucket for people
+            whose opt-in carried no ad set — which holds no spend, so there is nothing to credit or
+            blame. This is a tracking gap, not a performance one: no budget decision can be made
+            from it, and the fix is upstream, in the tags GoHighLevel writes. Switch the objective
+            to <b>Leads</b> to see what the audiences did do.
+          </p>
+        ) : candidates.roundHasNone ? (
+          <p className="cro-lead">
+            <b>{roundId} produced no {candidates.noun}s at all</b>, so no audience or creative can
+            be blamed for producing none. That is a fact about the round — or about a file that
+            has not been imported for it — rather than about any one asset.
+          </p>
+        ) : candidates.tooThin ? (
+          <p className="cro-lead">
+            <b>
+              No audience or creative in {roundId} produced enough {candidates.tooThin.noun}s to
+              compare on.
+            </b>{" "}
+            The most any managed was {candidates.tooThin.best}, against a floor of{" "}
+            {candidates.tooThin.floor}. At those counts one more {candidates.tooThin.noun} moves a
+            cost per {candidates.tooThin.noun} by more than the gap being measured, so nothing is
+            ranked. Switch the objective to <b>Leads</b> — every asset has enough of those — or
+            read <b>Targeted views</b>, where every round is summed.
+          </p>
         ) : (
           <p className="cro-lead">
             <b>Nothing in this round is far enough out of line to propose a test.</b> No audience or
-            creative took money and returned nothing, and none is more than 1.5× the round&rsquo;s
-            own cost per lead.
+            creative took money and returned no {candidates.noun}s, and none is more than{" "}
+            {RATE_MULTIPLE}× the round&rsquo;s own {OBJECTIVE_OUTCOME[objective].rate}.
           </p>
         )}
         <p className="cro-foot">
@@ -495,9 +585,10 @@ export function RoundAnalysis({
               looking complete.{" "}
             </>
           ) : null}
-          Nothing is proposed on fewer than {MIN_ASSET_LEADS} leads, and nothing is called a
-          failure for spending less than {MIN_SPEND_MULTIPLE} leads&rsquo; worth — at those sizes
-          one more lead changes the answer. Every one of these is still one round of evidence,
+          Nothing is proposed on fewer than {MIN_ASSET_OUTCOME} {candidates.noun}s, and nothing is
+          called a failure for spending less than {MIN_SPEND_MULTIPLE} {candidates.noun}s&rsquo;
+          worth — at those sizes one more {candidates.noun} changes the answer. Every one of these
+          is still one round of evidence,
           which is not enough to rank a creative on. They are candidates to test, and the call is
           yours rather than the tool&rsquo;s — the comparison that settles it is on{" "}
           <b>Targeted views</b> and <b>Ads</b>, where every round is summed.

@@ -31,8 +31,9 @@ import {
   colWidth, chartWidth, labelChars, wrapLabel, VS_OPTIONS, vsOption, isVs, DEFAULT_OPTS,
 } from "../lib/funnel/chart";
 import {
-  compare, movesFor, issuesIn, tooThinIn, missedTargetIn, diffAssets, candidatesFrom,
-  roundProgress, moveChip, MIN_SAMPLE,
+  compare, movesFor, issuesIn, rankedIssues, tooThinIn, missedTargetIn, diffAssets,
+  candidatesFrom, roundProgress, moveChip, MIN_SAMPLE, MIN_ASSET_OUTCOME,
+  OBJECTIVE_OUTCOME, outcomeOf,
 } from "../lib/funnel/analysis";
 
 let pass = 0, fail = 0;
@@ -1291,6 +1292,115 @@ console.log("\nCommit — re-importing a source retires the batch it replaces");
   eq("a finished round says so", roundProgress("2026-08-05", "2026-08-18", "2026-08-20"), "finished · ran 14 days");
   eq("one that hasn't started counts down", roundProgress("2026-08-05", "2026-08-18", "2026-08-01"), "starts in 4 days");
   eq("and no dates means no claim", roundProgress(null, "2026-08-18", "2026-08-10"), null);
+}
+
+console.log("\nTHE OBJECTIVE AS A LENS");
+{
+  const M = (o: Record<string, unknown>) => o as any;
+  const mv = (now: any, prev: any) => movesFor(M(now), M(prev), null, {});
+
+  // Step 5 RANKS, it does not filter. CTR collapsing is still a problem when
+  // the objective is attendance — it just isn't the first thing to read.
+  // att stays at 60 so cpAtt is not thin — a rate resting on under MIN_SAMPLE is
+  // excluded from step 5 entirely, which is correct and would hide the point.
+  const moves = mv(
+    { att: 60,  cpAtt: 60, ctr: 1.0, midBuy: 1, impr: 100000, leads: 200 },
+    { att: 120, cpAtt: 30, ctr: 2.0, midBuy: 4, impr: 100000, leads: 200 },
+  );
+  const ranked = rankedIssues(moves, "att");
+  eq("the objective's own metrics come first",
+     ranked.slice(0, 2).map((m) => m.key).sort(), ["att", "cpAtt"]);
+  eq("and they are marked", ranked.slice(0, 2).every((m) => m.onObjective), true);
+  eq("exactly those two", ranked.filter((m) => m.onObjective).length, 2);
+  eq("everything else is still listed", ranked.some((m) => m.key === "ctr"), true);
+  eq("but not marked", ranked.find((m) => m.key === "ctr")!.onObjective, false);
+  eq("nothing is dropped by ranking", ranked.length, issuesIn(moves).length);
+
+  // Same moves, objective switched: neither leads nor CPL has an issue, so
+  // nothing is pinned and the list falls back to biggest-move-first.
+  const onLeadsObj = rankedIssues(moves, "leads");
+  eq("a different objective marks nothing here", onLeadsObj.some((m) => m.onObjective), false);
+  eq("and the order is then purely by size",
+     onLeadsObj.map((m) => m.key), ["cpAtt", "midBuy", "att", "ctr"]);
+  eq("which is a different order from the one above",
+     ranked.map((m) => m.key), ["cpAtt", "att", "midBuy", "ctr"]);
+
+  // ── step 7 now judges an asset on what the objective asks for ───────────
+  const A = (name: string, spend: number, leads: number, att: number, buys: number, rev: number) =>
+    ({ round_id: "R", kind: "audience" as const, name, spend, leads,
+       spend_share: null, att, prev_buys: buys, rev });
+
+  // Cheap leads, no attendees. Invisible to the old screen, which is the point.
+  const assets = [
+    A("Cold_Broad",   1000, 100, 20, 5, 5000),
+    A("Cold_Cheap",    500,  80,  0, 0,    0),
+    A("Cold_Costly",  1000,  20, 20, 5, 5000),
+  ];
+
+  const onLeads = candidatesFrom(assets, "R", "leads");
+  eq("on leads, the expensive one is the candidate",
+     onLeads.shown.map((c) => c.kind), ["watch"]);
+  ok("and it is named by cost per lead", /cost per lead/.test(onLeads.shown[0].headline),
+     `\n       got ${onLeads.shown[0].headline}`);
+  eq("Cold_Cheap is not blamed — it bought leads", onLeads.shown.some((c) => /Cold_Cheap/.test(c.evidence)), false);
+
+  // Same three assets, objective switched: now the cheap-lead audience that
+  // produced nobody is the finding, and the "costly" one is fine.
+  const onAtt = candidatesFrom(assets, "R", "att");
+  eq("on attendance, the one that produced nobody surfaces",
+     onAtt.shown.map((c) => c.kind), ["cut"]);
+  // The finding a cost-per-lead screen cannot make: the audience works, and
+  // the people it brings do not turn up.
+  ok("and it names both halves of the finding",
+     /brought 80 leads and no attendees/.test(onAtt.shown[0].headline),
+     `\n       got ${onAtt.shown[0].headline}`);
+  ok("saying plainly why CPL missed it",
+     /cost per lead this looks like a working audience/.test(onAtt.shown[0].detail),
+     `\n       got ${onAtt.shown[0].detail}`);
+  // An asset with NO leads is a different case and must not get that wording —
+  // it is as likely to be broken tracking as a bad audience.
+  const noLeads = candidatesFrom(
+    [A("Cold_Broad", 1000, 100, 20, 5, 5000), A("Cold_Dark", 500, 0, 0, 0, 0)], "R", "att");
+  ok("an asset with no leads is called out as tracking, not conversion",
+     /no lead carries its name/.test(noLeads.shown[0].detail),
+     `\n       got ${noLeads.shown[0].detail}`);
+  eq("Cold_Costly is no longer a candidate", onAtt.shown.some((c) => /Cold_Costly/.test(c.evidence)), false);
+  eq("the noun follows the objective", [onLeads.noun, onAtt.noun], ["lead", "attendee"]);
+
+  // THE REAL CASE. 0526-03's best audience produced three attendees against a
+  // floor of ten, so nothing is ranked and the screen says how short it fell.
+  const thin = candidatesFrom(
+    [A("Cold_A", 400, 40, 3, 0, 0), A("Cold_B", 400, 40, 2, 0, 0)], "0526-03", "att");
+  eq("too few outcomes means nothing is ranked", thin.shown.length, 0);
+  eq("and the shortfall is reported, not left blank",
+     [thin.tooThin?.best, thin.tooThin?.floor], [3, MIN_ASSET_OUTCOME]);
+  eq("an empty list is not silently a clean bill", thin.tooThin !== null, true);
+
+  // A round with NO attendance imported must not propose cutting every audience.
+  const none = candidatesFrom(
+    [A("Cold_A", 400, 40, 0, 0, 0), A("Cold_B", 400, 40, 0, 0, 0)], "R", "att");
+  eq("a nought the whole round shares blames nobody", none.shown.length, 0);
+  eq("and it is reported as the round's, not the asset's", none.roundHasNone, true);
+
+  // Before 0033 the columns don't exist. Absent must not read as zero.
+  const old = [{ round_id: "R", kind: "audience" as const, name: "Cold_A",
+                 spend: 400, leads: 40, spend_share: null }];
+  eq("a database without 0033 says so", candidatesFrom(old, "R", "att").unavailable, true);
+  eq("rather than cutting every audience", candidatesFrom(old, "R", "att").shown.length, 0);
+  eq("and leads still work without it", candidatesFrom(old, "R", "leads").unavailable, false);
+
+  // Revenue's ratio runs the OTHER WAY — low ROAS is the problem, not high.
+  const rev = candidatesFrom(
+    [A("Good", 1000, 100, 50, 20, 4000), A("Bad", 1000, 100, 50, 20, 500)], "R", "rev");
+  eq("on revenue the poor return is the candidate",
+     rev.shown.map((c) => c.evidence.split(" ")[0]), ["Bad"]);
+  ok("and it is named as ROAS", /ROAS/.test(rev.shown[0].headline),
+     `\n       got ${rev.shown[0].headline}`);
+  eq("revenue is judged on preview purchases, as ROAS already is",
+     OBJECTIVE_OUTCOME.rev.count, "prev_buys");
+
+  eq("outcomeOf reads the objective's field", outcomeOf(assets[0], "att"), 20);
+  eq("and returns null when the column is absent", outcomeOf(old[0], "att"), null);
 }
 
 console.log("\nCLARITY SCROLL");

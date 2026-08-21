@@ -4,7 +4,7 @@
 sprints 3–6, deliberately including the places I am least sure of. Assume I am wrong somewhere;
 the point of this document is to make it cheap to find where.
 
-Last updated after migration `0032`. `main` at the commit that adds the landing-page scroll dimension.
+Last updated after migration `0033`. `main` at the commit that makes the objective drive steps 5 and 7.
 
 ---
 
@@ -186,9 +186,18 @@ in the asset diff.
       redistributed nothing.
 - [ ] The landing-page half of step 3 is now answered where a Clarity export exists, and left
       **open and labelled** where none does. See step 4 below.
-- [ ] Step 7 floors: 10 leads minimum for a CPL-multiple candidate, and an asset that never spent
-      two leads' worth is not blamed for producing none. The first real run proposed a creative at
-      3.5× the round's CPL **on two leads**, which broke the screen's own stated promise.
+- [ ] Step 7 floors: 10 outcomes minimum for a rate-multiple candidate, and an asset that never
+      spent two outcomes' worth is not blamed for producing none. The first real run proposed a
+      creative at 3.5× the round's CPL **on two leads**, which broke the screen's own promise.
+- [ ] **The OBJECTIVE picker is a lens on steps 4, 5 and 7 and on the KPI strip** — `0033`. It used
+      to move step 4 alone. Step 5 now *ranks* by it and never filters by it: a problem upstream of
+      your objective is still a problem. Step 7 judges assets on the objective's own outcome, which
+      needs `v_round_assets.att / prev_buys / rev` — attributed through each person's lead row,
+      because only leads carry an ad set. Four honest empty states, and on this database three of
+      them fire: attendance is **too thin** (best audience produced 3 against a floor of 10), and
+      preview purchases / revenue are **untracked** (all six purchases came through `(unsplit)`,
+      which holds no spend). Check none of them ever claims the round produced nothing when it
+      produced something untracked — that distinction is the whole point of the `untracked` case.
 
 **Verify** (product = Memi AI Workshop): This round reads `0526-03`, `finished · ran 5 days`.
 Step 3 shows exactly four changes, the largest being

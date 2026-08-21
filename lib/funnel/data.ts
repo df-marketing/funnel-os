@@ -80,6 +80,14 @@ export type RoundAsset = {
   spend: number | null;
   leads: number;
   spend_share: number | null;
+  /**
+   * What the asset produced past the opt-in — appended by 0033. Optional
+   * because a database that has not run it returns the row without them, and
+   * step 7 has to say "not measured" rather than read the absence as nought.
+   */
+  att?: number | null;
+  prev_buys?: number | null;
+  rev?: number | null;
 };
 
 /**
@@ -524,7 +532,7 @@ const loadRoundContext = unstable_cache(
     const [assetRows, scrollRows] = ids.length
       ? await Promise.all([
           db.from("v_round_assets")
-            .select("round_id, kind, name, spend, leads, spend_share")
+            .select("round_id, kind, name, spend, leads, spend_share, att, prev_buys, rev")
             .eq("client_id", id)
             .in("round_id", ids),
           db.from("v_scroll_runs")

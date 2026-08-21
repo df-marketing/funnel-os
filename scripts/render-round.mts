@@ -30,8 +30,10 @@ const cuts: Cut[] = [
 ];
 const baseline = cut("BASE", "baseline", "", "", { cpl: 13.27, attPct: 21.7, prevPct: 18.5, roas: 2.1, leads: 180, spend: 1900, att: 40 });
 
-const A = (round: string, name: string, spend: number | null, leads: number, share: number | null) =>
-  ({ round_id: round, kind: "audience" as const, name, spend, leads, spend_share: share });
+const A = (round: string, name: string, spend: number | null, leads: number, share: number | null,
+           att = 0, prev_buys = 0, rev = 0) =>
+  ({ round_id: round, kind: "audience" as const, name, spend, leads, spend_share: share,
+     att, prev_buys, rev });
 
 const context: RoundContext = {
   months: [
@@ -39,10 +41,10 @@ const context: RoundContext = {
     cut("2026-08", "", "", "", { spend: 2380, leads: 304, att: 81, rev: 4158, cpl: 7.83, roas: 3.0 }),
   ],
   assets: [
-    A("0826-01", "Cold_Broad", 900, 120, 37.8),
-    A("0826-01", "Cold_CorporateTrainers", 600, 0, 25.2),
-    A("0826-01", "Cold_NewTest", 480, 12, 20.2),
-    A("0826-01", "Cold_Consultants", 400, 60, 16.8),
+    A("0826-01", "Cold_Broad", 900, 120, 37.8, 40, 8, 2376),
+    A("0826-01", "Cold_CorporateTrainers", 600, 0, 25.2, 0, 0, 0),
+    A("0826-01", "Cold_NewTest", 480, 12, 20.2, 0, 0, 0),
+    A("0826-01", "Cold_Consultants", 400, 60, 16.8, 41, 6, 1782),
     A("0726-03", "Cold_Broad", 300, 40, 17.1),
     A("0726-03", "Cold_CorporateTrainers", 700, 30, 40.0),
     A("0726-03", "Cold_Consultants", 400, 40, 22.8),
@@ -91,6 +93,8 @@ for (const [name, ctx, obj] of [
   // The default state of every round in the database: nothing measured. It has
   // to read as an open question, not as a broken panel.
   ["no clarity export", { ...context, scroll: [] }, "att"],
+  ["objective = revenue", context, "rev"],
+  ["objective = preview purchases", context, "prevBuy"],
 ] as const) {
   const html = renderToStaticMarkup(
     React.createElement(RoundAnalysis, {

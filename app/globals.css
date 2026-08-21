@@ -454,6 +454,14 @@ footer b { color: var(--ink-2); }
   background: var(--surface-2); border: 1px solid var(--line-soft);
   border-radius: var(--r); padding: 2px 7px; display: inline-block; }
 
+/* The two metrics the round is being judged on, marked where they appear in
+   step 5's list so a row of seven doesn't read as seven equals. */
+.movetable tr.on-objective td, .movetable tr.on-objective th { background: var(--accent-wash); }
+.movetable tr.on-objective th[scope="row"] { color: var(--ink); font-weight: 600; }
+i.goal { font: 600 9px var(--mono); letter-spacing: .07em; text-transform: uppercase;
+  color: var(--accent-ink); border: 1px solid var(--accent); background: var(--accent-wash);
+  border-radius: var(--r); padding: 1px 5px; margin-left: 6px; font-style: normal; }
+
 /* ── Step 3c — the scroll curve ─────────────────────────────────────────── */
 .scroll-panel { display: flex; flex-direction: column; gap: 14px; }
 .scroll-run { border: 1px solid var(--line-soft); border-radius: var(--r);
