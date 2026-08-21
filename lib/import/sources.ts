@@ -8,7 +8,7 @@
  * than importing a column of blanks that would quietly restate every ROAS.
  */
 
-export type SourceKey = "ads" | "leads" | "attendance" | "sales";
+export type SourceKey = "ads" | "leads" | "attendance" | "sales" | "scroll";
 
 export type FieldSpec = {
   field: string;
@@ -21,6 +21,20 @@ export type SourceSpec = {
   label: string;
   kind: string;
   fields: FieldSpec[];
+  /**
+   * A source the client may simply not use.
+   *
+   * The header calls out every source that has never been imported, because
+   * absence was passing as freshness. Scroll is different in kind: no round has
+   * to have a Clarity export, and a permanent "Landing page scroll never
+   * imported" beside four real warnings teaches people to ignore all five.
+   * It is offered on the Import tab and it does not nag.
+   */
+  optional?: boolean;
+  /** What the dropzone says the file should contain, when field names won't do. */
+  expects?: string;
+  /** False where a blank template makes no sense — see template.ts. */
+  template?: false;
 };
 
 const f = (field: string, required: boolean, ...aliases: string[]): FieldSpec => ({
@@ -134,6 +148,24 @@ export const SOURCES: Record<SourceKey, SourceSpec> = {
       f("refund_amount", false, "refunded", "refund", "amount refunded"),
       f("refund_date", false, "refunded at", "refund date"),
     ],
+  },
+  /**
+   * The one source with no column mapping.
+   *
+   * A Clarity export is a metadata block and then a table, so there is no
+   * header on line 1 to map and mapColumns is never called for it — the
+   * pipeline branches to parseClarityScroll instead. `fields` is empty for that
+   * reason rather than by omission, and the dropzone says what the file has to
+   * contain in words instead of listing field names that don't exist.
+   */
+  scroll: {
+    key: "scroll",
+    label: "Landing page scroll",
+    kind: "Microsoft Clarity · CSV",
+    optional: true,
+    template: false,
+    expects: "Clarity's Scroll export, unedited — its date range picks the round",
+    fields: [],
   },
 };
 

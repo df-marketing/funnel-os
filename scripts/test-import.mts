@@ -20,7 +20,11 @@ import { mapColumns, SOURCES } from "../lib/import/sources";
 import { buildTemplate } from "../lib/import/template";
 import { buildIndex, matchRow, normPhone, normEmail, stripPlus } from "../lib/import/identity";
 import { attributeLead, closeRoundFor, resolveProduct, roundFromCampaign, resolveRoundRef } from "../lib/import/attribute";
-import { planImport, commitPlan, ImportError } from "../lib/import/pipeline";
+import { planImport, commitPlan, ImportError, roundForWindow } from "../lib/import/pipeline";
+import { parseClarityScroll, ClarityError, sessionsFrom, deviceFromName } from "../lib/import/clarity";
+import {
+  curveOf, biggestDrop, ceilingOf, coverageOf, runsFor, type ScrollRun,
+} from "../lib/funnel/scroll";
 import { cadencesFor, resolveSpine } from "../lib/funnel/cadence";
 import {
   niceMax, axisMax, num, chartModel, lineRuns, colX, valueY, floorY, ticksFor, TICKS, GEO,
@@ -230,6 +234,11 @@ function writableDb(tables: Tables) {
       select: () => api,
       insert: async (rows: any) => { all.push(...(Array.isArray(rows) ? rows : [rows])); return { error: null }; },
       update: (patch: any) => { pending = patch; return api; },
+      // A scroll re-import replaces the curve it supersedes rather than
+      // upserting it, so the writable fake has to be able to delete or that
+      // path is never exercised. `depths` follow through ON DELETE CASCADE in
+      // Postgres; here the cascade is spelled out.
+      delete: () => { pending = "delete"; return api; },
       eq:   (c: string, v: any) => { out = out.filter((r) => r[c] === v); return api; },
       neq:  (c: string, v: any) => { out = out.filter((r) => r[c] !== v); return api; },
       in:   (c: string, v: any[]) => { out = out.filter((r) => v.includes(r[c])); return api; },
@@ -240,7 +249,17 @@ function writableDb(tables: Tables) {
       maybeSingle: async () => ({ data: out[0] ?? null, error: null }),
       single: async () => ({ data: out[0] ?? null, error: null }),
       then: (res: any) => {
-        if (pending) out.forEach((r) => Object.assign(r, pending));
+        if (pending === "delete") {
+          const gone = new Set(out);
+          const kept = all.filter((r) => !gone.has(r));
+          all.length = 0; all.push(...kept);
+          if (name === "scroll_runs") {
+            const ids = new Set(out.map((r) => r.run_id));
+            const d = (tables.scroll_depths ??= []);
+            const keep = d.filter((r: any) => !ids.has(r.run_id));
+            d.length = 0; d.push(...keep);
+          }
+        } else if (pending) out.forEach((r) => Object.assign(r, pending));
         return Promise.resolve({ data: out, error: null }).then(res);
       },
     };
@@ -1272,6 +1291,182 @@ console.log("\nCommit — re-importing a source retires the batch it replaces");
   eq("a finished round says so", roundProgress("2026-08-05", "2026-08-18", "2026-08-20"), "finished · ran 14 days");
   eq("one that hasn't started counts down", roundProgress("2026-08-05", "2026-08-18", "2026-08-01"), "starts in 4 days");
   eq("and no dates means no claim", roundProgress(null, "2026-08-18", "2026-08-10"), null);
+}
+
+console.log("\nCLARITY SCROLL");
+{
+  // A real export, trimmed to five readings. Every quirk that matters is in
+  // here: the BOM, the metadata block, the blank lines, the US date order, and
+  // page views that disagree with the curve's own base.
+  const CLARITY = '﻿' + [
+    '"Project name","Shely\'s Landing Page 0526-03"',
+    '"Date range","05/25/2026 12:00 AM - 05/27/2026 11:59 PM"',
+    "",
+    "",
+    '"Visited URL matches regex","^https://webinar\\.memiai\\.online/x$"',
+    "",
+    '"Page views","60"',
+    "",
+    "",
+    '"Metric","Scroll"',
+    "",
+    '"Scroll depth","No. of visitors","% drop off"',
+    '"5","55","5.17"',
+    '"10","35","39.66"',
+    '"50","28","51.72"',
+    '"95","26","55.17"',
+    '"100","15","74.14"',
+    "",
+  ].join("\n");
+
+  const c = parseClarityScroll(CLARITY, "Clarity_Scroll_Mobile_x.csv");
+
+  eq("the project name survives its apostrophe", c.page_label, "Shely's Landing Page 0526-03");
+  eq("device comes off the file name", c.device, "mobile");
+  eq("a file that names no device says so", deviceFromName("Clarity_Scroll_x.csv"), "all");
+
+  // Clarity is a Microsoft product and writes MM/DD/YYYY. toDate() resolves an
+  // ambiguous slash date DAY-first, which is right for the SG exports it was
+  // written for and would put this export a month out.
+  eq("US date order, not the shared day-first rule", c.captured_from, "2026-05-25");
+  eq("and the far end too", c.captured_to, "2026-05-27");
+  eq("the shared reader would have disagreed", toDate("05/06/2026"), "2026-06-05");
+
+  // THE DENOMINATOR. Page views is 60 and the curve is built on 58: a view that
+  // never fired a scroll event is a view and is not on the curve. Reading the
+  // 60 would understate every band by 3.3% and nothing would show it.
+  eq("sessions come from the curve, not from page views", c.sessions, 58);
+  eq("page views are kept anyway", c.page_views, 60);
+  eq("every row agrees on the base", sessionsFrom(c.points).spread, 0);
+  eq("all five readings survive", c.points.length, 5);
+  eq("and they are in depth order", c.points.map((p) => p.depth), [5, 10, 50, 95, 100]);
+
+  // Wrong file, refused by name rather than half-read.
+  ok("a clicks export is refused", (() => {
+    try { parseClarityScroll(CLARITY.replace('"Scroll"', '"Clicks"'), "x.csv"); return false; }
+    catch (e) { return e instanceof ClarityError && /not Scroll/.test(e.message); }
+  })());
+  ok("a file with no curve in it is refused", (() => {
+    try { parseClarityScroll('"Project name","x"\n"Metric","Scroll"\n', "x.csv"); return false; }
+    catch (e) { return e instanceof ClarityError; }
+  })());
+
+  // ── the curve, as shares ────────────────────────────────────────────────
+  const curve = curveOf(c.points, c.sessions);
+  eq("the first band's loss is the bounce", curve[0].lost, 3);
+  eq("stated as a share", Number(curve[0].lostPts.toFixed(2)), 5.17);
+  eq("retention at the bottom", Number(curve[4].pct.toFixed(2)), 25.86);
+
+  // The worst step is the SECOND reading here, and the loop has to start from
+  // sessions rather than from the first reading or it could never say so.
+  const worst = biggestDrop(curve)!;
+  eq("the biggest fall is found", worst.depth, 10);
+  eq("and it is 20 sessions", worst.lost, 20);
+
+  // ── the constraint ──────────────────────────────────────────────────────
+  // 0526-03: 141 leads on 377 clicks = 37.40%. At 95% depth 44.83% are still
+  // reading; at 100% only 25.86% are. So the form is at or above 95%.
+  const leadGen = (141 / 377) * 100;
+  const bounded = ceilingOf(curve, leadGen);
+  eq("the form is bounded above the last band", bounded.kind, "bounded");
+  eq("at the deepest band that clears lead gen", (bounded as { depth: number }).depth, 95);
+
+  // If everyone who converted was still present at the bottom, scroll is not
+  // the constraint — and saying "the form is above 100%" would be nonsense.
+  eq("a curve that clears it everywhere is unbounded",
+     ceilingOf(curve, 10).kind, "unbounded");
+
+  // More conversions than scrollers is not a finding, it is a contradiction.
+  eq("and one that clears it nowhere is impossible",
+     ceilingOf(curve, 99).kind, "impossible");
+  eq("no lead gen means no claim", ceilingOf(curve, null).kind, "unknown");
+
+  // ── coverage ────────────────────────────────────────────────────────────
+  const thin = coverageOf(58, 377);
+  eq("58 sessions against 377 clicks is a sample", thin.thin, true);
+  eq("and the share is stated", Number(thin.pct!.toFixed(1)), 15.4);
+  eq("full coverage is not thin", coverageOf(340, 377).thin, false);
+  eq("but a small sample is, however complete", coverageOf(12, 12).thin, true);
+  // Clarity seeing more than the ads bought is organic traffic, not an error.
+  const over = coverageOf(500, 377);
+  eq("more sessions than clicks is its own case", over.over, true);
+  eq("and it is not called thin", over.thin, false);
+
+  // ── which round a window describes ──────────────────────────────────────
+  const R = (id: string, s: string, e: string) =>
+    ({ round_id: id, client_id: "shely", start_date: s, end_date: e, session_dates: [] });
+  const rs = [R("0526-02", "2026-05-13", "2026-05-19"), R("0526-03", "2026-05-23", "2026-05-27")];
+  eq("a window inside a round picks it",
+     roundForWindow("2026-05-25", "2026-05-27", rs)?.round.round_id, "0526-03");
+  // Overlap, not containment: "last 7 days" over a 5-day round is the ordinary
+  // case and refusing it would refuse most real exports.
+  const wide = roundForWindow("2026-05-21", "2026-05-27", rs)!;
+  eq("a wider window still picks the round it covers", wide.round.round_id, "0526-03");
+  eq("and reports how much of it actually overlapped", [wide.days, wide.span], [5, 7]);
+  eq("most overlap wins when two rounds are in range",
+     roundForWindow("2026-05-18", "2026-05-24", rs)?.round.round_id, "0526-02");
+  eq("a window touching no round picks none",
+     roundForWindow("2026-05-20", "2026-05-22", rs), null);
+  eq("and no dates at all picks none", roundForWindow(null, null, rs), null);
+
+  // Two device exports of one round are shown separately, largest first — they
+  // are not summable, so this only decides reading order.
+  const run = (id: string, dev: string, n: number): ScrollRun => ({
+    run_id: id, round_id: "0526-03", page_label: null, device: dev, sessions: n,
+    page_views: null, captured_from: null, captured_to: null, points: [],
+  });
+  eq("the biggest sample is read first",
+     runsFor([run("a", "desktop", 20), run("b", "mobile", 58)], "0526-03").map((r) => r.run_id),
+     ["b", "a"]);
+  eq("another round's curve is not shown", runsFor([run("a", "mobile", 58)], "DEMO-W1").length, 0);
+
+  // ── the whole way through the importer ──────────────────────────────────
+  const tables: any = { rounds: ROUNDS, round_sessions: [], scroll_runs: [], scroll_depths: [], import_batches: [] };
+  const wdb = writableDb(tables);
+  const plan = await planImport(wdb, {
+    source: "scroll", clientId: "shely", fileName: "Clarity_Scroll_Mobile.csv", text: CLARITY,
+  });
+
+  eq("the round comes off the date range", plan.ops.scroll!.run.round_id, "0526-03");
+  eq("a scroll import writes no events", plan.ops.events.length, 0);
+  eq("and parks nobody", plan.ops.unmatched.length, 0);
+  eq("the curve is what it writes", plan.diff.newRows, 5);
+  eq("coverage is the export's own window", [plan.coverage.start, plan.coverage.end],
+     ["2026-05-25", "2026-05-27"]);
+  ok("page views disagreeing with the base is said out loud",
+     plan.warnings.some((w) => /60 page views/.test(w) && /58 sessions/.test(w)),
+     `\n       ${plan.warnings.join("\n       ")}`);
+
+  await commitPlan(wdb, "batch-1", plan);
+  eq("one run is stored", tables.scroll_runs.length, 1);
+  eq("with all five readings", tables.scroll_depths.length, 5);
+
+  // Re-exporting the same days is how late data arrives. It must REPLACE:
+  // two copies of one measurement would read as twice the traffic.
+  const again = await planImport(wdb, {
+    source: "scroll", clientId: "shely", fileName: "Clarity_Scroll_Mobile.csv", text: CLARITY,
+  });
+  eq("a re-export is a change, not an insert", [again.diff.newRows, again.diff.changedRows], [0, 5]);
+  ok("and it says it would restate what is stored", again.diff.restatements.length === 1);
+
+  await commitPlan(wdb, "batch-2", again);
+  eq("there is still only one run", tables.scroll_runs.length, 1);
+  eq("and still only five readings", tables.scroll_depths.length, 5);
+
+  // A window no round covers is refused with the rounds named, not filed
+  // against whichever round happens to be nearest.
+  ok("a window outside every round is refused", await (async () => {
+    try {
+      await planImport(writableDb({ rounds: ROUNDS, round_sessions: [] }), {
+        source: "scroll", clientId: "shely", fileName: "x.csv",
+        text: CLARITY.replace("05/25/2026", "09/25/2026").replace("05/27/2026", "09/27/2026"),
+      });
+      return false;
+    } catch (e) {
+      return e instanceof ImportError && /No round overlaps/.test(e.message)
+          && (e.detail ?? []).some((d) => /0526-03/.test(d));
+    }
+  })());
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

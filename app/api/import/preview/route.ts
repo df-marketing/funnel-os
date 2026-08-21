@@ -78,5 +78,21 @@ function summarise(p: Plan) {
       unmatched: p.ops.unmatched.length,
       refunds: p.ops.refundUpdates.length,
     },
+    /**
+     * A scroll import writes no events and no ads, so every count above it is
+     * zero and the diff would read "nothing new" for a file that is about to
+     * write a twenty-point curve. What it IS doing has to be said in its own
+     * terms: which round, how many sessions, and whether it replaces one.
+     */
+    scroll: p.ops.scroll
+      ? {
+          round: String(p.ops.scroll.run.round_id),
+          device: String(p.ops.scroll.run.device),
+          sessions: Number(p.ops.scroll.run.sessions),
+          pageViews: (p.ops.scroll.run.page_views ?? null) as number | null,
+          points: p.ops.scroll.points.length,
+          replaces: Boolean(p.ops.scroll.replaces),
+        }
+      : null,
   };
 }

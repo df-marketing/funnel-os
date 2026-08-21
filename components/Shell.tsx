@@ -61,7 +61,10 @@ export function TopBar({
    * as freshness. Missing is a louder problem than stale, so it's said first.
    */
   const missing = (Object.keys(SOURCES) as SourceKey[]).filter(
-    (k) => !imports.some((i) => i.source === k),
+    // An optional source that was never imported is not a gap. No round has to
+    // have a Clarity export, and a permanent fifth warning beside four real
+    // ones is how people learn to stop reading all five.
+    (k) => !SOURCES[k].optional && !imports.some((i) => i.source === k),
   );
   const coverage = imports
     .map((i) => i.coverage_end)

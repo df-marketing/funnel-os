@@ -1,6 +1,8 @@
 import type { Cut, RoundContext } from "@/lib/funnel/data";
 import { fmt, type MetricKey, type Metrics } from "@/lib/funnel/spine";
-import { OBJECTIVES, type ObjectiveKey } from "@/lib/funnel/chart";
+import { OBJECTIVES, num, type ObjectiveKey } from "@/lib/funnel/chart";
+import { runsFor } from "@/lib/funnel/scroll";
+import { ScrollPanel } from "./ScrollPanel";
 import {
   movesFor, issuesIn, tooThinIn, missedTargetIn, diffAssets, candidatesFrom,
   moveChip, roundProgress, MIN_SAMPLE, MATERIAL_PCT, SHARE_SHIFT_PTS,
@@ -317,13 +319,14 @@ export function RoundAnalysis({
           </p>
         )}
 
-        <p className="cro-foot">
-          <b>The landing-page question is not answered here.</b> The process asks whether a page
-          section changed and whether the section above it affected the one below — that needs a
-          landing-page dimension the schema doesn&rsquo;t have and a Microsoft Clarity export
-          covering these dates, and neither exists yet. It is left open rather than quietly
-          dropped from the list.
-        </p>
+        {/* 3c — the landing page. The rest of step 3 diffs what the ad account
+            changed; this is the only part that asks what the page did. */}
+        <ScrollPanel
+          runs={runsFor(context?.scroll ?? [], roundId)}
+          roundId={roundId}
+          leadGen={num((now.m as Metrics)?.leadgen)}
+          clicks={num((now.m as Metrics)?.clicks)}
+        />
       </Step>
 
       <Step n="04" title="Findings — goal metric amount" aim={`the objective is ${OBJECTIVES[objective].label.toLowerCase()}`}>

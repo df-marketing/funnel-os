@@ -4,6 +4,7 @@ import { parseCsv, toNumber, toDate, toTimestamp, localDay, type Row } from "./c
 import { SOURCES, mapColumns, type SourceKey } from "./sources";
 import { buildIndex, matchRow, normEmail, normPhone, type KnownContact, type ParkReason } from "./identity";
 import { attributeLead, closeRoundFor, resolveRoundRef, resolveProduct, roundFromCampaign, type Round, type AdSetRun } from "./attribute";
+import { parseClarityScroll, ClarityError, sessionsFrom } from "./clarity";
 
 /**
  * The pass, as the workflow doc specifies it:
@@ -79,7 +80,22 @@ export type Plan = {
      * batch they came from can be retired whole without taking them with it.
      */
     adoptedParked: string[];
+    /**
+     * A landing-page scroll curve and the round it describes.
+     *
+     * Its own slot rather than a row in `events` or `ads`: it has no person and
+     * no money on it, and its denominator is sessions — see 0032. One per
+     * import, because one Clarity export is one measurement.
+     */
+    scroll: ScrollWrite | null;
   };
+};
+
+export type ScrollWrite = {
+  run: Record<string, unknown>;
+  points: Array<{ depth_pct: number; visitors: number; drop_off_pct: number | null }>;
+  /** A run already covering this page/device/window, which this one replaces. */
+  replaces: string | null;
 };
 
 export class ImportError extends Error {
@@ -148,6 +164,203 @@ function refuseIfNothingUsable(unusable: number, total: number, label: string) {
   }
 }
 
+/**
+ * Rounds, each carrying every class it runs.
+ *
+ * Two reads rather than a join: PostgREST's embedding would need a foreign key
+ * the anon role can see, and this is two small tables. Sessions are read from
+ * the table, not v_round_sessions, because an import is not looking at a
+ * filtered screen — it has to see every round the file might name.
+ */
+async function loadRounds(db: SupabaseClient, clientId: string): Promise<Round[]> {
+  const [roundRows, sessionRows] = await Promise.all([
+    fetchAll<Omit<Round, "session_dates"> & { session_date: string | null }>(
+      db, "rounds", "round_id, client_id, start_date, end_date, session_date",
+      (q) => q.eq("client_id", clientId)),
+    fetchAll<{ round_id: string; session_date: string }>(
+      db, "round_sessions", "round_id, session_date"),
+  ]);
+  const sessionsByRound = new Map<string, string[]>();
+  for (const s of sessionRows) {
+    const list = sessionsByRound.get(s.round_id) ?? [];
+    list.push(s.session_date);
+    sessionsByRound.set(s.round_id, list);
+  }
+  const rounds: Round[] = roundRows.map((r) => ({
+    round_id: r.round_id, client_id: r.client_id,
+    start_date: r.start_date, end_date: r.end_date,
+    // fall back to the round's own column for a database that hasn't run 0025
+    session_dates: sessionsByRound.get(r.round_id) ?? (r.session_date ? [r.session_date] : []),
+  }));
+  if (!rounds.length) throw new ImportError("This client has no rounds yet — create a round before importing.");
+  return rounds;
+}
+
+/**
+ * Which round a capture window describes: the one it overlaps most.
+ *
+ * Not containment. Clarity's window is whatever was typed into its date picker
+ * and a round's window is five days on a wall calendar; requiring one to sit
+ * inside the other would refuse the ordinary case where someone exported "last
+ * 7 days" over a 5-day round. Most-overlap picks the round the export is mostly
+ * about, and the number of days that actually overlap is reported so a 1-day
+ * sliver never passes as a match in silence.
+ */
+export function roundForWindow(
+  from: string | null, to: string | null, rounds: Round[],
+): { round: Round; days: number; span: number } | null {
+  if (!from || !to) return null;
+  const day = 86_400_000;
+  const days = (a: string, b: string) =>
+    Math.floor((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / day) + 1;
+  const span = days(from, to);
+
+  let best: { round: Round; days: number; span: number } | null = null;
+  for (const r of rounds) {
+    const s = dayOf(r.start_date)!;
+    const e = dayOf(r.end_date)!;
+    const lo = from > s ? from : s;
+    const hi = to < e ? to : e;
+    if (lo > hi) continue;
+    const overlap = days(lo, hi);
+    if (!best || overlap > best.days) best = { round: r, days: overlap, span };
+  }
+  return best;
+}
+
+/**
+ * A Microsoft Clarity scroll export.
+ *
+ * Short because there is no person to match and no money to attribute: the
+ * whole job is read the file, find the round it describes, and notice when it
+ * replaces one already stored. What it does share with the other four is the
+ * shape — it stages a plan, writes nothing, and the diff shown is the diff that
+ * gets applied.
+ */
+async function planScroll(
+  db: SupabaseClient,
+  { clientId, fileName, text }: { clientId: string; fileName: string; text: string },
+): Promise<Plan> {
+  let read;
+  try {
+    read = parseClarityScroll(text, fileName);
+  } catch (err) {
+    if (err instanceof ClarityError) throw new ImportError(err.message, err.detail);
+    throw err;
+  }
+
+  const rounds = await loadRounds(db, clientId);
+  const hit = roundForWindow(read.captured_from, read.captured_to, rounds);
+
+  if (!hit) {
+    throw new ImportError(
+      read.captured_from
+        ? `No round overlaps ${read.captured_from} → ${read.captured_to}.`
+        : "That export has no readable date range, so there is no way to tell which round it describes.",
+      [
+        `Rounds on record: ${rounds.map((r) => `${r.round_id} (${dayOf(r.start_date)}→${dayOf(r.end_date)})`).join(" · ")}`,
+        "Re-export from Clarity with the round's own dates in the picker.",
+      ],
+    );
+  }
+
+  const warnings: string[] = [];
+  const { round, days, span } = hit;
+
+  // A window that mostly misses the round still gets imported — it is a real
+  // measurement of a real page — but it is not allowed to look like a clean fit.
+  if (days < span) {
+    warnings.push(
+      `The export covers ${span} day${span === 1 ? "" : "s"} and only ${days} of them fall inside ` +
+      `${round.round_id}. The curve is being filed against that round anyway; the days outside it ` +
+      `describe traffic no round here accounts for.`,
+    );
+  }
+  if (read.page_views !== null && read.page_views !== read.sessions) {
+    warnings.push(
+      `Clarity reports ${read.page_views} page views and a curve built on ${read.sessions} sessions. ` +
+      `The ${read.sessions} is used — a view that never fired a scroll event is not on the curve — ` +
+      `so every percentage here is out of ${read.sessions}.`,
+    );
+  }
+  const { spread } = sessionsFrom(read.points);
+  if (spread > 1) {
+    warnings.push(
+      `The rows disagree about how many sessions there were, by up to ${spread}. ` +
+      `The most common answer (${read.sessions}) is used.`,
+    );
+  }
+  if (read.device === "all") {
+    warnings.push(
+      `No device is named in "${fileName}", so this is recorded as covering all devices. ` +
+      `Clarity puts the device filter in the file name only — if this was a mobile-only export, ` +
+      `rename the file so it says so and import it again.`,
+    );
+  }
+
+  /**
+   * A curve already stored for this page, device and window.
+   *
+   * Re-exporting the same days is the normal way to pick up late data, so it
+   * replaces rather than parks or duplicates — two copies of one measurement
+   * would read as twice the traffic. The old run's id is carried so commit can
+   * remove it in the same pass, and the diff calls it a change, not an insert.
+   */
+  const { data: prior } = await db
+    .from("scroll_runs")
+    .select("run_id")
+    .eq("client_id", clientId)
+    .eq("round_id", round.round_id)
+    .eq("device", read.device)
+    .eq("captured_from", read.captured_from!)
+    .eq("captured_to", read.captured_to!)
+    .maybeSingle();
+
+  const runId = uuid();
+  return {
+    source: "scroll", clientId, fileName,
+    columnMap: {}, unusedColumns: [],
+    rowCount: read.points.length,
+    coverage: { start: read.captured_from, end: read.captured_to },
+    counts: { matchedExact: 0, matchedAuto: 0, newContacts: 0, parked: 0, duplicates: 0 },
+    attribution: { utm: 0, dateWindow: 0, none: 0 },
+    diff: {
+      newRows: prior ? 0 : read.points.length,
+      changedRows: prior ? read.points.length : 0,
+      restatements: prior
+        ? [`would replace the scroll curve already stored for ${round.round_id} (${read.device}) over these dates`]
+        : [],
+    },
+    warnings: [...new Set(warnings)],
+    prerequisite: null,
+    ops: {
+      contacts: [], events: [], ads: [], unmatched: [], refundUpdates: [],
+      supersededParked: [], adoptedParked: [],
+      scroll: {
+        run: {
+          run_id: runId,
+          client_id: clientId,
+          round_id: round.round_id,
+          page_label: read.page_label,
+          url_pattern: read.url_pattern,
+          device: read.device,
+          page_views: read.page_views,
+          sessions: read.sessions,
+          captured_from: read.captured_from,
+          captured_to: read.captured_to,
+          source_file: fileName,
+        },
+        points: read.points.map((p) => ({
+          depth_pct: Math.round(p.depth),
+          visitors: p.visitors,
+          drop_off_pct: p.drop_off_pct,
+        })),
+        replaces: prior?.run_id ?? null,
+      },
+    },
+  };
+}
+
 export async function planImport(
   db: SupabaseClient,
   { source, clientId, fileName, text, asContactId }: {
@@ -167,6 +380,18 @@ export async function planImport(
 ): Promise<Plan> {
   const spec = SOURCES[source];
   if (!spec) throw new ImportError(`Unknown source "${source}".`);
+
+  /**
+   * Branched before the CSV is read, not inside the loop below.
+   *
+   * A Clarity export would parse without complaint — it is valid CSV — and
+   * every line of it would be wrong: line 1 is "Project name","…", so the
+   * header would be a page title and the rows would be metadata. Nothing
+   * downstream would notice. The shape has to be decided before the file is
+   * read as a table, which is the only reason this sits here rather than beside
+   * the other four.
+   */
+  if (source === "scroll") return planScroll(db, { clientId, fileName, text });
 
   // ── 1. IMPORT ────────────────────────────────────────────────────────────
   const { headers, rows } = parseCsv(text);
@@ -205,34 +430,7 @@ export async function planImport(
   };
 
   // ── reference data ───────────────────────────────────────────────────────
-  /**
-   * Rounds, each carrying every class it runs.
-   *
-   * Two reads rather than a join: PostgREST's embedding would need a foreign
-   * key the anon role can see, and this is two small tables. Sessions are read
-   * from the table, not v_round_sessions, because an import is not looking at a
-   * filtered screen — it has to see every round the file might name.
-   */
-  const [roundRows, sessionRows] = await Promise.all([
-    fetchAll<Omit<Round, "session_dates"> & { session_date: string | null }>(
-      db, "rounds", "round_id, client_id, start_date, end_date, session_date",
-      (q) => q.eq("client_id", clientId)),
-    fetchAll<{ round_id: string; session_date: string }>(
-      db, "round_sessions", "round_id, session_date"),
-  ]);
-  const sessionsByRound = new Map<string, string[]>();
-  for (const s of sessionRows) {
-    const list = sessionsByRound.get(s.round_id) ?? [];
-    list.push(s.session_date);
-    sessionsByRound.set(s.round_id, list);
-  }
-  const rounds: Round[] = roundRows.map((r) => ({
-    round_id: r.round_id, client_id: r.client_id,
-    start_date: r.start_date, end_date: r.end_date,
-    // fall back to the round's own column for a database that hasn't run 0025
-    session_dates: sessionsByRound.get(r.round_id) ?? (r.session_date ? [r.session_date] : []),
-  }));
-  if (!rounds.length) throw new ImportError("This client has no rounds yet — create a round before importing.");
+  const rounds = await loadRounds(db, clientId);
 
   const roundIds = rounds.map((r) => r.round_id);
 
@@ -245,7 +443,7 @@ export async function planImport(
     diff: { newRows: 0, changedRows: 0, restatements: [] },
     warnings,
     prerequisite: null,
-    ops: { contacts: [], events: [], ads: [], unmatched: [], refundUpdates: [], supersededParked: [], adoptedParked: [] },
+    ops: { contacts: [], events: [], ads: [], unmatched: [], refundUpdates: [], supersededParked: [], adoptedParked: [], scroll: null },
   };
 
   const dates: string[] = [];
@@ -656,6 +854,29 @@ export async function commitPlan(db: SupabaseClient, batchId: string, plan: Plan
     const { error } = await db.from("unmatched_rows").insert(part);
     if (error) throw new ImportError(`Parking unmatched rows failed: ${error.message}`);
   }
+  /**
+   * The scroll curve, replaced whole.
+   *
+   * Delete-then-insert rather than upsert, because the readings are the unit
+   * that has to stay consistent: a re-export whose curve stops at 90% would
+   * otherwise leave the old 95% and 100% rows behind, and the curve would
+   * describe a measurement nobody ever took. The depths go with the run through
+   * `on delete cascade`, so removing the run is enough.
+   */
+  if (plan.ops.scroll) {
+    const s = plan.ops.scroll;
+    if (s.replaces) {
+      const { error } = await db.from("scroll_runs").delete().eq("run_id", s.replaces);
+      if (error) throw new ImportError(`Replacing the earlier scroll curve failed: ${error.message}`);
+    }
+    const { error: e1 } = await db.from("scroll_runs").insert({ ...s.run, import_batch_id: batchId });
+    if (e1) throw new ImportError(`Writing the scroll run failed: ${e1.message}`);
+
+    const { error: e2 } = await db.from("scroll_depths")
+      .insert(s.points.map((p) => ({ ...p, run_id: s.run.run_id })));
+    if (e2) throw new ImportError(`Writing the scroll curve failed: ${e2.message}`);
+  }
+
   for (const u of plan.ops.refundUpdates) {
     const { error } = await db.from("events")
       .update({ refund_amount: u.refund_amount, refund_date: u.refund_date })

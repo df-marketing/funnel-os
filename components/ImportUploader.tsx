@@ -13,6 +13,10 @@ type Summary = {
   warnings: string[];
   prerequisite: string | null;
   willWrite: { contacts: number; events: number; ads: number; unmatched: number; refunds: number };
+  scroll: {
+    round: string; device: string; sessions: number;
+    pageViews: number | null; points: number; replaces: boolean;
+  } | null;
 };
 
 type State =
@@ -156,9 +160,10 @@ export function ImportUploader({
             <div className="notice info" style={{ marginBottom: 8 }}>
               <span className="ico">✓</span>
               <div>
-                <b>Committed.</b> {state.plan.willWrite.events + state.plan.willWrite.ads} rows written,{" "}
-                {state.plan.willWrite.unmatched} parked. This batch is locked — a later import can add
-                rows or flag a restate, never silently change these.
+                <b>Committed.</b>{" "}
+                {state.plan.scroll
+                  ? `A ${state.plan.scroll.points}-point curve on ${state.plan.scroll.sessions} sessions is now attached to ${state.plan.scroll.round}. Read it on This round, step 3.`
+                  : `${state.plan.willWrite.events + state.plan.willWrite.ads} rows written, ${state.plan.willWrite.unmatched} parked. This batch is locked — a later import can add rows or flag a restate, never silently change these.`}
               </div>
             </div>
             <button className="btn" onClick={() => setState({ phase: "idle" })}>Import another file</button>
@@ -194,11 +199,36 @@ function Diff({ plan }: { plan: Summary }) {
       <dl>
         <dt>Will write</dt>
         <dd>
-          {willWrite.events ? `${willWrite.events} events` : null}
-          {willWrite.ads ? `${willWrite.ads} ads rows` : null}
-          {willWrite.contacts ? ` · ${willWrite.contacts} new contacts` : ""}
-          {!willWrite.events && !willWrite.ads ? "nothing new" : ""}
+          {plan.scroll ? (
+            <>
+              a {plan.scroll.points}-point scroll curve for <b>{plan.scroll.round}</b>
+              {plan.scroll.device === "all" ? "" : ` · ${plan.scroll.device}`}
+              {plan.scroll.replaces ? " · replacing the one already stored" : ""}
+            </>
+          ) : (
+            <>
+              {willWrite.events ? `${willWrite.events} events` : null}
+              {willWrite.ads ? `${willWrite.ads} ads rows` : null}
+              {willWrite.contacts ? ` · ${willWrite.contacts} new contacts` : ""}
+              {!willWrite.events && !willWrite.ads ? "nothing new" : ""}
+            </>
+          )}
         </dd>
+
+        {plan.scroll && (
+          <>
+            {/* The denominator, stated on the diff. Every percentage the This
+                round screen draws from this file is a percentage of it, so it
+                is worth reading before the import rather than after. */}
+            <dt>Measured on</dt>
+            <dd>
+              {plan.scroll.sessions} sessions
+              {plan.scroll.pageViews !== null && plan.scroll.pageViews !== plan.scroll.sessions
+                ? ` — Clarity also reports ${plan.scroll.pageViews} page views, which is not the curve's base`
+                : ""}
+            </dd>
+          </>
+        )}
 
         {counts.matchedExact + counts.matchedAuto > 0 && (
           <>
@@ -259,10 +289,15 @@ function Diff({ plan }: { plan: Summary }) {
       )}
 
       <p className="note" style={{ margin: "8px 0 0" }}>
-        Nothing has been written yet. Column mapping used:{" "}
-        <span className="num">
-          {Object.entries(plan.columnMap).map(([f, h]) => `${h} → ${f}`).join(" · ")}
-        </span>
+        Nothing has been written yet.
+        {Object.keys(plan.columnMap).length ? (
+          <>
+            {" "}Column mapping used:{" "}
+            <span className="num">
+              {Object.entries(plan.columnMap).map(([f, h]) => `${h} → ${f}`).join(" · ")}
+            </span>
+          </>
+        ) : null}
       </p>
     </div>
   );

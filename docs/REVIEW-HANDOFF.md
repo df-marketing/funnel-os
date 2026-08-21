@@ -4,7 +4,7 @@
 sprints 3–6, deliberately including the places I am least sure of. Assume I am wrong somewhere;
 the point of this document is to make it cheap to find where.
 
-Last updated after migration `0031`. `main` at the commit that reports the step-7 candidate cap.
+Last updated after migration `0032`. `main` at the commit that adds the landing-page scroll dimension.
 
 ---
 
@@ -184,8 +184,8 @@ in the asset diff.
       Check nothing invents one.
 - [ ] Step 3 diffs **share, not amount**. A round that spent twice as much moved every figure and
       redistributed nothing.
-- [ ] The landing-page half of step 3 is left **open and labelled**, not dropped. It needs a
-      landing-page dimension the schema lacks and a Clarity export covering these dates.
+- [ ] The landing-page half of step 3 is now answered where a Clarity export exists, and left
+      **open and labelled** where none does. See step 4 below.
 - [ ] Step 7 floors: 10 leads minimum for a CPL-multiple candidate, and an asset that never spent
       two leads' worth is not blamed for producing none. The first real run proposed a creative at
       3.5× the round's CPL **on two leads**, which broke the screen's own stated promise.
@@ -194,6 +194,48 @@ in the asset diff.
 Step 3 shows exactly four changes, the largest being
 `Static_ContentAtScale_StructuredText 88.5% → 35.4% (-53.1 pts)`. Step 5 lists Leads ▼18.0% and
 CPM ▲12.8%, with Preview/Overall ROAS held back as too thin (on 6).
+
+---
+
+### Step 4 (deferred, now done) — the landing page becomes a dimension · `0032`
+
+Parked since `0015` and explicitly declined in `0029`'s header: *"no landing-page dimension exists
+… that question stays unanswered."* `0032` adds `scroll_runs` + `scroll_depths`, a fifth import
+source, and `ScrollPanel` inside step 3.
+
+**The one claim it makes.** Lead Gen % is `leads ÷ outbound clicks` and has been since `0003`, so
+its denominator is *people who arrived on the page* — the same population a Clarity session
+counts. That is the entire reason the two can be put side by side. Nobody opts in from a screen
+they never saw, so retention at the form's depth cannot be below Lead Gen %, which bounds where
+the form can be. Three outcomes: `bounded`, `unbounded` (scroll is not the constraint), and
+`impossible` (the two sources contradict each other — the screen says so and concludes nothing).
+
+- [ ] **The denominator is the whole ballgame.** Clarity's export says `"Page views","60"` and the
+      curve is built on **58**. Page views includes a view that never fired a scroll event. Reading
+      the 60 would understate every band by 3.3% and nothing on screen would show it. `sessionsFrom`
+      derives the base from `visitors ÷ (1 − drop_off)` — which every row states independently —
+      takes the mode, and warns when the rows disagree by more than a rounding step.
+- [ ] **Clarity writes US dates and the shared reader does not.** `toDate` in `csv.ts` resolves an
+      ambiguous slash date day-first, correct for the SG exports it was written for; Clarity's
+      `05/06/2026` is 6 May. `clarity.ts` has its own `usDate`. One month out files a curve against
+      the wrong round.
+- [ ] **No scroll figure goes anywhere near the metric spine.** Sessions and clicks are different
+      populations — Clarity sees organic traffic the ad account never bought. A scroll row inside a
+      column that sums spend and leads would be summing two denominators.
+- [ ] **No section is ever named.** Clarity exports percent of page height and knows nothing about
+      where a section starts. The screen says where the audience is lost and does not say what was
+      there. If you find it implying otherwise, report it.
+- [ ] **Coverage is stated, not hidden.** 58 sessions against 0526-03's 377 clicks is 15.4%, so the
+      panel says *"This is a sample, not the round."* More sessions than clicks is its own case
+      (organic traffic), not an error.
+- [ ] A re-export of the same window **replaces**; two copies of one measurement would read as
+      twice the traffic. Delete-then-insert, not upsert, so a shorter re-export cannot leave the old
+      deep bands behind.
+
+**Verify**: 37 unit tests under `CLARITY SCROLL` in `scripts/test-import.mts`, and
+`npm run render:round` prints the panel in all three states. The fixture in the test pack
+(`5-scroll_Mobile.csv`) is a **real curve with rewritten dates** — see the warning in its README
+entry before quoting any percentage from it.
 
 ---
 

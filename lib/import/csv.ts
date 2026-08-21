@@ -10,7 +10,17 @@
 
 export type Row = Record<string, string>;
 
-export function parseCsv(input: string): { headers: string[]; rows: Row[] } {
+/**
+ * The file as a grid, before anything decides which line is the header.
+ *
+ * Most exports are a header and then rows, which is what parseCsv builds on top
+ * of this. A Microsoft Clarity export is not: it opens with half a dozen
+ * key/value lines, then a blank line, then the table — so the header is line 12
+ * and lines 1-11 are the metadata that says what was measured and when. That
+ * reader needs the grid, and it must be THIS grid: Clarity quotes every cell,
+ * and page titles carry commas and apostrophes.
+ */
+export function parseTable(input: string): string[][] {
   const text = input.replace(/^﻿/, ""); // strip BOM
   const table: string[][] = [];
   let row: string[] = [];
@@ -40,6 +50,11 @@ export function parseCsv(input: string): { headers: string[]; rows: Row[] } {
   }
   // trailing field/row, unless the file ended on a clean newline
   if (field !== "" || row.length) endRow();
+  return table;
+}
+
+export function parseCsv(input: string): { headers: string[]; rows: Row[] } {
+  const table = parseTable(input);
 
   // Drop wholly blank lines, and lines whose first cell starts with "#".
   // The downloadable templates carry a "#"-prefixed legend, and someone will

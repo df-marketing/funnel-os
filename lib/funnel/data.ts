@@ -2,6 +2,7 @@ import { unstable_cache } from "next/cache";
 import { createReadClient, FUNNEL_TAG } from "@/lib/supabase/read";
 import { cadencesFor, resolveSpine, type Cadence } from "./cadence";
 import type { Metrics } from "./spine";
+import type { ScrollRun } from "./scroll";
 
 export type { Cadence };
 
@@ -92,6 +93,11 @@ export type RoundContext = {
   assets: RoundAsset[];
   /** Agreed numbers, by spine metric key. Empty until someone sets one. */
   targets: Record<string, number>;
+  /**
+   * Landing-page scroll curves for these two rounds. Step 3c — empty until a
+   * Clarity export covering one of them has been imported.
+   */
+  scroll: ScrollRun[];
 };
 
 export type UnmatchedReason = { reason: string; rows_waiting: number; revenue_held: number | null };
@@ -504,22 +510,37 @@ const loadRoundContext = unstable_cache(
     const twoRounds = (ok(rounds, "v_metrics_this_round") as Cut[] | null) ?? [];
     const ids = twoRounds.map((r) => r.cut_key);
 
-    const assets = ids.length
-      ? ((ok(
-          await db.from("v_round_assets")
+    /**
+     * Assets and scroll curves are read for the two named rounds, not through
+     * fo_cut. The product/period filter has already decided which two those
+     * are; a second filter could only ever remove one of the pair and leave the
+     * screen comparing a round against nothing.
+     *
+     * Scroll is not channel-filtered either, and deliberately: a page has one
+     * scroll curve regardless of which platform paid for the visit, and Clarity
+     * cannot tell them apart. Blanking it under a channel filter would suggest
+     * the filter had removed something it never held.
+     */
+    const [assetRows, scrollRows] = ids.length
+      ? await Promise.all([
+          db.from("v_round_assets")
             .select("round_id, kind, name, spend, leads, spend_share")
             .eq("client_id", id)
             .in("round_id", ids),
-          "v_round_assets",
-        ) as RoundAsset[] | null) ?? [])
-      : [];
+          db.from("v_scroll_runs")
+            .select("run_id, round_id, page_label, device, sessions, page_views, captured_from, captured_to, points")
+            .eq("client_id", id)
+            .in("round_id", ids),
+        ])
+      : [null, null];
 
     const rows = (ok(targets, "v_client_targets") as { metric: string; target: string | number }[] | null) ?? [];
     return {
       // the two most recent months, newest last, same order as the cut
       months: ((ok(months, "v_metrics_by_month") as Cut[] | null) ?? []).slice(-2),
-      assets,
+      assets: (assetRows ? (ok(assetRows, "v_round_assets") as RoundAsset[] | null) : null) ?? [],
       targets: Object.fromEntries(rows.map((r) => [r.metric, Number(r.target)])),
+      scroll: (scrollRows ? (ok(scrollRows, "v_scroll_runs") as ScrollRun[] | null) : null) ?? [],
     };
   },
   ["funnel-round-context"],
