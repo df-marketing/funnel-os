@@ -99,3 +99,4 @@
 - plot now fills its pane (layout/rendering fix).
 - Handoff for review, and stop step 7 truncating its list in silence.
 - One control on the graph, not two that overlap — a UI simplification was made to ensure graph controls don't overlap.
+- The objective stops being a label and becomes a lens
