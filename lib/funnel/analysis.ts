@@ -357,11 +357,25 @@ export type Candidates = {
   /** The outcome these were judged on — "attendee", "lead". */
   noun: string;
   /**
-   * Set when the objective's outcome exists but is too small to rank any asset
-   * on. Carries the best any asset managed, so the screen can say how far short
-   * the data fell rather than showing an empty list that reads as "all clear".
+   * Set when the objective's outcome is too small to rank on — PER KIND.
+   *
+   * Audiences and creatives are not equally thin, and pooling them hides it.
+   * 0526-02 splits its spend across six audiences, none of which reached ten
+   * attendees, while one creative carried twenty-one; a single pooled check
+   * passes on the creative and the screen then says "no audience or creative is
+   * more than 1.5× the round's rate", having compared no audience at all.
+   *
+   * `kinds` is the ones that could not be compared, and `all` says whether that
+   * was both of them — which is the difference between an empty step 7 and a
+   * partial one.
    */
-  tooThin: { noun: string; best: number; floor: number } | null;
+  tooThin: {
+    noun: string;
+    best: number;
+    floor: number;
+    kinds: Array<Asset["kind"]>;
+    all: boolean;
+  } | null;
   /**
    * Set when the whole round produced none of this outcome. No asset can be
    * blamed for a nought every asset shares — a round with no attendance file
@@ -519,15 +533,25 @@ export function candidatesFrom(
   }
 
   /**
-   * Nothing cleared the floor. An empty step 7 reads as "no candidates", which
-   * is a finding; "nothing produced enough to compare" is a different finding
-   * and the one that is true here. The best any asset managed goes with it, so
-   * the reader can see how far short the data fell.
+   * Which kinds could not be compared at all.
+   *
+   * An empty step 7 reads as "no candidates", which is a finding; "nothing
+   * produced enough to compare" is a different finding, and where only one kind
+   * is thin the screen has to stop short of claiming it checked both.
    */
-  const tooThin =
-    !ranked.length && paid.length
-      ? { noun, best: Math.max(...paid.map(got)), floor: MIN_ASSET_OUTCOME }
-      : null;
+  const kinds = [...new Set(paid.map((a) => a.kind))];
+  const thinKinds = kinds.filter(
+    (k) => !paid.some((a) => a.kind === k && got(a) >= MIN_ASSET_OUTCOME),
+  );
+  const tooThin = thinKinds.length
+    ? {
+        noun,
+        floor: MIN_ASSET_OUTCOME,
+        kinds: thinKinds,
+        all: thinKinds.length === kinds.length,
+        best: Math.max(...paid.filter((a) => thinKinds.includes(a.kind)).map(got)),
+      }
+    : null;
 
   /**
    * Capped, and the cap is reported. A list that quietly stops at six reads as

@@ -1375,6 +1375,22 @@ console.log("\nTHE OBJECTIVE AS A LENS");
   eq("and the shortfall is reported, not left blank",
      [thin.tooThin?.best, thin.tooThin?.floor], [3, MIN_ASSET_OUTCOME]);
   eq("an empty list is not silently a clean bill", thin.tooThin !== null, true);
+  eq("with only one kind present, that is the kind reported",
+     [thin.tooThin?.kinds, thin.tooThin?.all], [["audience"], true]);
+
+  // 0526-02 exactly: six audiences all under the floor, one creative well over
+  // it. Pooling the two passes on the creative and the screen would then claim
+  // it had compared audiences it never looked at.
+  const C = (name: string, spend: number, leads: number, att: number) =>
+    ({ round_id: "R", kind: "creative" as const, name, spend, leads,
+       spend_share: null, att, prev_buys: 0, rev: 0 });
+  const mixed = candidatesFrom(
+    [A("Cold_A", 260, 29, 4, 0, 0), A("Cold_B", 213, 30, 6, 0, 0),
+     C("Static_Big", 400, 50, 21), C("Static_Small", 73, 9, 3)],
+    "0526-02", "att");
+  eq("one kind thin and one not is not 'all'", mixed.tooThin?.all, false);
+  eq("and it names the kind that could not be compared", mixed.tooThin?.kinds, ["audience"]);
+  eq("the best is taken from the THIN kind, not the pool", mixed.tooThin?.best, 6);
 
   // A round with NO attendance imported must not propose cutting every audience.
   const none = candidatesFrom(

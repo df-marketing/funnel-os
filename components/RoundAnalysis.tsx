@@ -515,6 +515,21 @@ export function RoundAnalysis({
         title="Solution — things to test next round"
         aim={`candidates, not decisions · judged on ${candidates.noun}s`}
       >
+        {/* Which half of the comparison could not run. Above the list, because
+            it changes what the list below it is claiming to cover. */}
+        {candidates.shown.length && candidates.tooThin && !candidates.tooThin.all ? (
+          <p className="cro-lead">
+            <b>
+              No {candidates.tooThin.kinds.join(" or ")} in {roundId} produced enough{" "}
+              {candidates.tooThin.noun}s to compare on
+            </b>{" "}
+            — the most any managed was {candidates.tooThin.best}, against a floor of{" "}
+            {candidates.tooThin.floor}. Everything below is a{" "}
+            {candidates.tooThin.kinds.includes("audience") ? "creative" : "audience"} comparison
+            only.
+          </p>
+        ) : null}
+
         {candidates.shown.length ? (
           <ul className="cands">
             {candidates.shown.map((c, i) => (
@@ -558,8 +573,8 @@ export function RoundAnalysis({
         ) : candidates.tooThin ? (
           <p className="cro-lead">
             <b>
-              No audience or creative in {roundId} produced enough {candidates.tooThin.noun}s to
-              compare on.
+              No {candidates.tooThin.all ? "audience or creative" : candidates.tooThin.kinds.join(" or ")} in{" "}
+              {roundId} produced enough {candidates.tooThin.noun}s to compare on.
             </b>{" "}
             The most any managed was {candidates.tooThin.best}, against a floor of{" "}
             {candidates.tooThin.floor}. At those counts one more {candidates.tooThin.noun} moves a
@@ -569,9 +584,10 @@ export function RoundAnalysis({
           </p>
         ) : (
           <p className="cro-lead">
-            <b>Nothing in this round is far enough out of line to propose a test.</b> No audience or
-            creative took money and returned no {candidates.noun}s, and none is more than{" "}
-            {RATE_MULTIPLE}× the round&rsquo;s own {OBJECTIVE_OUTCOME[objective].rate}.
+            <b>Nothing in this round is far enough out of line to propose a test.</b> Every
+            audience and creative that could be compared took money and returned {candidates.noun}s,
+            and none is more than {RATE_MULTIPLE}× the round&rsquo;s own{" "}
+            {OBJECTIVE_OUTCOME[objective].rate}.
           </p>
         )}
         <p className="cro-foot">
