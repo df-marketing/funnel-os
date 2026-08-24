@@ -68,6 +68,8 @@
 - first real run of the import pipeline revealed four faults, none of which threw an exception — silent data corruption is possible if validation is missing.
 - The journey strip was showing unfiltered numbers above filtered tables.
 - the channel note explained a rule that often didn't apply — conflicting or misleading documentation was present in the codebase.
+- the UI no longer overstates what the data covers — data coverage claims are now accurate.
+- the import pipeline refuses a filter it cannot apply rather than silently ignoring it.
 
 ## Notes
 
