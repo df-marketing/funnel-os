@@ -27,6 +27,7 @@
 - campaign was added to the ads dedupe key.
 - audience and ad tags are read from the tags GoHighLevel actually writes, not from arbitrary/assumed tags.
 - The page reads a dimension against 'Lead Gen %' metric.
+- a push can open a client, and two stages cannot share a slug.
 
 ## Architecture
 
