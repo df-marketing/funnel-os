@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { hasIntegrationKey } from "@/lib/integration/auth";
+import { checkIntegrationKey, MISSING_INTEGRATION_KEY_MESSAGE } from "@/lib/integration/auth";
 import { coverageEnds, lastImported, type ImportStatusRow } from "@/lib/integration/coverage";
 import { isIsoDay, JOURNEY_METRIC_KEYS, type SourceType } from "@/lib/integration/schema";
 import type { Metrics } from "@/lib/funnel/spine";
@@ -29,7 +29,9 @@ type ParkedCut = {
 
 /** Ground Up pulls the same filtered totals the Funnel OS UI reads. */
 export async function GET(request: Request) {
-  if (!hasIntegrationKey(request)) return new NextResponse(null, { status: 401 });
+  const key = checkIntegrationKey(request);
+  if (key === "unconfigured") return NextResponse.json({ error: MISSING_INTEGRATION_KEY_MESSAGE }, { status: 503 });
+  if (key !== "ok") return new NextResponse(null, { status: 401 });
 
   const url = new URL(request.url);
   const clientId = url.searchParams.get("clientId");
@@ -52,6 +54,16 @@ export async function GET(request: Request) {
   const db = createAdminClient();
   if (!db) return NextResponse.json({ error: MISSING_KEY_MESSAGE }, { status: 503 });
 
+  // Overlap, not containment — a round that started before the window and ran
+  // into it is part of that window's story (0023).
+  //
+  // Narrowed by product and NOT by channel, deliberately, because that is what
+  // the filter itself does: fo_filter_people_ok takes a product and no channel.
+  // Nothing in the leads export says whether a person came from Meta or Google,
+  // so a channel filter narrows spend and delivery and never narrows people. A
+  // round with no spend in the chosen channel still produced its leads,
+  // attendance and sales, and they are still in these totals — dropping it from
+  // this list would describe a narrowing the numbers did not make.
   let rounds = db.from("rounds").select("round_id").eq("client_id", clientId).lte("start_date", to).gte("end_date", from).order("start_date");
   if (product) rounds = rounds.eq("product_id", product);
 

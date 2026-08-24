@@ -54,6 +54,7 @@ So the API routes are protected by a shared secret, not by a user session:
 - Stored as an environment variable on both sides (`INTEGRATION_SHARED_KEY`). On Vercel, not in local `.env.local`.
 - Compare with a timing-safe equality check, not `===`.
 - Reject with `401` and no body detail on mismatch.
+- **`503`, not `401`, when the server has no key configured at all.** These are different faults with different fixes — one is the caller's, one is the deployment's — and answering both with a bare `401` leaves whoever is wiring the two apps together unable to tell which. Same call the service-role key already makes.
 
 Both endpoints are **server-side routes only**. They use the Supabase service-role key. That key must never reach the browser.
 
@@ -153,7 +154,7 @@ POST /api/integration/funnel-schema     (on Ground Truth)
 | `metric` | **Must be one of Ground Truth's known metric keys.** See §4.4. An unknown value rejects the whole payload — never silently store it. |
 | `sourceType` | `"meta" \| "google" \| "crm" \| "csv"` — where this number comes from. See §4.5. |
 | `sourceRef` | The specific field/metric/event name within that source. Free text, validated per `sourceType` only loosely. |
-| `compareDimension` | Which column this stage can be broken down by, as `table.column`. `null` is legal and means "this stage has no breakdown". |
+| `compareDimension` | Which column this stage can be broken down by, as `table.column`. `null` is legal and means "this stage has no breakdown". **The column must actually exist** — checked against `pg_catalog`, so an invented one is a `400`. Note this is descriptive: the cut a stage actually gets is chosen by its `slug` (0015 wired one view per stage), so a real-but-wrong column is accepted by the check and still misdescribes the stage. |
 | `rateLabel` | Label for the conversion rate *into* this stage, e.g. `"Lead Gen %"`. `null` means no rate shown. |
 | `unitPrice` | Money per unit for revenue stages. `null` for non-revenue stages. **`null` and `0` are different.** |
 
@@ -337,6 +338,8 @@ Optional filters: `product` and `channel`.
 **Do not recount in application code.** Counting happens in SQL views. The route's job is to call `fo_cut`, shape the JSON, and return it. Any `.filter().length` in the route handler is a bug waiting to drift from the UI's number.
 
 **The date window filters by round overlap, not by event timestamp.** See `supabase/migrations/0023_filters.sql`. A round that starts in July and ends in August is *in* an August window. Ground Up must not assume the response is a clean per-day slice.
+
+**`channel` narrows spend, never people — and `roundsInWindow` is right to ignore it.** `fo_filter_people_ok` takes a product and no channel, on purpose: nothing in the leads export says whether a person came from Meta or Google, so filtering to one platform must not delete the leads the other produced. A round with no spend in the selected channel still contributed its leads, attendance and sales, and those are still in the totals. Do not "fix" `roundsInWindow` to filter by channel — it would claim a narrowing the numbers did not make. `product` does narrow people, so it does narrow this list.
 
 **Ship the `coverage` block, and make `lastObservationDate` the EARLIEST source, not the latest.** A number with no statement of how far the data reaches is a number Ground Up will over-trust — and the max across sources is worse than no number at all. Live example: shely's ads reach `2026-05-31` while attendance and sales stop on `2026-05-28` and leads on `2026-05-27`. Reporting `05-31` invites Ground Up to compute a close rate whose numerator is missing four days. Report where coverage runs out. A source with no `coverage_end` makes the whole answer `null`, and the per-source `sources` array is what says which file is the short one — a single date cannot.
 

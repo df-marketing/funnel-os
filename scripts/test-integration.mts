@@ -85,5 +85,22 @@ assert.equal(
   "a source with no coverage_end makes the whole answer unknown, not the other source's date",
 );
 
+// Auth — a server with no key and a caller with the wrong one are different
+// faults, and used to give the same answer.
+const { checkIntegrationKey } = await import("../lib/integration/auth");
+const withKey = (value?: string) =>
+  new Request("https://x/api/integration/actuals", { headers: value === undefined ? {} : { "x-integration-key": value } });
+
+delete process.env.INTEGRATION_SHARED_KEY;
+assert.equal(checkIntegrationKey(withKey("anything")), "unconfigured", "no key on the server is not the caller's fault");
+
+process.env.INTEGRATION_SHARED_KEY = "s3cret-value";
+assert.equal(checkIntegrationKey(withKey("s3cret-value")), "ok", "the right key passes");
+assert.equal(checkIntegrationKey(withKey("wrong-value!")), "unauthorized", "a same-length wrong key fails");
+assert.equal(checkIntegrationKey(withKey("short")), "unauthorized", "a shorter key fails without throwing");
+assert.equal(checkIntegrationKey(withKey("s3cret-value-and-then-some")), "unauthorized", "a longer key fails");
+assert.equal(checkIntegrationKey(withKey()), "unauthorized", "no header at all fails");
+
 console.log("integration schema validation: ok");
 console.log("integration coverage rule: ok");
+console.log("integration auth states: ok");

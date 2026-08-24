@@ -1,6 +1,6 @@
 import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
-import { hasIntegrationKey } from "@/lib/integration/auth";
+import { checkIntegrationKey, MISSING_INTEGRATION_KEY_MESSAGE } from "@/lib/integration/auth";
 import { validateFunnelSchema } from "@/lib/integration/schema";
 import { createAdminClient, MISSING_KEY_MESSAGE } from "@/lib/supabase/admin";
 import { FUNNEL_TAG } from "@/lib/supabase/read";
@@ -9,7 +9,9 @@ export const runtime = "nodejs";
 
 /** AcqOS owns funnel shape; Funnel OS atomically replaces one known client's stages. */
 export async function POST(request: Request) {
-  if (!hasIntegrationKey(request)) return new NextResponse(null, { status: 401 });
+  const key = checkIntegrationKey(request);
+  if (key === "unconfigured") return NextResponse.json({ error: MISSING_INTEGRATION_KEY_MESSAGE }, { status: 503 });
+  if (key !== "ok") return new NextResponse(null, { status: 401 });
 
   const db = createAdminClient();
   if (!db) return NextResponse.json({ error: MISSING_KEY_MESSAGE }, { status: 503 });
@@ -25,6 +27,29 @@ export async function POST(request: Request) {
   if (!validated.ok) return NextResponse.json({ ok: false, errors: validated.errors }, { status: 400 });
 
   const schema = validated.value;
+
+  // The validator checks a dimension looks like table.column; only the database
+  // can say whether that column is there. Asked once for the whole payload, and
+  // reported per stage so the answer names the row to go and fix.
+  const wanted = [...new Set(schema.stages.map((stage) => stage.compareDimension).filter((d): d is string => d !== null))];
+  if (wanted.length) {
+    const { data: unknown, error: dimError } = await db.rpc("fo_unknown_dimensions", { p_dimensions: wanted });
+    if (dimError) return NextResponse.json({ error: dimError.message }, { status: 500 });
+    const missing = new Set((unknown ?? []) as string[]);
+    if (missing.size) {
+      return NextResponse.json({
+        ok: false,
+        errors: schema.stages
+          .filter((stage) => stage.compareDimension && missing.has(stage.compareDimension))
+          .map((stage) => ({
+            stage: stage.order,
+            field: "compareDimension",
+            message: `no such column '${stage.compareDimension}' in this database`,
+          })),
+      }, { status: 400 });
+    }
+  }
+
   const { count, error: knownError } = await db
     .from("client_journey_config")
     .select("client_id", { count: "exact", head: true })

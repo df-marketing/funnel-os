@@ -11049,3 +11049,33 @@ $$;
 
 revoke all on function replace_client_journey_schema(text, text, jsonb, text, integer, timestamptz) from public, anon, authenticated;
 grant execute on function replace_client_journey_schema(text, text, jsonb, text, integer, timestamptz) to service_role;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- 0039_a_dimension_has_to_name_a_real_column.sql
+-- ═══════════════════════════════════════════════════════════════════════════
+-- compare_dimension was validated as table.column and no further, so an
+-- invented column stored quietly. It is not interpolated into a query — the
+-- stage slug picks the view — so a wrong one never fails, it just sits there
+-- claiming a cut that is not happening. Checked against pg_catalog, which
+-- cannot drift the way a list in the app would.
+
+create or replace function fo_unknown_dimensions(p_dimensions text[])
+returns text[]
+language sql
+stable
+as $$
+  select coalesce(array_agg(distinct d), '{}'::text[])
+  from unnest(coalesce(p_dimensions, '{}'::text[])) as d
+  where d is not null
+    and not exists (
+      select 1
+      from pg_attribute a
+      where a.attrelid = to_regclass('public.' || quote_ident(split_part(d, '.', 1)))
+        and a.attname  = split_part(d, '.', 2)
+        and a.attnum > 0
+        and not a.attisdropped
+    );
+$$;
+
+revoke all on function fo_unknown_dimensions(text[]) from public, anon, authenticated;
+grant execute on function fo_unknown_dimensions(text[]) to service_role;
