@@ -51,8 +51,26 @@ export async function POST(request: Request) {
     p_client_name: schema.clientName,
     p_stages: schema.stages,
     p_client_note: schema.clientNote,
+    p_schema_version: schema.schemaVersion,
+    p_generated_at: schema.generatedAt,
   });
   if (error) return NextResponse.json({ error: `Could not replace funnel schema: ${error.message}` }, { status: 500 });
+
+  const outcome = (data ?? null) as {
+    written?: boolean; created?: boolean; pricesPreserved?: string[];
+    reason?: string; storedGeneratedAt?: string; incomingGeneratedAt?: string;
+  } | null;
+
+  // Refused, not failed: a newer funnel is already stored. Nothing was written,
+  // so there is nothing to revalidate and no retry that would help.
+  if (outcome?.written === false) {
+    return NextResponse.json({
+      ok: false,
+      error: "stale push: a newer funnel is already stored for this client",
+      storedGeneratedAt: outcome.storedGeneratedAt ?? null,
+      incomingGeneratedAt: outcome.incomingGeneratedAt ?? null,
+    }, { status: 409 });
+  }
 
   revalidatePath("/");
   revalidateTag(FUNNEL_TAG);
@@ -61,13 +79,12 @@ export async function POST(request: Request) {
   // exactly what it sent.
   // created comes back from the function, which is the only place that saw the
   // prior row count and the write in the same transaction.
-  const result = (data ?? null) as { pricesPreserved?: string[]; created?: boolean } | null;
   return NextResponse.json({
     ok: true,
     clientId: schema.clientId,
-    created: result?.created === true,
+    created: outcome?.created === true,
     stagesWritten: schema.stages.length,
-    pricesPreserved: result?.pricesPreserved ?? [],
+    pricesPreserved: outcome?.pricesPreserved ?? [],
     syncedAt: new Date().toISOString(),
   });
 }

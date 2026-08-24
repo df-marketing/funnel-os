@@ -245,7 +245,28 @@ Keep `slug` stable across pushes anyway — it is what lets anything downstream 
 { "ok": true, "clientId": "shely", "created": false, "stagesWritten": 5, "pricesPreserved": ["preview"], "syncedAt": "2026-08-24T09:00:01+08:00" }
 ```
 
-On rejection, `400` with every problem listed at once, not just the first:
+### 4.9 Ordering: a late push cannot undo a newer one
+
+`schemaVersion` and `generatedAt` are stored on every row. A push whose `generatedAt` is **strictly older** than the one already stored for that client is refused with a `409` and **writes nothing**:
+
+```json
+{
+  "ok": false,
+  "error": "stale push: a newer funnel is already stored for this client",
+  "storedGeneratedAt": "2026-08-24T10:00:00+08:00",
+  "incomingGeneratedAt": "2026-08-24T09:00:00+08:00"
+}
+```
+
+An **equal** `generatedAt` is allowed through. A retry carries the same timestamp as the attempt it is retrying, and a sender that cannot safely replay its own message is worse off than with no guard; the replace is idempotent, so a duplicate landing costs nothing.
+
+The check runs inside the same transaction as the write, not in the route. A route-level read-then-write would lose the race between two concurrent pushes — which is the exact case the guard exists for.
+
+**Ground Up must not retry a 409.** It is a refusal, not a failure: the funnel on file is newer than the one being sent, and resending will never succeed. Regenerate and push with a current `generatedAt` instead.
+
+### 4.10 Rejection format
+
+On a validation failure, `400` with every problem listed at once, not just the first:
 
 ```json
 {
@@ -298,7 +319,12 @@ Optional filters: `product` and `channel`.
     { "order": 4, "slug": "class",     "metric": "attendance",         "value": 37,     "sourceType": "csv" },
     { "order": 5, "slug": "preview",   "metric": "preview_purchases",  "value": null,   "sourceType": "csv" }
   ],
-  "parked": { "count": 4, "reasons": { "no_matching_round": 3, "unknown_person": 1 } }
+  "parked": {
+    "count": 4,
+    "reasons": { "no_matching_round": 3, "unknown_person": 1 },
+    "allTime": 34,
+    "undated": 0
+  }
 }
 ```
 
@@ -314,7 +340,11 @@ Optional filters: `product` and `channel`.
 
 **Ship the `coverage` block, and make `lastObservationDate` the EARLIEST source, not the latest.** A number with no statement of how far the data reaches is a number Ground Up will over-trust — and the max across sources is worse than no number at all. Live example: shely's ads reach `2026-05-31` while attendance and sales stop on `2026-05-28` and leads on `2026-05-27`. Reporting `05-31` invites Ground Up to compute a close rate whose numerator is missing four days. Report where coverage runs out. A source with no `coverage_end` makes the whole answer `null`, and the per-source `sources` array is what says which file is the short one — a single date cannot.
 
-**Ship the `parked` block.** Rows that failed identity matching are held, not dropped, and are therefore missing from the counts. Ground Up needs to know the counts are provisional. Do not merge parked rows into the values to make the totals look complete.
+**Ship the `parked` block, and window it like everything else.** Rows that failed identity matching are held, not dropped, and are therefore missing from the counts. Ground Up needs to know the counts are provisional. Do not merge parked rows into the values to make the totals look complete.
+
+`count` and `reasons` cover the **same window** as the stage values — a caveat about May attached to an August report is not a caveat, it's noise. `unmatched_rows` carries no observation date of its own (only `parked_at`, which is the clock), so a row is placed by the coverage span of the **import batch it arrived in**, using the same overlap test as the round filter. That is coarser than the stage numbers; say so rather than implying row-level precision.
+
+`allTime` is every waiting row for the client regardless of window. `undated` is the rows no window can place at all — a batch with no coverage dates, or no batch — counted separately so they cannot disappear from both `count` and the caller's attention.
 
 ---
 
@@ -331,7 +361,7 @@ Symmetric, and the builder should write both halves so the contract can't drift:
 Also on the Ground Up side:
 
 - Store `funnelOsClientId` against each client, so Ground Up knows which `clientId` to name in the push. The two apps do not currently share an ID space — resolve that before writing any code, or the first push will land on the wrong client or on none.
-- Retry the push on failure with backoff, and surface a visible "not synced" state in the Ground Up UI. A silent failed push means the two apps disagree about what the funnel is and nobody finds out until a report looks wrong.
+- Retry the push on failure with backoff, and surface a visible "not synced" state in the Ground Up UI. A silent failed push means the two apps disagree about what the funnel is and nobody finds out until a report looks wrong. **Retry `5xx`. Do not retry `400`, `404` or `409`** — those are answers, not outages, and resending the identical body will get the identical reply forever.
 - **Never cache a failure.** A failed sync must be retried on the next attempt, not remembered as a bad result. Ground Truth has been bitten by this before: one blocked second became one blocked hour.
 
 ---

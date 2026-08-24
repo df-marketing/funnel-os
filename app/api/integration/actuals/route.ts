@@ -14,7 +14,18 @@ type JourneyRow = {
   source_type: SourceType | null;
 };
 
-type ReasonRow = { reason: string | null; rows_waiting: number | string };
+/**
+ * Parked rows carry no date of their own, so they are placed by the coverage of
+ * the batch they arrived in. `undated` is the rows no window can place at all —
+ * named rather than dropped, so they cannot vanish from both the count and the
+ * caller's attention.
+ */
+type ParkedCut = {
+  count: number;
+  allTime: number;
+  undated: number;
+  reasons: Record<string, number>;
+};
 
 /** Ground Up pulls the same filtered totals the Funnel OS UI reads. */
 export async function GET(request: Request) {
@@ -44,7 +55,7 @@ export async function GET(request: Request) {
   let rounds = db.from("rounds").select("round_id").eq("client_id", clientId).lte("start_date", to).gte("end_date", from).order("start_date");
   if (product) rounds = rounds.eq("product_id", product);
 
-  const [stagesResult, totalResult, statusResult, roundsResult, summaryResult, reasonsResult] = await Promise.all([
+  const [stagesResult, totalResult, statusResult, roundsResult, parkedResult] = await Promise.all([
     db.from("client_journey_config")
       .select("stage_order, stage_slug, stage_metric, source_type")
       .eq("client_id", clientId).order("stage_order"),
@@ -53,21 +64,20 @@ export async function GET(request: Request) {
       .select("source, imported_at, coverage_start, coverage_end, is_stale, days_behind")
       .eq("client_id", clientId).order("source"),
     rounds,
-    db.from("v_unmatched_summary").select("waiting").eq("client_id", clientId).maybeSingle(),
-    db.from("v_unmatched_by_reason").select("reason, rows_waiting").eq("client_id", clientId),
+    // Counted in SQL against the same window as the stage values, so the caveat
+    // and the numbers it qualifies describe one period.
+    db.rpc("fo_unmatched_cut", { p_client: clientId, p_from: from, p_to: to }),
   ]);
 
-  const firstError = [stagesResult, totalResult, statusResult, roundsResult, summaryResult, reasonsResult]
+  const firstError = [stagesResult, totalResult, statusResult, roundsResult, parkedResult]
     .map((result) => result.error).find(Boolean);
   if (firstError) return NextResponse.json({ error: firstError.message }, { status: 500 });
   if (!stagesResult.data?.length) return NextResponse.json({ error: "unknown clientId" }, { status: 404 });
 
   const total = (totalResult.data?.[0] ?? null) as { m?: Metrics } | null;
   const metrics = total?.m ?? {};
-  const reasons = Object.fromEntries(
-    ((reasonsResult.data ?? []) as ReasonRow[]).map((row) => [row.reason ?? "unknown", Number(row.rows_waiting)]),
-  );
   const sources = (statusResult.data ?? []) as ImportStatusRow[];
+  const parked = (parkedResult.data ?? null) as ParkedCut | null;
 
   return NextResponse.json({
     clientId,
@@ -96,6 +106,11 @@ export async function GET(request: Request) {
       value: metrics[JOURNEY_METRIC_KEYS[stage.stage_metric]] ?? null,
       sourceType: stage.source_type,
     })),
-    parked: { count: Number(summaryResult.data?.waiting ?? 0), reasons },
+    parked: {
+      count: parked?.count ?? 0,
+      reasons: parked?.reasons ?? {},
+      allTime: parked?.allTime ?? 0,
+      undated: parked?.undated ?? 0,
+    },
   });
 }
