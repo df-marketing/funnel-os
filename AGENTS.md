@@ -41,6 +41,7 @@
 - ads dedupe key includes campaign, not just audience/ad
 - phone is treated as identity in sales and attendance (not just membership)
 - Filter by product, channel and period — before anything is added up
+- A native data integration API was added to the project, providing a programmatic interface for ingesting data.
 
 ## Gotchas
 
