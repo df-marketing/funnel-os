@@ -75,6 +75,8 @@ POST /api/integration/funnel-schema     (on Ground Truth)
 {
   "clientId": "shely",
   "clientName": "Shely",
+  "clientNote": "Webinar → offer · 6 stages",
+  "createClient": false,
   "source": "acqos",
   "schemaVersion": 1,
   "generatedAt": "2026-08-24T09:00:00+08:00",
@@ -142,9 +144,11 @@ POST /api/integration/funnel-schema     (on Ground Truth)
 
 | Field | Rule |
 |---|---|
-| `clientId` | Must already exist in Ground Truth. If it doesn't, reject the whole payload — do not create clients through this endpoint. |
+| `clientId` | If it already exists, this replaces that client's funnel. If it doesn't, the push is rejected **unless** `createClient` is `true`. |
+| `clientNote` | Optional subtitle shown in the client switcher. Omitted or `null` keeps whatever is stored — which for a client being opened is nothing. |
+| `createClient` | Optional boolean, default `false`. The caller asserting it means to **open a client that does not exist yet**. Sending it for a client that already exists is not an error (a retried push must not fail); it replaces the funnel and reports `created: false`. |
 | `order` | Integer, 1-based, contiguous, unique within the payload. Gaps or duplicates reject the whole payload. |
-| `slug` | Durable identifier for the step. Survives renaming and reordering. Lowercase, hyphenated. |
+| `slug` | Durable identifier for the step. Survives renaming and reordering. Lowercase, hyphenated. **Unique within the payload** — the primary key is `(client_id, stage_order)`, so the database would accept a repeat, and `unit_price` preservation keys on the slug. |
 | `name` | Human label shown in the UI. Free text. |
 | `metric` | **Must be one of Ground Truth's known metric keys.** See §4.4. An unknown value rejects the whole payload — never silently store it. |
 | `sourceType` | `"meta" \| "google" \| "crm" \| "csv"` — where this number comes from. See §4.5. |
@@ -218,8 +222,11 @@ alter table client_journey_config
 The push is a **full replacement of one client's funnel**, transactional:
 
 1. Validate the entire payload first. Any single failure rejects everything — nothing partial is written.
-2. In one transaction: delete existing `client_journey_config` rows for that `client_id`, insert the new set.
-3. Stamp `schema_source = 'acqos'` and `synced_at = now()` on every inserted row.
+2. Check whether the client exists. If not, require `createClient: true` or return `404`.
+3. In one transaction: delete existing `client_journey_config` rows for that `client_id`, insert the new set.
+4. Stamp `schema_source = 'acqos'` and `synced_at = now()` on every inserted row.
+
+There is **no `clients` table** in this schema — `client_journey_config` is the register, and `v_clients` (what the switcher reads) is built from it. So inserting stage rows for an unknown `client_id` is what creating a client *means* here. That is why creation has to be asserted rather than inferred.
 
 Rationale: a step-by-step upsert keyed on `stage_order` cross-wires silently when Ground Up reorders steps. If step 3 and step 4 swap places, an index-keyed upsert quietly attaches step 3's mapping to step 4's name. Replace-all cannot do that.
 
@@ -235,7 +242,7 @@ Keep `slug` stable across pushes anyway — it is what lets anything downstream 
 ### 4.8 Response
 
 ```json
-{ "ok": true, "clientId": "shely", "stagesWritten": 5, "pricesPreserved": ["preview"], "syncedAt": "2026-08-24T09:00:01+08:00" }
+{ "ok": true, "clientId": "shely", "created": false, "stagesWritten": 5, "pricesPreserved": ["preview"], "syncedAt": "2026-08-24T09:00:01+08:00" }
 ```
 
 On rejection, `400` with every problem listed at once, not just the first:
@@ -335,7 +342,7 @@ Do **not** build these:
 
 - **A mapping editor UI in Ground Truth.** Ground Up owns funnel definition, including the screen where a human picks sources. Ground Truth receives the result. Building an editor on both sides creates two sources of truth for the same fact.
 - **Any setup or admin screen in Ground Truth.** Same reason — that surface belongs to the parent system.
-- **Client creation via the API.** The push targets an existing client or fails.
+- **Client creation without asking for it.** A push *can* open a new client, but only when it sends `createClient: true`. An unknown `clientId` on an ordinary push is overwhelmingly a typo, and inventing a client from it would leave a second near-identical account in the switcher that no import will ever fill.
 - **A counting function in TypeScript** (`countStage`-style, per the AcqOS mapping doc). Ground Truth counts in SQL. A TS counter would produce a second set of numbers that disagrees with the screen.
 - **A "meaningful value" helper that treats `0` as absent.** It violates the blank-is-never-zero rule directly.
 - **A number coercion that turns a parse failure into `0`.** A field that failed to parse is unknown, not zero. Return `null` or reject.

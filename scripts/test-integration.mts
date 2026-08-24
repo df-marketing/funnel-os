@@ -40,6 +40,29 @@ if (!rejected.ok) {
   assert.ok(rejected.errors.some((e) => e.field === "order"), "reports duplicate orders");
 }
 
+// Two stages cannot share a slug: the database would take it (the key is
+// client_id + stage_order) and both would inherit the same preserved price.
+const sameSlug = validateFunnelSchema({
+  ...valid,
+  stages: [valid.stages[0], { ...valid.stages[1], slug: "targeting" }],
+});
+assert.equal(sameSlug.ok, false, "duplicate slugs must be rejected");
+if (!sameSlug.ok) {
+  assert.ok(sameSlug.errors.some((e) => e.field === "slug" && e.message.includes("targeting")), "names the repeated slug");
+}
+
+// createClient and clientNote are optional, and default to not-onboarding.
+const plain = validateFunnelSchema(valid);
+assert.ok(plain.ok && plain.value.createClient === false, "an absent createClient is not an onboarding");
+assert.ok(plain.ok && plain.value.clientNote === null, "an absent clientNote stays null so the stored one survives");
+
+const opening = validateFunnelSchema({ ...valid, createClient: true, clientNote: "Webinar → offer" });
+assert.ok(opening.ok && opening.value.createClient === true, "createClient: true is carried through");
+assert.ok(opening.ok && opening.value.clientNote === "Webinar → offer", "clientNote is carried through");
+
+const badFlag = validateFunnelSchema({ ...valid, createClient: "yes" });
+assert.equal(badFlag.ok, false, "createClient must be a boolean, not a truthy string");
+
 // Coverage — shely's real v_import_status on 2026-08-24. Ads reach the 31st;
 // attendance and sales stop on the 28th and leads on the 27th.
 const row = (source: string, importedAt: string, end: string | null): ImportStatusRow =>

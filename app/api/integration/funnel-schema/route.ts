@@ -30,12 +30,27 @@ export async function POST(request: Request) {
     .select("client_id", { count: "exact", head: true })
     .eq("client_id", schema.clientId);
   if (knownError) return NextResponse.json({ error: knownError.message }, { status: 500 });
-  if (!count) return NextResponse.json({ ok: false, error: "unknown clientId" }, { status: 404 });
+
+  // A client that isn't here can be opened, but only on purpose. Without the
+  // flag an unknown id is overwhelmingly a mistyped one, and inventing a client
+  // from it would put a second, near-identical account in the switcher that
+  // nobody asked for and no import would ever fill.
+  //
+  // createClient on a client that DOES exist is not an error: a retried push
+  // whose first attempt actually landed must not come back as a failure. It
+  // replaces the funnel and reports created: false.
+  if (!count && !schema.createClient) {
+    return NextResponse.json({
+      ok: false,
+      error: `unknown clientId '${schema.clientId}'. If this is a new client, send createClient: true.`,
+    }, { status: 404 });
+  }
 
   const { data, error } = await db.rpc("replace_client_journey_schema", {
     p_client_id: schema.clientId,
     p_client_name: schema.clientName,
     p_stages: schema.stages,
+    p_client_note: schema.clientNote,
   });
   if (error) return NextResponse.json({ error: `Could not replace funnel schema: ${error.message}` }, { status: 500 });
 
@@ -44,12 +59,15 @@ export async function POST(request: Request) {
   // A price the payload did not carry was kept from the old rows rather than
   // erased. Say so: the caller is entitled to know the stored funnel is not
   // exactly what it sent.
-  const kept = (data as { pricesPreserved?: string[] } | null)?.pricesPreserved ?? [];
+  // created comes back from the function, which is the only place that saw the
+  // prior row count and the write in the same transaction.
+  const result = (data ?? null) as { pricesPreserved?: string[]; created?: boolean } | null;
   return NextResponse.json({
     ok: true,
     clientId: schema.clientId,
+    created: result?.created === true,
     stagesWritten: schema.stages.length,
-    pricesPreserved: kept,
+    pricesPreserved: result?.pricesPreserved ?? [],
     syncedAt: new Date().toISOString(),
   });
 }

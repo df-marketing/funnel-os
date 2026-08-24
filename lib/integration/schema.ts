@@ -35,6 +35,13 @@ export type SchemaStage = {
 export type FunnelSchema = {
   clientId: string;
   clientName: string;
+  /** Switcher subtitle. Omitted keeps whatever is stored, like unit_price. */
+  clientNote: string | null;
+  /**
+   * The caller asserting it is opening a client that does not exist yet.
+   * Without it an unknown clientId is a typo, not an onboarding.
+   */
+  createClient: boolean;
   source: "acqos";
   schemaVersion: number;
   generatedAt: string;
@@ -75,6 +82,8 @@ export function validateFunnelSchema(input: unknown):
   const generatedAt = string(input.generatedAt);
   const schemaVersion = input.schemaVersion;
   const rows = input.stages;
+  const clientNote = input.clientNote;
+  const createClient = input.createClient;
 
   if (!CLIENT_ID.test(clientId)) {
     errors.push({ stage: null, field: "clientId", message: "must be lowercase letters, numbers, underscores or hyphens" });
@@ -85,6 +94,12 @@ export function validateFunnelSchema(input: unknown):
     errors.push({ stage: null, field: "schemaVersion", message: "must be integer 1" });
   }
   if (!validDateTime(generatedAt)) errors.push({ stage: null, field: "generatedAt", message: "must be an ISO date-time" });
+  if (clientNote !== undefined && clientNote !== null && !string(clientNote)) {
+    errors.push({ stage: null, field: "clientNote", message: "must be omitted, null, or non-empty text" });
+  }
+  if (createClient !== undefined && typeof createClient !== "boolean") {
+    errors.push({ stage: null, field: "createClient", message: "must be omitted or a boolean" });
+  }
   if (!Array.isArray(rows) || rows.length === 0) {
     errors.push({ stage: null, field: "stages", message: "must contain at least one stage" });
   }
@@ -150,6 +165,18 @@ export function validateFunnelSchema(input: unknown):
     : [];
   const duplicates = new Set(declaredOrders.filter((order, i) => declaredOrders.indexOf(order) !== i));
   for (const order of duplicates) errors.push({ stage: order, field: "order", message: `duplicate order ${order}` });
+
+  // Slugs must be unique too, and not only because Ground Up keys on them: the
+  // replace preserves unit_price by slug, so two stages sharing one would both
+  // inherit the same price. The primary key is (client_id, stage_order), which
+  // means the database accepts the collision without complaint.
+  const declaredSlugs = Array.isArray(rows)
+    ? rows.flatMap((row) => (isObject(row) && string(row.slug) ? [string(row.slug)] : []))
+    : [];
+  const repeatedSlugs = new Set(declaredSlugs.filter((slug, i) => declaredSlugs.indexOf(slug) !== i));
+  for (const slug of repeatedSlugs) {
+    errors.push({ stage: null, field: "slug", message: `duplicate slug '${slug}' — each stage needs its own` });
+  }
   if (Array.isArray(rows)) {
     for (let order = 1; order <= rows.length; order++) {
       if (!declaredOrders.includes(order)) errors.push({ stage: null, field: "order", message: `missing order ${order}; orders must be contiguous from 1` });
@@ -159,7 +186,13 @@ export function validateFunnelSchema(input: unknown):
   if (errors.length) return { ok: false, errors };
   return {
     ok: true,
-    value: { clientId, clientName, source: "acqos", schemaVersion: 1, generatedAt, stages: stages.sort((a, b) => a.order - b.order) },
+    value: {
+      clientId, clientName,
+      clientNote: clientNote === undefined || clientNote === null ? null : string(clientNote),
+      createClient: createClient === true,
+      source: "acqos", schemaVersion: 1, generatedAt,
+      stages: stages.sort((a, b) => a.order - b.order),
+    },
   };
 }
 
