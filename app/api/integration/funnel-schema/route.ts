@@ -32,7 +32,7 @@ export async function POST(request: Request) {
   if (knownError) return NextResponse.json({ error: knownError.message }, { status: 500 });
   if (!count) return NextResponse.json({ ok: false, error: "unknown clientId" }, { status: 404 });
 
-  const { error } = await db.rpc("replace_client_journey_schema", {
+  const { data, error } = await db.rpc("replace_client_journey_schema", {
     p_client_id: schema.clientId,
     p_client_name: schema.clientName,
     p_stages: schema.stages,
@@ -41,5 +41,15 @@ export async function POST(request: Request) {
 
   revalidatePath("/");
   revalidateTag(FUNNEL_TAG);
-  return NextResponse.json({ ok: true, clientId: schema.clientId, stagesWritten: schema.stages.length, syncedAt: new Date().toISOString() });
+  // A price the payload did not carry was kept from the old rows rather than
+  // erased. Say so: the caller is entitled to know the stored funnel is not
+  // exactly what it sent.
+  const kept = (data as { pricesPreserved?: string[] } | null)?.pricesPreserved ?? [];
+  return NextResponse.json({
+    ok: true,
+    clientId: schema.clientId,
+    stagesWritten: schema.stages.length,
+    pricesPreserved: kept,
+    syncedAt: new Date().toISOString(),
+  });
 }

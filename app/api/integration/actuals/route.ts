@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { hasIntegrationKey } from "@/lib/integration/auth";
+import { coverageEnds, lastImported, type ImportStatusRow } from "@/lib/integration/coverage";
 import { isIsoDay, JOURNEY_METRIC_KEYS, type SourceType } from "@/lib/integration/schema";
 import type { Metrics } from "@/lib/funnel/spine";
 import { createAdminClient, MISSING_KEY_MESSAGE } from "@/lib/supabase/admin";
@@ -13,7 +14,6 @@ type JourneyRow = {
   source_type: SourceType | null;
 };
 
-type StatusRow = { imported_at: string; coverage_end: string | null };
 type ReasonRow = { reason: string | null; rows_waiting: number | string };
 
 /** Ground Up pulls the same filtered totals the Funnel OS UI reads. */
@@ -26,12 +26,16 @@ export async function GET(request: Request) {
   const to = url.searchParams.get("to");
   const product = url.searchParams.get("product") || null;
   const channel = url.searchParams.get("channel") || null;
-  const offer = url.searchParams.get("offer") || null;
   if (!clientId || !isIsoDay(from) || !isIsoDay(to) || from > to) {
     return NextResponse.json({ error: "clientId, from and to (YYYY-MM-DD, from <= to) are required" }, { status: 400 });
   }
-  if (offer !== null && offer !== "preview" && offer !== "middle") {
-    return NextResponse.json({ error: "offer must be preview or middle" }, { status: 400 });
+  // fo_cut only honours p_offer on v_metrics_by_offer. Accepting it here and
+  // passing it to v_metrics_total returned the unsplit totals under a filtered
+  // heading — refuse it instead, and say where the split actually lives.
+  if (url.searchParams.get("offer")) {
+    return NextResponse.json({
+      error: "offer is not a filter on this endpoint: these are whole-funnel totals, and only the purchase stages differ by offer. Read the preview_purchases and middle_purchases stages instead.",
+    }, { status: 400 });
   }
 
   const db = createAdminClient();
@@ -40,19 +44,20 @@ export async function GET(request: Request) {
   let rounds = db.from("rounds").select("round_id").eq("client_id", clientId).lte("start_date", to).gte("end_date", from).order("start_date");
   if (product) rounds = rounds.eq("product_id", product);
 
-  const [stagesResult, totalResult, importsResult, coverageResult, roundsResult, summaryResult, reasonsResult] = await Promise.all([
+  const [stagesResult, totalResult, statusResult, roundsResult, summaryResult, reasonsResult] = await Promise.all([
     db.from("client_journey_config")
       .select("stage_order, stage_slug, stage_metric, source_type")
       .eq("client_id", clientId).order("stage_order"),
-    db.rpc("fo_cut", { p_view: "v_metrics_total", p_client: clientId, p_product: product, p_channel: channel, p_from: from, p_to: to, p_offer: offer }),
-    db.from("v_import_status").select("imported_at, coverage_end").eq("client_id", clientId).order("imported_at", { ascending: false }).limit(1),
-    db.from("v_import_status").select("coverage_end").eq("client_id", clientId).not("coverage_end", "is", null).order("coverage_end", { ascending: false }).limit(1),
+    db.rpc("fo_cut", { p_view: "v_metrics_total", p_client: clientId, p_product: product, p_channel: channel, p_from: from, p_to: to, p_offer: null }),
+    db.from("v_import_status")
+      .select("source, imported_at, coverage_start, coverage_end, is_stale, days_behind")
+      .eq("client_id", clientId).order("source"),
     rounds,
     db.from("v_unmatched_summary").select("waiting").eq("client_id", clientId).maybeSingle(),
     db.from("v_unmatched_by_reason").select("reason, rows_waiting").eq("client_id", clientId),
   ]);
 
-  const firstError = [stagesResult, totalResult, importsResult, coverageResult, roundsResult, summaryResult, reasonsResult]
+  const firstError = [stagesResult, totalResult, statusResult, roundsResult, summaryResult, reasonsResult]
     .map((result) => result.error).find(Boolean);
   if (firstError) return NextResponse.json({ error: firstError.message }, { status: 500 });
   if (!stagesResult.data?.length) return NextResponse.json({ error: "unknown clientId" }, { status: 404 });
@@ -62,15 +67,26 @@ export async function GET(request: Request) {
   const reasons = Object.fromEntries(
     ((reasonsResult.data ?? []) as ReasonRow[]).map((row) => [row.reason ?? "unknown", Number(row.rows_waiting)]),
   );
+  const sources = (statusResult.data ?? []) as ImportStatusRow[];
 
   return NextResponse.json({
     clientId,
     from,
     to,
-    filters: { product, channel, offer },
+    filters: { product, channel },
     coverage: {
-      lastImportedAt: ((importsResult.data?.[0] as StatusRow | undefined)?.imported_at ?? null),
-      lastObservationDate: ((coverageResult.data?.[0] as StatusRow | undefined)?.coverage_end ?? null),
+      lastImportedAt: lastImported(sources),
+      lastObservationDate: coverageEnds(sources),
+      anySourceStale: sources.some((source) => source.is_stale),
+      // Per source, because one number cannot say which file is the short one.
+      sources: sources.map((source) => ({
+        source: source.source,
+        importedAt: source.imported_at,
+        coverageStart: source.coverage_start,
+        coverageEnd: source.coverage_end,
+        isStale: source.is_stale,
+        daysBehind: source.days_behind,
+      })),
       roundsInWindow: (roundsResult.data ?? []).map((round) => round.round_id),
     },
     stages: ((stagesResult.data ?? []) as JourneyRow[]).map((stage) => ({
