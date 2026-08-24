@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "seed": "node scripts/generate-seed.mjs",
     "test:import": "npx --yes tsx@4 scripts/test-import.mts",
+    "test:integration": "npx --yes tsx@4 scripts/test-integration.mts",
     "render:round": "npx --yes tsx@4 --tsconfig scripts/tsconfig.render.json scripts/render-round.mts"
   },
   "dependencies": {
