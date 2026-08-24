@@ -71,6 +71,7 @@
 - the channel note explained a rule that often didn't apply — conflicting or misleading documentation was present in the codebase.
 - the UI no longer overstates what the data covers — data coverage claims are now accurate.
 - the import pipeline refuses a filter it cannot apply rather than silently ignoring it.
+- A late push is refused — likely means a push after a certain point in the pipeline is rejected to prevent inconsistency
 
 ## Notes
 
@@ -104,3 +105,4 @@
 - Handoff for review, and stop step 7 truncating its list in silence.
 - One control on the graph, not two that overlap — a UI simplification was made to ensure graph controls don't overlap.
 - The objective stops being a label and becomes a lens
+- The caveat covers the window it is printed next to, and a late push is refused
