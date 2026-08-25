@@ -30,6 +30,7 @@
 - a push can open a client, and two stages cannot share a slug.
 - missing-key column in import is diagnosed by saying which key is missing, not just marking failure.
 - the round-list (circle-selector UI) is left unchanged — not reworked.
+- A push (import) keeps the breakdown and the label, not just the price — preserving dimensional context during data ingestion.
 
 ## Architecture
 
