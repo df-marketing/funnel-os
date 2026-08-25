@@ -83,6 +83,7 @@ export async function POST(request: Request) {
 
   const outcome = (data ?? null) as {
     written?: boolean; created?: boolean; pricesPreserved?: string[];
+    dimensionsPreserved?: string[]; rateLabelsPreserved?: string[];
     reason?: string; storedGeneratedAt?: string; incomingGeneratedAt?: string;
   } | null;
 
@@ -99,9 +100,10 @@ export async function POST(request: Request) {
 
   revalidatePath("/");
   revalidateTag(FUNNEL_TAG);
-  // A price the payload did not carry was kept from the old rows rather than
-  // erased. Say so: the caller is entitled to know the stored funnel is not
-  // exactly what it sent.
+  // A price, breakdown or rate label the payload did not carry was kept from the
+  // old rows rather than erased. Say so for each: the caller is entitled to know
+  // the stored funnel is not exactly what it sent, and which parts of it it does
+  // not own.
   // created comes back from the function, which is the only place that saw the
   // prior row count and the write in the same transaction.
   return NextResponse.json({
@@ -110,6 +112,8 @@ export async function POST(request: Request) {
     created: outcome?.created === true,
     stagesWritten: schema.stages.length,
     pricesPreserved: outcome?.pricesPreserved ?? [],
+    dimensionsPreserved: outcome?.dimensionsPreserved ?? [],
+    rateLabelsPreserved: outcome?.rateLabelsPreserved ?? [],
     syncedAt: new Date().toISOString(),
   });
 }
