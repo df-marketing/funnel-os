@@ -90,7 +90,26 @@ export default async function Page({
 
   const current = data.clients.find((c) => c.client_id === params.client) ?? data.clients[0];
   const view = data.view;
-  const [title, blurb] = TITLES[view] ?? [view, ""];
+  /**
+   * A stage tab is headed by the name the journey gives it, not by one this
+   * file invented.
+   *
+   * The journey strip, the client switcher and the compare list all read
+   * stage_name out of client_journey_config — which AcqOS owns and a client can
+   * rename. TITLES is keyed by slug and said something different, so every one
+   * of Shely's six stages disagreed with the button that opened it: the sidebar
+   * offered "Paid Workshop Purchase ($297)" and the page it opened was headed
+   * "Preview offer". Two names for one stage on one screen, with nothing saying
+   * which of them the numbers belong to.
+   *
+   * The blurb stays as it is. It says what the tab CUTS BY, which is a
+   * different question from what the stage is called and still worth answering
+   * — "Targeted views" was never a bad description of an audience breakdown, it
+   * was only a bad name for the Ad Impressions stage.
+   */
+  const stage = data.stages.find((s) => s.stage_slug === view) ?? null;
+  const [fallbackTitle, blurb] = TITLES[view] ?? [view, ""];
+  const title = stage?.stage_name ?? fallbackTitle;
   /**
    * The graph replaces the table rather than sitting beside it. Two renderings
    * of the same numbers on one screen invites the question of which is
@@ -471,7 +490,7 @@ export default async function Page({
                 <p>{blurb}</p>
               </div>
               <SpineTable
-                title={view === "preview" ? "Preview offer by round" : "Middle offer by round"}
+                title={`${title} by round`}
                 sub="the same rounds as By round, with one offer's numbers filled in"
                 baseline={data.baseline}
                 total={data.total}
