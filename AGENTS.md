@@ -77,6 +77,7 @@
 - the import pipeline refuses a filter it cannot apply rather than silently ignoring it.
 - A late push is refused — likely means a push after a certain point in the pipeline is rejected to prevent inconsistency
 - a frozen copy must be read before the calculation it is meant to outlive — ordering matters to prevent stale-data bugs
+- the app was re-sorting the clients the view had already ordered — double-sorting bug fixed.
 
 ## Notes
 
