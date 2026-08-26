@@ -31,6 +31,7 @@
 - missing-key column in import is diagnosed by saying which key is missing, not just marking failure.
 - the round-list (circle-selector UI) is left unchanged — not reworked.
 - A push (import) keeps the breakdown and the label, not just the price — preserving dimensional context during data ingestion.
+- Give the imaginary product its own client (separate client/app for the imaginary product).
 
 ## Architecture
 
