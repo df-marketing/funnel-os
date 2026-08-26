@@ -8,6 +8,7 @@ import {
 import { missedTargetIn, movesFor, rankedIssues, tooThinIn, type Asset } from "@/lib/funnel/analysis";
 import { brokenSteps, diagnose, verdictOf } from "@/lib/funnel/diagnose";
 import { DEFAULT_OPTS, isObjective, OBJECTIVES } from "@/lib/funnel/chart";
+import { cadencesFor, type Cadence } from "@/lib/funnel/cadence";
 import { chosenSnapshot, freezeMode, insightWithSnapshot, isClosedMonth, snapshotsFor, todayLocal, versionsOf } from "@/lib/integration/freeze";
 
 export const runtime = "nodejs";
@@ -89,16 +90,25 @@ async function liveMonth(request: Request): Promise<LiveMonth | NextResponse> {
     const window = monthWindow(now.cut_key);
     const inMonth: Scope = { p_client: clientId, p_product: product, p_channel: null, p_from: window.from, p_to: window.to };
 
-    const [products, channels, rounds, sources] = await Promise.all([
+    const [products, channels, rounds, weeks, sources] = await Promise.all([
       db.from("v_products").select("product_id, product_name, cadence").eq("client_id", clientId).order("product_name"),
       db.from("v_client_channels").select("channel, ad_rows, spend").eq("client_id", clientId).order("channel"),
       cut(db, "v_metrics_by_round", inMonth),
+      // Both spines, always. Which one a client is REPORTED on is cadence's
+      // answer and comes back in `cadences`; which one a caller may still want
+      // is not this endpoint's business. A weekly product has rounds under it
+      // and a round product has weeks over it, and the second fo_cut costs
+      // nothing next to guessing wrong and leaving a caller with no way to ask.
+      cut(db, "v_metrics_by_week", inMonth),
       cut(db, "v_metrics_by_source", inMonth),
     ]);
     if (products.error) throw new Error(`v_products: ${products.error.message}`);
     if (channels.error) throw new Error(`v_client_channels: ${channels.error.message}`);
 
-    const productRows = (products.data ?? []) as Array<{ product_id: string; product_name: string; cadence: string }>;
+    // cadence is typed loosely coming out of the view; cadencesFor() falls back
+    // to rounds for anything it does not recognise, so a widened value degrades
+    // to the old behaviour rather than throwing.
+    const productRows = (products.data ?? []) as Array<{ product_id: string; product_name: string; cadence: Cadence | null }>;
     const channelRows = (channels.data ?? []) as Array<{ channel: string; ad_rows: number; spend: number | null }>;
 
     /**
@@ -197,6 +207,18 @@ async function liveMonth(request: Request): Promise<LiveMonth | NextResponse> {
       // platform the money was spent on. Both belong in the report and they are
       // not two views of one thing.
       bySource: sources.map((s) => ({ key: s.cut_key, label: s.cut_label, sub: s.cut_sub, metrics: s.m ?? {} })),
+      /**
+       * Which spine this client is actually reported on.
+       *
+       * "Analyse round-by-round or week-by-week" is one rule with two shapes,
+       * and which shape applies is a property of the product: a webinar runs
+       * rounds, an evergreen course runs weeks. cadencesFor() is the same
+       * function the sidebar uses to decide which tab exists, so a report and
+       * the screen it is generated from can never disagree about the unit.
+       *
+       * Both arrays are populated regardless. This says which one to lead with.
+       */
+      cadences: cadencesFor(productRows, product),
       // Level 4 — round by round. Summary only; the detail is round-insight.
       byRound: rounds.map((r) => ({
         id: r.cut_key,
@@ -204,6 +226,14 @@ async function liveMonth(request: Request): Promise<LiveMonth | NextResponse> {
         dates: r.cut_sub,
         metrics: r.m ?? {},
         insightUrl: `/api/integration/round-insight?clientId=${encodeURIComponent(clientId)}&roundId=${encodeURIComponent(r.cut_key)}`,
+      })),
+      // Level 4, the other shape. No insightUrl: round-insight takes a round id
+      // and a week is not one — a week can span two rounds or none.
+      byWeek: weeks.map((w) => ({
+        key: w.cut_key,
+        label: w.cut_label,
+        dates: w.cut_sub,
+        metrics: w.m ?? {},
       })),
       // The one sentence that goes at the top: did the funnel break, or
       // did the numbers move for a reason that is not the funnel's?
