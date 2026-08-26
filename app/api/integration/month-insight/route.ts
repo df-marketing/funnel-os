@@ -142,6 +142,16 @@ async function liveMonth(request: Request): Promise<LiveMonth | NextResponse> {
       ? await cut(db, "v_metrics_by_round", { ...inMonth, p_from: prevWindow.from, p_to: prevWindow.to })
       : [];
     const nowIds = rounds.map((r) => r.cut_key);
+    /**
+     * Real dates for the rounds in this month, so a caller can place each one on
+     * a calendar instead of parsing "May 13 – 19". Read here rather than taken
+     * from the cut, because cut_sub is a label written for a person.
+     */
+    const roundDates = nowIds.length
+      ? await db.from("rounds").select("round_id, start_date, end_date").eq("client_id", clientId).in("round_id", nowIds)
+      : { data: [] as Array<{ round_id: string; start_date: string; end_date: string }>, error: null };
+    if (roundDates.error) throw new Error(`rounds: ${roundDates.error.message}`);
+    const dateOf = new Map((roundDates.data ?? []).map((r) => [r.round_id, r]));
     const prevIds = roundsPrev.map((r) => r.cut_key);
     const allIds = [...nowIds, ...prevIds];
     const assets = allIds.length
@@ -223,7 +233,11 @@ async function liveMonth(request: Request): Promise<LiveMonth | NextResponse> {
       byRound: rounds.map((r) => ({
         id: r.cut_key,
         label: r.cut_label,
+        // Prose for a reader, ISO for a calendar. Null when the row is missing,
+        // which is absent and not the epoch.
         dates: r.cut_sub,
+        startDate: dateOf.get(r.cut_key)?.start_date ?? null,
+        endDate: dateOf.get(r.cut_key)?.end_date ?? null,
         metrics: r.m ?? {},
         insightUrl: `/api/integration/round-insight?clientId=${encodeURIComponent(clientId)}&roundId=${encodeURIComponent(r.cut_key)}`,
       })),

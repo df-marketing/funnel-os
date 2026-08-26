@@ -25,10 +25,11 @@ export const runtime = "nodejs";
  * what broke, where to look, and what is worth testing — labelled as candidates.
  * A generator that receives a verdict will print a verdict.
  */
-// endDate is not here: only POST needs it, and reading it inside the shared
-// calculation put a table GET has no use for on the read path — a missing
-// rounds row would 500 a request that never asked when the round ended.
-type LiveRound = { payload: Record<string, unknown>; periodKey: string };
+// endDate is carried because BOTH handlers need it now: POST to refuse an open
+// round, GET because a caller has to be able to place this round on a calendar.
+// Absent rather than fatal — a round with no row here still has numbers worth
+// reading, and 500ing a report because one date is missing helps nobody.
+type LiveRound = { payload: Record<string, unknown>; periodKey: string; endDate: string | null };
 
 /** The one live calculation used by both GET and POST. */
 async function liveRound(request: Request): Promise<LiveRound | NextResponse> {
@@ -87,14 +88,19 @@ async function liveRound(request: Request): Promise<LiveRound | NextResponse> {
     const base = baseline[0] ?? null;
 
     const ids = [now.cut_key, prev?.cut_key].filter(Boolean) as string[];
-    const [assetRows, scrollRows] = await Promise.all([
+    const [assetRows, scrollRows, roundRow] = await Promise.all([
       db.from("v_round_assets")
         .select("round_id, kind, name, spend, leads, spend_share, att, prev_buys, rev")
         .eq("client_id", clientId).in("round_id", ids),
       db.from("v_scroll_runs").select("run_id").eq("client_id", clientId).eq("round_id", now.cut_key),
+      db.from("rounds").select("start_date, end_date").eq("client_id", clientId).eq("round_id", now.cut_key).maybeSingle(),
     ]);
     if (assetRows.error) throw new Error(`v_round_assets: ${assetRows.error.message}`);
     if (scrollRows.error) throw new Error(`v_scroll_runs: ${scrollRows.error.message}`);
+    // Not thrown. See the note on LiveRound: a missing row costs the caller the
+    // dates, not the whole round.
+    const startDate = (roundRow.data?.start_date as string | undefined) ?? null;
+    const endDate = (roundRow.data?.end_date as string | undefined) ?? null;
 
     const assets = (assetRows.data ?? []) as Asset[];
     const assetsNow = assets.filter((a) => a.round_id === now.cut_key);
@@ -115,6 +121,7 @@ async function liveRound(request: Request): Promise<LiveRound | NextResponse> {
 
     return {
       periodKey: now.cut_key,
+      endDate,
       payload: {
       clientId,
       filters: { product, channel },
@@ -122,7 +129,22 @@ async function liveRound(request: Request): Promise<LiveRound | NextResponse> {
       round: {
         id: now.cut_key,
         label: now.cut_label,
+        /**
+         * `dates` is prose for a human — "May 13 – 19". startDate and endDate
+         * are the same fact in a form a machine can place on a calendar.
+         *
+         * Both, because AcqOS was right to refuse to parse the label: its
+         * round-insights module says "never parse Funnel OS's human date label"
+         * and falls back to its own cycle row, which for an imported round does
+         * not exist. So a frozen round sat in its monthly report as "held back,
+         * could not be placed in a month" — a real round, with real numbers,
+         * excluded from every month because the only date it carried was a
+         * sentence. Null when the rounds row is missing, which is absent and
+         * not the epoch.
+         */
         dates: now.cut_sub,
+        startDate,
+        endDate,
         // Null when this is the client's first round: there is nothing behind
         // it, and every percentage on the page says so rather than reading the
         // absence as a zero to divide by.
@@ -248,13 +270,9 @@ export async function POST(request: Request) {
   const clientId = String(live.payload.clientId);
 
   try {
-    // Read here rather than in the shared calculation: only the freeze needs to
-    // know when the round ended, and a GET should not fail on a column it never
-    // looks at.
-    const roundRow = await db.from("rounds").select("end_date")
-      .eq("client_id", clientId).eq("round_id", live.periodKey).maybeSingle();
-    if (roundRow.error) throw new Error(`rounds: ${roundRow.error.message}`);
-    const endDate = roundRow.data?.end_date as string | undefined;
+    // The shared calculation already read this, so the freeze and the payload it
+    // is freezing can never disagree about when the round ended.
+    const endDate = live.endDate;
     if (!endDate) {
       return NextResponse.json({
         error: `round '${live.periodKey}' has no end date on record, so there is no way to tell whether it has finished. Pass force: true to freeze it anyway.`,
