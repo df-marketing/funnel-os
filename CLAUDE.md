@@ -75,6 +75,7 @@
 - the UI no longer overstates what the data covers — data coverage claims are now accurate.
 - the import pipeline refuses a filter it cannot apply rather than silently ignoring it.
 - A late push is refused — likely means a push after a certain point in the pipeline is rejected to prevent inconsistency
+- a frozen copy must be read before the calculation it is meant to outlive — ordering matters to prevent stale-data bugs
 
 ## Notes
 
