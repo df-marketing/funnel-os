@@ -32,6 +32,7 @@
 - the round-list (circle-selector UI) is left unchanged — not reworked.
 - A push (import) keeps the breakdown and the label, not just the price — preserving dimensional context during data ingestion.
 - Give the imaginary product its own client (separate client/app for the imaginary product).
+- round dates are sent as actual dates (e.g., ISO strings or date objects), not as a sentence or human-readable description.
 
 ## Architecture
 
@@ -78,6 +79,7 @@
 - A late push is refused — likely means a push after a certain point in the pipeline is rejected to prevent inconsistency
 - a frozen copy must be read before the calculation it is meant to outlive — ordering matters to prevent stale-data bugs
 - the app was re-sorting the clients the view had already ordered — double-sorting bug fixed.
+- gohighlevel writes tags for audience and ad in a specific way — the import reads from those actual tags, not from assumed or arbitrary tag structures.
 
 ## Notes
 
