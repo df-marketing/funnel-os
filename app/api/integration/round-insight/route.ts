@@ -7,7 +7,7 @@ import {
 import { candidatesFrom, diffAssets, missedTargetIn, movesFor, rankedIssues, tooThinIn, type Asset } from "@/lib/funnel/analysis";
 import { brokenSteps, diagnose, verdictOf } from "@/lib/funnel/diagnose";
 import { DEFAULT_OPTS, isObjective, OBJECTIVES } from "@/lib/funnel/chart";
-import { chosenSnapshot, freezeMode, insightWithSnapshot, isClosedDay, snapshotsFor, todayUtc, versionsOf } from "@/lib/integration/freeze";
+import { chosenSnapshot, freezeMode, insightWithSnapshot, isClosedDay, snapshotsFor, todayLocal, versionsOf } from "@/lib/integration/freeze";
 
 export const runtime = "nodejs";
 
@@ -25,7 +25,10 @@ export const runtime = "nodejs";
  * what broke, where to look, and what is worth testing — labelled as candidates.
  * A generator that receives a verdict will print a verdict.
  */
-type LiveRound = { payload: Record<string, unknown>; periodKey: string; endDate: string };
+// endDate is not here: only POST needs it, and reading it inside the shared
+// calculation put a table GET has no use for on the read path — a missing
+// rounds row would 500 a request that never asked when the round ended.
+type LiveRound = { payload: Record<string, unknown>; periodKey: string };
 
 /** The one live calculation used by both GET and POST. */
 async function liveRound(request: Request): Promise<LiveRound | NextResponse> {
@@ -84,16 +87,14 @@ async function liveRound(request: Request): Promise<LiveRound | NextResponse> {
     const base = baseline[0] ?? null;
 
     const ids = [now.cut_key, prev?.cut_key].filter(Boolean) as string[];
-    const [assetRows, scrollRows, roundRow] = await Promise.all([
+    const [assetRows, scrollRows] = await Promise.all([
       db.from("v_round_assets")
         .select("round_id, kind, name, spend, leads, spend_share, att, prev_buys, rev")
         .eq("client_id", clientId).in("round_id", ids),
       db.from("v_scroll_runs").select("run_id").eq("client_id", clientId).eq("round_id", now.cut_key),
-      db.from("rounds").select("end_date").eq("client_id", clientId).eq("round_id", now.cut_key).maybeSingle(),
     ]);
     if (assetRows.error) throw new Error(`v_round_assets: ${assetRows.error.message}`);
     if (scrollRows.error) throw new Error(`v_scroll_runs: ${scrollRows.error.message}`);
-    if (roundRow.error || !roundRow.data?.end_date) throw new Error(`rounds: ${roundRow.error?.message ?? "round end date missing"}`);
 
     const assets = (assetRows.data ?? []) as Asset[];
     const assetsNow = assets.filter((a) => a.round_id === now.cut_key);
@@ -114,7 +115,6 @@ async function liveRound(request: Request): Promise<LiveRound | NextResponse> {
 
     return {
       periodKey: now.cut_key,
-      endDate: roundRow.data.end_date,
       payload: {
       clientId,
       filters: { product, channel },
@@ -182,21 +182,59 @@ function versionParam(url: URL) {
   return /^\d+$/.test(raw) && Number(raw) > 0 ? Number(raw) : undefined;
 }
 
+/**
+ * The stored copy is consulted BEFORE anything is calculated.
+ *
+ * A frozen insight exists to survive changes underneath it, and some of those
+ * changes stop the live path producing that round at all — the round moved to
+ * another product, the journey config was edited, the row was deleted. Reading
+ * the table second meant those were exactly the cases where the frozen copy
+ * became unreachable: the request died on the recalculation it was trying not
+ * to depend on.
+ */
 export async function GET(request: Request) {
   const denied = guarded(request); if (denied) return denied;
   const url = new URL(request.url);
   const mode = freezeMode(url.searchParams.get("frozen"));
   const version = versionParam(url);
   if (!mode || version === undefined) return NextResponse.json({ error: "frozen must be prefer, only or never; version must be a positive integer" }, { status: 400 });
-  const live = await liveRound(request); if (live instanceof NextResponse) return live;
-  const db = createAdminClient()!;
+
+  const clientId = url.searchParams.get("clientId");
+  if (!clientId) return NextResponse.json({ error: "clientId is required" }, { status: 400 });
+  const roundId = url.searchParams.get("roundId");
+  const pinned = version !== null || mode === "only";
+
+  const db = createAdminClient();
+  if (!db) return NextResponse.json({ error: MISSING_KEY_MESSAGE }, { status: 503 });
+
   try {
-    const rows = await snapshotsFor(db, String(live.payload.clientId), "round", live.periodKey);
-    const chosen = chosenSnapshot(rows, mode, version);
-    if ((mode === "only" || version !== null) && !chosen) {
-      return NextResponse.json({ error: `no frozen insight for round '${live.periodKey}'${version ? ` version ${version}` : ""}`, versions: versionsOf(rows) }, { status: 404 });
+    // Only a named round can be looked up without computing one. Without an id
+    // the period is "whichever round is most recent", and answering that is the
+    // calculation `only` is refusing to run — so say so rather than guess.
+    if (!roundId && pinned) {
+      return NextResponse.json({
+        error: "frozen=only and version need an explicit roundId: without one the period is 'the most recent round', and resolving that needs the live calculation this mode refuses to run.",
+      }, { status: 400 });
     }
-    return NextResponse.json(chosen ? insightWithSnapshot(chosen.payload, chosen, versionsOf(rows)) : insightWithSnapshot(live.payload, null, []));
+
+    let rows = roundId ? await snapshotsFor(db, clientId, "round", roundId) : [];
+    if (roundId && mode !== "never") {
+      const chosen = chosenSnapshot(rows, mode, version);
+      if (chosen) return NextResponse.json(insightWithSnapshot(chosen.payload, chosen, versionsOf(rows)));
+      if (pinned) {
+        return NextResponse.json({
+          error: `no frozen insight for round '${roundId}'${version !== null ? ` version ${version}` : ""}`,
+          versions: versionsOf(rows),
+        }, { status: 404 });
+      }
+    }
+
+    const live = await liveRound(request); if (live instanceof NextResponse) return live;
+    if (!roundId) rows = await snapshotsFor(db, clientId, "round", live.periodKey);
+    const chosen = mode === "never" ? null : chosenSnapshot(rows, mode, version);
+    return NextResponse.json(chosen
+      ? insightWithSnapshot(chosen.payload, chosen, versionsOf(rows))
+      : insightWithSnapshot(live.payload, null, versionsOf(rows)));
   } catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 }); }
 }
 
@@ -205,19 +243,37 @@ export async function POST(request: Request) {
   let body: { frozenBy?: string; note?: string; replace?: boolean; force?: boolean } = {};
   try { body = await request.json(); } catch { /* every field is optional */ }
   const live = await liveRound(request); if (live instanceof NextResponse) return live;
-  const db = createAdminClient()!;
-  if (!body.force && !isClosedDay(live.endDate, todayUtc())) {
-    return NextResponse.json({ error: `Round ${live.periodKey} ends ${live.endDate}, so it is still open today. Pass force: true to freeze it anyway.` }, { status: 422 });
-  }
+  const db = createAdminClient();
+  if (!db) return NextResponse.json({ error: MISSING_KEY_MESSAGE }, { status: 503 });
+  const clientId = String(live.payload.clientId);
+
   try {
-    const rows = await snapshotsFor(db, String(live.payload.clientId), "round", live.periodKey);
+    // Read here rather than in the shared calculation: only the freeze needs to
+    // know when the round ended, and a GET should not fail on a column it never
+    // looks at.
+    const roundRow = await db.from("rounds").select("end_date")
+      .eq("client_id", clientId).eq("round_id", live.periodKey).maybeSingle();
+    if (roundRow.error) throw new Error(`rounds: ${roundRow.error.message}`);
+    const endDate = roundRow.data?.end_date as string | undefined;
+    if (!endDate) {
+      return NextResponse.json({
+        error: `round '${live.periodKey}' has no end date on record, so there is no way to tell whether it has finished. Pass force: true to freeze it anyway.`,
+      }, { status: 422 });
+    }
+    if (!body.force && !isClosedDay(endDate, todayLocal())) {
+      return NextResponse.json({
+        error: `Round ${live.periodKey} ends ${endDate} and today is ${todayLocal()}, so it is still open. Pass force: true to freeze it anyway.`,
+      }, { status: 422 });
+    }
+
+    const rows = await snapshotsFor(db, clientId, "round", live.periodKey);
     const current = chosenSnapshot(rows, "prefer", null);
     if (current && !body.replace) return NextResponse.json({ ok: false, periodKey: live.periodKey, version: current.version, frozenAt: current.frozen_at }, { status: 409 });
     const note = body.force
-      ? [body.note, `Forced while round was still open (ended ${live.endDate}).`].filter(Boolean).join(" ")
+      ? [body.note, `Forced while round was still open (ends ${endDate}, forced ${todayLocal()}).`].filter(Boolean).join(" ")
       : body.note ?? null;
     const { data, error } = await db.rpc("freeze_period_insight", {
-      p_client_id: String(live.payload.clientId), p_period_kind: "round", p_period_key: live.periodKey,
+      p_client_id: clientId, p_period_kind: "round", p_period_key: live.periodKey,
       p_payload: live.payload, p_frozen_by: body.frozenBy ?? null, p_note: note,
     });
     if (error) throw new Error(error.message);

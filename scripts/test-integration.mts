@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { coverageEnds, lastImported, type ImportStatusRow } from "../lib/integration/coverage";
 import { validateFunnelSchema } from "../lib/integration/schema";
-import { chosenSnapshot, isClosedDay, isClosedMonth, versionsOf } from "../lib/integration/freeze";
+import { chosenSnapshot, insightWithSnapshot, isClosedDay, isClosedMonth, todayLocal, versionsOf } from "../lib/integration/freeze";
+import { localDay } from "../lib/import/csv";
 
 const valid = {
   clientId: "shely",
@@ -121,7 +122,39 @@ assert.equal(isClosedDay("2026-05-19", "2026-05-20"), true, "a finished round ca
 assert.equal(isClosedDay("2026-05-20", "2026-05-20"), false, "a round ending today is still open");
 assert.equal(isClosedMonth("2026-05-01", "2026-05-31", "2026-05-20"), false, "the current month refuses without force");
 assert.equal(isClosedMonth("2026-05-01", "2026-05-31", "2026-06-01"), true, "a past month can freeze");
+// The guard reads the CLIENT's calendar, not the server's. This was UTC, and
+// the eight-hour gap fell exactly on the hour a monthly freeze would run: at
+// 00:30 on 1 September in Singapore a UTC clock still says 31 August, so
+// freezing August came back 422 "the month contains today".
+const firstOfSeptSgt = "2026-08-31T16:30:00.000Z";          // = 2026-09-01 00:30 +08
+assert.equal(localDay(firstOfSeptSgt), "2026-09-01", "the local day has already turned over");
+assert.equal(
+  isClosedMonth("2026-08-01", "2026-08-31", localDay(firstOfSeptSgt)), true,
+  "August is freezable the moment September starts locally, not eight hours later",
+);
+assert.equal(
+  isClosedDay("2026-08-31", localDay(firstOfSeptSgt)), true,
+  "a round that ended yesterday is freezable at half past midnight",
+);
+assert.equal(todayLocal(), localDay(new Date().toISOString()), "the guard and the importer agree on what day it is");
+
+// A live response still reports which frozen versions exist. Reading
+// frozen=never and being told there are none would be a claim, not a blank.
+const liveWithHistory = insightWithSnapshot({ leads: 174 }, null, [1, 2]) as {
+  snapshot: { frozen: boolean; versionsAvailable: number[] };
+};
+assert.equal(liveWithHistory.snapshot.frozen, false, "a live read says it is live");
+assert.deepEqual(liveWithHistory.snapshot.versionsAvailable, [1, 2], "and still lists the stored versions");
+
+// The stored payload wins outright — a snapshot key inside it never leaks out
+// and misreport which version the reader is holding.
+const restored = insightWithSnapshot(
+  { leads: 172, snapshot: { frozen: true, version: 99 } }, frozenRows[0], [1, 2],
+) as { snapshot: { version: number } };
+assert.equal(restored.snapshot.version, 1, "the snapshot block describes the row it came from");
+
 console.log("integration freeze rules: ok");
+console.log("freeze calendar is local: ok");
 
 // ── The funnel walk (lib/funnel/diagnose.ts) ───────────────────────────────
 // The two endpoints AcqOS reads are thin: they load rows and call these. Every

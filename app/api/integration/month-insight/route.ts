@@ -8,7 +8,7 @@ import {
 import { missedTargetIn, movesFor, rankedIssues, tooThinIn, type Asset } from "@/lib/funnel/analysis";
 import { brokenSteps, diagnose, verdictOf } from "@/lib/funnel/diagnose";
 import { DEFAULT_OPTS, isObjective, OBJECTIVES } from "@/lib/funnel/chart";
-import { chosenSnapshot, freezeMode, insightWithSnapshot, isClosedMonth, snapshotsFor, todayUtc, versionsOf } from "@/lib/integration/freeze";
+import { chosenSnapshot, freezeMode, insightWithSnapshot, isClosedMonth, snapshotsFor, todayLocal, versionsOf } from "@/lib/integration/freeze";
 
 export const runtime = "nodejs";
 
@@ -232,21 +232,54 @@ function versionParam(url: URL) {
   return /^\d+$/.test(raw) && Number(raw) > 0 ? Number(raw) : undefined;
 }
 
+/**
+ * The stored copy is consulted BEFORE anything is calculated — see the same
+ * comment on round-insight. A frozen month has to outlive the live path's
+ * ability to rebuild it, and that means not asking the live path first.
+ */
 export async function GET(request: Request) {
   const denied = guarded(request); if (denied) return denied;
   const url = new URL(request.url);
   const mode = freezeMode(url.searchParams.get("frozen"));
   const version = versionParam(url);
   if (!mode || version === undefined) return NextResponse.json({ error: "frozen must be prefer, only or never; version must be a positive integer" }, { status: 400 });
-  const live = await liveMonth(request); if (live instanceof NextResponse) return live;
-  const db = createAdminClient()!;
+
+  const clientId = url.searchParams.get("clientId");
+  if (!clientId) return NextResponse.json({ error: "clientId is required" }, { status: 400 });
+  const month = url.searchParams.get("month");
+  if (month !== null && !isMonth(month)) return NextResponse.json({ error: "month must be YYYY-MM" }, { status: 400 });
+  const pinned = version !== null || mode === "only";
+
+  const db = createAdminClient();
+  if (!db) return NextResponse.json({ error: MISSING_KEY_MESSAGE }, { status: 503 });
+
   try {
-    const rows = await snapshotsFor(db, String(live.payload.clientId), "month", live.periodKey);
-    const chosen = chosenSnapshot(rows, mode, version);
-    if ((mode === "only" || version !== null) && !chosen) {
-      return NextResponse.json({ error: `no frozen insight for month '${live.periodKey}'${version ? ` version ${version}` : ""}`, versions: versionsOf(rows) }, { status: 404 });
+    // Without a month the period is "the most recent month with data", and
+    // resolving that is the calculation `only` is refusing to run.
+    if (!month && pinned) {
+      return NextResponse.json({
+        error: "frozen=only and version need an explicit month: without one the period is 'the most recent month with data', and resolving that needs the live calculation this mode refuses to run.",
+      }, { status: 400 });
     }
-    return NextResponse.json(chosen ? insightWithSnapshot(chosen.payload, chosen, versionsOf(rows)) : insightWithSnapshot(live.payload, null, []));
+
+    let rows = month ? await snapshotsFor(db, clientId, "month", month) : [];
+    if (month && mode !== "never") {
+      const chosen = chosenSnapshot(rows, mode, version);
+      if (chosen) return NextResponse.json(insightWithSnapshot(chosen.payload, chosen, versionsOf(rows)));
+      if (pinned) {
+        return NextResponse.json({
+          error: `no frozen insight for month '${month}'${version !== null ? ` version ${version}` : ""}`,
+          versions: versionsOf(rows),
+        }, { status: 404 });
+      }
+    }
+
+    const live = await liveMonth(request); if (live instanceof NextResponse) return live;
+    if (!month) rows = await snapshotsFor(db, clientId, "month", live.periodKey);
+    const chosen = mode === "never" ? null : chosenSnapshot(rows, mode, version);
+    return NextResponse.json(chosen
+      ? insightWithSnapshot(chosen.payload, chosen, versionsOf(rows))
+      : insightWithSnapshot(live.payload, null, versionsOf(rows)));
   } catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 }); }
 }
 
@@ -255,19 +288,21 @@ export async function POST(request: Request) {
   let body: { frozenBy?: string; note?: string; replace?: boolean; force?: boolean } = {};
   try { body = await request.json(); } catch { /* every field is optional */ }
   const live = await liveMonth(request); if (live instanceof NextResponse) return live;
-  const db = createAdminClient()!;
-  if (!body.force && !isClosedMonth(live.from, live.to, todayUtc())) {
-    return NextResponse.json({ error: `Month ${live.periodKey} contains today (${todayUtc()}), so it is still open. Pass force: true to freeze it anyway.` }, { status: 422 });
+  const db = createAdminClient();
+  if (!db) return NextResponse.json({ error: MISSING_KEY_MESSAGE }, { status: 503 });
+  const clientId = String(live.payload.clientId);
+  if (!body.force && !isClosedMonth(live.from, live.to, todayLocal())) {
+    return NextResponse.json({ error: `Month ${live.periodKey} contains today (${todayLocal()}), so it is still open. Pass force: true to freeze it anyway.` }, { status: 422 });
   }
   try {
-    const rows = await snapshotsFor(db, String(live.payload.clientId), "month", live.periodKey);
+    const rows = await snapshotsFor(db, clientId, "month", live.periodKey);
     const current = chosenSnapshot(rows, "prefer", null);
     if (current && !body.replace) return NextResponse.json({ ok: false, periodKey: live.periodKey, version: current.version, frozenAt: current.frozen_at }, { status: 409 });
     const note = body.force
       ? [body.note, `Forced while month ${live.periodKey} was still open.`].filter(Boolean).join(" ")
       : body.note ?? null;
     const { data, error } = await db.rpc("freeze_period_insight", {
-      p_client_id: String(live.payload.clientId), p_period_kind: "month", p_period_key: live.periodKey,
+      p_client_id: clientId, p_period_kind: "month", p_period_key: live.periodKey,
       p_payload: live.payload, p_frozen_by: body.frozenBy ?? null, p_note: note,
     });
     if (error) throw new Error(error.message);

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { localDay } from "../import/csv";
 
 export type PeriodKind = "round" | "month";
 export type FrozenMode = "prefer" | "only" | "never";
@@ -26,7 +27,10 @@ export function insightWithSnapshot(payload: Record<string, unknown>, insight: S
           frozenBy: insight.frozen_by, note: insight.note, isCurrent: insight.is_current,
           versionsAvailable: versions,
         }
-      : { frozen: false, version: null, frozenAt: null, frozenBy: null, note: null, isCurrent: null, versionsAvailable: [] },
+      // Live, but the versions are still listed. A caller reading frozen=never
+      // is entitled to know a stored copy exists and differs from what it just
+      // got; an empty list here would say there was nothing to compare against.
+      : { frozen: false, version: null, frozenAt: null, frozenBy: null, note: null, isCurrent: null, versionsAvailable: versions },
   };
 }
 
@@ -58,4 +62,17 @@ export function isClosedMonth(from: string, to: string, today: string) {
   return today < from || today > to;
 }
 
-export const todayUtc = () => new Date().toISOString().slice(0, 10);
+/**
+ * Today, on the client's calendar rather than the server's.
+ *
+ * This was UTC, and UTC is eight hours behind the day these periods are named
+ * in. At 00:30 on 1 September in Singapore, a UTC clock still reads 31 August —
+ * so freezing August was refused as "the month contains today", which is the
+ * exact hour a monthly job would run. A round that finished yesterday was
+ * refused the same way for the same eight hours.
+ *
+ * localDay() is the app's existing answer to this and is what the importer
+ * buckets by, so the freeze guard and the data it is guarding now agree about
+ * what day it is.
+ */
+export const todayLocal = () => localDay(new Date().toISOString());
