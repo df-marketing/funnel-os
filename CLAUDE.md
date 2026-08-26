@@ -34,6 +34,7 @@
 - Give the imaginary product its own client (separate client/app for the imaginary product).
 - round dates are sent as actual dates (e.g., ISO strings or date objects), not as a sentence or human-readable description.
 - Bucket instants by local day, and drop stale plans on commit.
+- pinned columns are now actually pinned in the UI
 
 ## Architecture
 
