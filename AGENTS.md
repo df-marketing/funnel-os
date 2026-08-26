@@ -33,6 +33,7 @@
 - A push (import) keeps the breakdown and the label, not just the price — preserving dimensional context during data ingestion.
 - Give the imaginary product its own client (separate client/app for the imaginary product).
 - round dates are sent as actual dates (e.g., ISO strings or date objects), not as a sentence or human-readable description.
+- Bucket instants by local day, and drop stale plans on commit.
 
 ## Architecture
 
@@ -80,6 +81,8 @@
 - a frozen copy must be read before the calculation it is meant to outlive — ordering matters to prevent stale-data bugs
 - the app was re-sorting the clients the view had already ordered — double-sorting bug fixed.
 - gohighlevel writes tags for audience and ad in a specific way — the import reads from those actual tags, not from assumed or arbitrary tag structures.
+- Audience and ad fields are now read from the actual tags GoHighLevel writes, not from assumed/arbitrary tag keys.
+- Send the round's dates as dates, not as a sentence — likely a fix to import/export date formatting.
 
 ## Notes
 
