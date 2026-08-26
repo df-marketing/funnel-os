@@ -8,6 +8,7 @@ import {
 import { missedTargetIn, movesFor, rankedIssues, tooThinIn, type Asset } from "@/lib/funnel/analysis";
 import { brokenSteps, diagnose, verdictOf } from "@/lib/funnel/diagnose";
 import { DEFAULT_OPTS, isObjective, OBJECTIVES } from "@/lib/funnel/chart";
+import { chosenSnapshot, freezeMode, insightWithSnapshot, isClosedMonth, snapshotsFor, todayUtc, versionsOf } from "@/lib/integration/freeze";
 
 export const runtime = "nodejs";
 
@@ -27,11 +28,10 @@ export const runtime = "nodejs";
  * that id — the two endpoints compose rather than duplicating, so a round can
  * never read one way inside the monthly report and another way on its own.
  */
-export async function GET(request: Request) {
-  const key = checkIntegrationKey(request);
-  if (key === "unconfigured") return NextResponse.json({ error: MISSING_INTEGRATION_KEY_MESSAGE }, { status: 503 });
-  if (key !== "ok") return new NextResponse(null, { status: 401 });
+type LiveMonth = { payload: Record<string, unknown>; periodKey: string; from: string; to: string };
 
+/** The one live calculation used by both GET and POST. */
+async function liveMonth(request: Request): Promise<LiveMonth | NextResponse> {
   const url = new URL(request.url);
   const clientId = url.searchParams.get("clientId");
   const month = url.searchParams.get("month");
@@ -156,7 +156,11 @@ export async function GET(request: Request) {
       scrollRuns: 0,
     });
 
-    return NextResponse.json({
+    return {
+      periodKey: now.cut_key,
+      from: window.from,
+      to: window.to,
+      payload: {
       clientId,
       filters: { product },
       objective,
@@ -209,8 +213,65 @@ export async function GET(request: Request) {
       brokenSteps: brokenSteps(steps).map(stepJson),
       coverage,
       generatedAt: new Date().toISOString(),
-    });
+      },
+    };
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
+}
+
+function guarded(request: Request) {
+  const key = checkIntegrationKey(request);
+  if (key === "unconfigured") return NextResponse.json({ error: MISSING_INTEGRATION_KEY_MESSAGE }, { status: 503 });
+  return key === "ok" ? null : new NextResponse(null, { status: 401 });
+}
+
+function versionParam(url: URL) {
+  const raw = url.searchParams.get("version");
+  if (raw === null) return null;
+  return /^\d+$/.test(raw) && Number(raw) > 0 ? Number(raw) : undefined;
+}
+
+export async function GET(request: Request) {
+  const denied = guarded(request); if (denied) return denied;
+  const url = new URL(request.url);
+  const mode = freezeMode(url.searchParams.get("frozen"));
+  const version = versionParam(url);
+  if (!mode || version === undefined) return NextResponse.json({ error: "frozen must be prefer, only or never; version must be a positive integer" }, { status: 400 });
+  const live = await liveMonth(request); if (live instanceof NextResponse) return live;
+  const db = createAdminClient()!;
+  try {
+    const rows = await snapshotsFor(db, String(live.payload.clientId), "month", live.periodKey);
+    const chosen = chosenSnapshot(rows, mode, version);
+    if ((mode === "only" || version !== null) && !chosen) {
+      return NextResponse.json({ error: `no frozen insight for month '${live.periodKey}'${version ? ` version ${version}` : ""}`, versions: versionsOf(rows) }, { status: 404 });
+    }
+    return NextResponse.json(chosen ? insightWithSnapshot(chosen.payload, chosen, versionsOf(rows)) : insightWithSnapshot(live.payload, null, []));
+  } catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 }); }
+}
+
+export async function POST(request: Request) {
+  const denied = guarded(request); if (denied) return denied;
+  let body: { frozenBy?: string; note?: string; replace?: boolean; force?: boolean } = {};
+  try { body = await request.json(); } catch { /* every field is optional */ }
+  const live = await liveMonth(request); if (live instanceof NextResponse) return live;
+  const db = createAdminClient()!;
+  if (!body.force && !isClosedMonth(live.from, live.to, todayUtc())) {
+    return NextResponse.json({ error: `Month ${live.periodKey} contains today (${todayUtc()}), so it is still open. Pass force: true to freeze it anyway.` }, { status: 422 });
+  }
+  try {
+    const rows = await snapshotsFor(db, String(live.payload.clientId), "month", live.periodKey);
+    const current = chosenSnapshot(rows, "prefer", null);
+    if (current && !body.replace) return NextResponse.json({ ok: false, periodKey: live.periodKey, version: current.version, frozenAt: current.frozen_at }, { status: 409 });
+    const note = body.force
+      ? [body.note, `Forced while month ${live.periodKey} was still open.`].filter(Boolean).join(" ")
+      : body.note ?? null;
+    const { data, error } = await db.rpc("freeze_period_insight", {
+      p_client_id: String(live.payload.clientId), p_period_kind: "month", p_period_key: live.periodKey,
+      p_payload: live.payload, p_frozen_by: body.frozenBy ?? null, p_note: note,
+    });
+    if (error) throw new Error(error.message);
+    const frozen = data as { version: number; isFirst: boolean; supersededVersion: number | null };
+    return NextResponse.json({ ok: true, periodKey: live.periodKey, ...frozen, frozenAt: new Date().toISOString() }, { status: 201 });
+  } catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 }); }
 }

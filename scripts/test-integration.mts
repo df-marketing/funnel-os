@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { coverageEnds, lastImported, type ImportStatusRow } from "../lib/integration/coverage";
 import { validateFunnelSchema } from "../lib/integration/schema";
+import { chosenSnapshot, isClosedDay, isClosedMonth, versionsOf } from "../lib/integration/freeze";
 
 const valid = {
   clientId: "shely",
@@ -104,6 +105,23 @@ assert.equal(checkIntegrationKey(withKey()), "unauthorized", "no header at all f
 console.log("integration schema validation: ok");
 console.log("integration coverage rule: ok");
 console.log("integration auth states: ok");
+
+// Frozen insights — history is versioned, and the calendar guard never treats
+// today's partial period as a finished one.
+const frozenRows = [
+  { version: 1, is_current: false, payload: { leads: 172 }, frozen_at: "2026-05-20T00:00:00Z", frozen_by: "acqos", note: null },
+  { version: 2, is_current: true, payload: { leads: 173 }, frozen_at: "2026-05-21T00:00:00Z", frozen_by: "manual", note: "corrected export" },
+];
+assert.deepEqual(versionsOf(frozenRows), [1, 2], "all frozen versions remain readable");
+assert.equal(chosenSnapshot(frozenRows, "prefer", null)?.version, 2, "prefer reads the current frozen version");
+assert.equal(chosenSnapshot(frozenRows, "never", null), null, "never leaves the live calculation alone");
+assert.equal(chosenSnapshot(frozenRows, "only", 1)?.payload.leads, 172, "a named prior version does not move");
+assert.equal(chosenSnapshot(frozenRows, "only", 3), null, "an unknown version is absent, not zero");
+assert.equal(isClosedDay("2026-05-19", "2026-05-20"), true, "a finished round can freeze");
+assert.equal(isClosedDay("2026-05-20", "2026-05-20"), false, "a round ending today is still open");
+assert.equal(isClosedMonth("2026-05-01", "2026-05-31", "2026-05-20"), false, "the current month refuses without force");
+assert.equal(isClosedMonth("2026-05-01", "2026-05-31", "2026-06-01"), true, "a past month can freeze");
+console.log("integration freeze rules: ok");
 
 // ── The funnel walk (lib/funnel/diagnose.ts) ───────────────────────────────
 // The two endpoints AcqOS reads are thin: they load rows and call these. Every

@@ -7,6 +7,7 @@ import {
 import { candidatesFrom, diffAssets, missedTargetIn, movesFor, rankedIssues, tooThinIn, type Asset } from "@/lib/funnel/analysis";
 import { brokenSteps, diagnose, verdictOf } from "@/lib/funnel/diagnose";
 import { DEFAULT_OPTS, isObjective, OBJECTIVES } from "@/lib/funnel/chart";
+import { chosenSnapshot, freezeMode, insightWithSnapshot, isClosedDay, snapshotsFor, todayUtc, versionsOf } from "@/lib/integration/freeze";
 
 export const runtime = "nodejs";
 
@@ -24,11 +25,10 @@ export const runtime = "nodejs";
  * what broke, where to look, and what is worth testing — labelled as candidates.
  * A generator that receives a verdict will print a verdict.
  */
-export async function GET(request: Request) {
-  const key = checkIntegrationKey(request);
-  if (key === "unconfigured") return NextResponse.json({ error: MISSING_INTEGRATION_KEY_MESSAGE }, { status: 503 });
-  if (key !== "ok") return new NextResponse(null, { status: 401 });
+type LiveRound = { payload: Record<string, unknown>; periodKey: string; endDate: string };
 
+/** The one live calculation used by both GET and POST. */
+async function liveRound(request: Request): Promise<LiveRound | NextResponse> {
   const url = new URL(request.url);
   const clientId = url.searchParams.get("clientId");
   const roundId = url.searchParams.get("roundId");
@@ -84,14 +84,16 @@ export async function GET(request: Request) {
     const base = baseline[0] ?? null;
 
     const ids = [now.cut_key, prev?.cut_key].filter(Boolean) as string[];
-    const [assetRows, scrollRows] = await Promise.all([
+    const [assetRows, scrollRows, roundRow] = await Promise.all([
       db.from("v_round_assets")
         .select("round_id, kind, name, spend, leads, spend_share, att, prev_buys, rev")
         .eq("client_id", clientId).in("round_id", ids),
       db.from("v_scroll_runs").select("run_id").eq("client_id", clientId).eq("round_id", now.cut_key),
+      db.from("rounds").select("end_date").eq("client_id", clientId).eq("round_id", now.cut_key).maybeSingle(),
     ]);
     if (assetRows.error) throw new Error(`v_round_assets: ${assetRows.error.message}`);
     if (scrollRows.error) throw new Error(`v_scroll_runs: ${scrollRows.error.message}`);
+    if (roundRow.error || !roundRow.data?.end_date) throw new Error(`rounds: ${roundRow.error?.message ?? "round end date missing"}`);
 
     const assets = (assetRows.data ?? []) as Asset[];
     const assetsNow = assets.filter((a) => a.round_id === now.cut_key);
@@ -110,7 +112,10 @@ export async function GET(request: Request) {
     });
     const candidates = candidatesFrom(assetsNow, now.cut_label, objective);
 
-    return NextResponse.json({
+    return {
+      periodKey: now.cut_key,
+      endDate: roundRow.data.end_date,
+      payload: {
       clientId,
       filters: { product, channel },
       objective,
@@ -158,8 +163,65 @@ export async function GET(request: Request) {
       },
       coverage,
       generatedAt: new Date().toISOString(),
-    });
+      },
+    };
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
+}
+
+function guarded(request: Request) {
+  const key = checkIntegrationKey(request);
+  if (key === "unconfigured") return NextResponse.json({ error: MISSING_INTEGRATION_KEY_MESSAGE }, { status: 503 });
+  return key === "ok" ? null : new NextResponse(null, { status: 401 });
+}
+
+function versionParam(url: URL) {
+  const raw = url.searchParams.get("version");
+  if (raw === null) return null;
+  return /^\d+$/.test(raw) && Number(raw) > 0 ? Number(raw) : undefined;
+}
+
+export async function GET(request: Request) {
+  const denied = guarded(request); if (denied) return denied;
+  const url = new URL(request.url);
+  const mode = freezeMode(url.searchParams.get("frozen"));
+  const version = versionParam(url);
+  if (!mode || version === undefined) return NextResponse.json({ error: "frozen must be prefer, only or never; version must be a positive integer" }, { status: 400 });
+  const live = await liveRound(request); if (live instanceof NextResponse) return live;
+  const db = createAdminClient()!;
+  try {
+    const rows = await snapshotsFor(db, String(live.payload.clientId), "round", live.periodKey);
+    const chosen = chosenSnapshot(rows, mode, version);
+    if ((mode === "only" || version !== null) && !chosen) {
+      return NextResponse.json({ error: `no frozen insight for round '${live.periodKey}'${version ? ` version ${version}` : ""}`, versions: versionsOf(rows) }, { status: 404 });
+    }
+    return NextResponse.json(chosen ? insightWithSnapshot(chosen.payload, chosen, versionsOf(rows)) : insightWithSnapshot(live.payload, null, []));
+  } catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 }); }
+}
+
+export async function POST(request: Request) {
+  const denied = guarded(request); if (denied) return denied;
+  let body: { frozenBy?: string; note?: string; replace?: boolean; force?: boolean } = {};
+  try { body = await request.json(); } catch { /* every field is optional */ }
+  const live = await liveRound(request); if (live instanceof NextResponse) return live;
+  const db = createAdminClient()!;
+  if (!body.force && !isClosedDay(live.endDate, todayUtc())) {
+    return NextResponse.json({ error: `Round ${live.periodKey} ends ${live.endDate}, so it is still open today. Pass force: true to freeze it anyway.` }, { status: 422 });
+  }
+  try {
+    const rows = await snapshotsFor(db, String(live.payload.clientId), "round", live.periodKey);
+    const current = chosenSnapshot(rows, "prefer", null);
+    if (current && !body.replace) return NextResponse.json({ ok: false, periodKey: live.periodKey, version: current.version, frozenAt: current.frozen_at }, { status: 409 });
+    const note = body.force
+      ? [body.note, `Forced while round was still open (ended ${live.endDate}).`].filter(Boolean).join(" ")
+      : body.note ?? null;
+    const { data, error } = await db.rpc("freeze_period_insight", {
+      p_client_id: String(live.payload.clientId), p_period_kind: "round", p_period_key: live.periodKey,
+      p_payload: live.payload, p_frozen_by: body.frozenBy ?? null, p_note: note,
+    });
+    if (error) throw new Error(error.message);
+    const frozen = data as { version: number; isFirst: boolean; supersededVersion: number | null };
+    return NextResponse.json({ ok: true, periodKey: live.periodKey, ...frozen, frozenAt: new Date().toISOString() }, { status: 201 });
+  } catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 }); }
 }
