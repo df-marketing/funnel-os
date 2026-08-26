@@ -110,3 +110,4 @@
 - The objective stops being a label and becomes a lens
 - The caveat covers the window it is printed next to, and a late push is refused
 - dimension names in the app are being made concrete/real rather than generic placeholders.
+- closed period insights (likely the 'by source' or 'by metric' tab data) are kept readable even after underlying data changes — they don't break or disappear.
