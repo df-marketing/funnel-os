@@ -11,6 +11,11 @@ export type Client = {
   client_name: string | null;
   client_note: string | null;
   stage_count: number;
+  /**
+   * A fixture account, not a business. Null on a database that has not run
+   * 0042 — read as false, because an unflagged client is a real one.
+   */
+  is_demo?: boolean | null;
 };
 
 export type Stage = {
@@ -306,7 +311,7 @@ const loadClients = unstable_cache(
   async () => {
     const db = createReadClient();
     const data = ok(
-      await db.from("v_clients").select("client_id, client_name, client_note, stage_count"),
+      await db.from("v_clients").select("client_id, client_name, client_note, stage_count, is_demo"),
       "v_clients",
     );
 
@@ -323,10 +328,23 @@ const loadClients = unstable_cache(
     );
     const byId = new Map(counts);
 
-    // Open on the account with the most history rather than whichever name sorts
-    // first, so the app lands on something worth looking at.
+    /**
+     * Real accounts first, then the one with the most history.
+     *
+     * "Most history" alone was the rule, and it stopped working the moment a
+     * fixture account held more rounds than a real one: Northsea Supply carries
+     * the four imaginary weekly rounds and Shely has two real ones, so the app
+     * opened on the demo client and showed 40,000 invented impressions as the
+     * first thing anyone saw.
+     *
+     * 0042 also orders v_clients this way, and that ordering is not what decides
+     * it — this sort is. The view is ordered too so that anything reading it
+     * directly gets the same answer, but the app has always re-sorted here and
+     * fixing only the SQL fixed nothing.
+     */
     return [...data].sort(
       (a, b) =>
+        Number(a.is_demo ?? false) - Number(b.is_demo ?? false) ||
         (byId.get(b.client_id) ?? 0) - (byId.get(a.client_id) ?? 0) ||
         a.client_id.localeCompare(b.client_id),
     );
