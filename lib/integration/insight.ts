@@ -25,6 +25,15 @@ export type Cut = {
   cut_label: string;
   cut_sub: string | null;
   m: Metrics | null;
+  /**
+   * Set only by cross-tab cuts, where adjacent columns sharing a group_key sit
+   * under one spanning header — rounds across the top, sources underneath.
+   * Absent on every one-dimensional cut, which is how a caller knows there is
+   * no second header row to draw.
+   */
+  group_key?: string | null;
+  group_label?: string | null;
+  group_sub?: string | null;
 };
 
 export type Scope = {
@@ -35,12 +44,46 @@ export type Scope = {
   p_to: string | null;
 };
 
-/** fo_cut, with the offer argument pinned off — no insight cut is offer-split. */
-export async function cut(db: SupabaseClient, view: string, scope: Scope): Promise<Cut[]> {
-  const { data, error } = await db.rpc("fo_cut", { p_view: view, ...scope, p_offer: null });
+/**
+ * fo_cut. `offer` is null for every insight cut and is only ever set by the
+ * series endpoint asking for v_metrics_by_offer, which is the one view fo_cut
+ * honours it on.
+ */
+export async function cut(db: SupabaseClient, view: string, scope: Scope, offer: string | null = null): Promise<Cut[]> {
+  const { data, error } = await db.rpc("fo_cut", { p_view: view, ...scope, p_offer: offer });
   if (error) throw new Error(`${view}: ${error.message}`);
   return (data ?? []) as Cut[];
 }
+
+/** YYYY-MM-DD, without asserting the date exists. Cheap enough to run on input. */
+export const isIsoDayLoose = (v: string | null): v is string =>
+  !!v && /^\d{4}-\d{2}-\d{2}$/.test(v);
+
+/**
+ * Why a month's reach is not the platform's answer for that month.
+ *
+ * Reach counts distinct people, so it is the one figure in ads_performance that
+ * cannot be added — 0526-02's six ad sets sum to 20,665 against a campaign row
+ * of 11,380, an 82% overstatement. 0016 handles that by taking the COARSEST row
+ * available rather than summing: a line naming no ad set is already deduplicated
+ * across everything under it.
+ *
+ * That fixes a round. It does not fix a month, because no export carries a
+ * month-level row. Shely's May reads 22,803, which is exactly 12,672 + 10,131 —
+ * her two rounds' campaign lines added — so anyone reached in both rounds is
+ * counted twice, and Frequency, which divides impressions by it, is understated
+ * by the same error.
+ *
+ * The number is still returned. It is the best available and it is roughly
+ * right; what it is not is the platform's own figure for the period, and a
+ * report that prints it beside a platform export will not reconcile.
+ */
+export const REACH_NOTE =
+  "Reach and Frequency are per-round figures rolled up, not the ad platform's own figure for this period. " +
+  "Reach counts distinct people and cannot be added: any column spanning more than one round double-counts " +
+  "anyone reached in two of them, and Frequency (impressions / reach) is understated by the same amount. " +
+  "A round column is trustworthy where the export carried a campaign-level line; a month or week column is " +
+  "an over-count. Reconcile against the platform before publishing either.";
 
 /**
  * The client's journey, as diagnose.ts wants it.
