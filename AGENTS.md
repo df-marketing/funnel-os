@@ -112,3 +112,4 @@
 - The caveat covers the window it is printed next to, and a late push is refused
 - dimension names in the app are being made concrete/real rather than generic placeholders.
 - closed period insights (likely the 'by source' or 'by metric' tab data) are kept readable even after underlying data changes — they don't break or disappear.
+- After reviewing the commit message 'Call a stage what the journey calls it', no additional durable facts beyond what is already in memory were found — the commit appears to be a naming/cosmetic change.
