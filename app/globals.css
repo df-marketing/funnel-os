@@ -553,3 +553,7 @@ i.goal { font: 600 9px var(--mono); letter-spacing: .07em; text-transform: upper
   white-space: pre-wrap; word-break: break-word; }
 
 .wire-frozen { margin-top: 4px; }
+/* The freeze control sits under the table it changes, and is spaced off it so
+   the button never reads as belonging to the last row. */
+.wire-pick.keep { margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--line-soft); }
+.wire-pick.keep .wire-note { flex: 1 1 260px; }

@@ -34,6 +34,18 @@ export type Preview = {
   bytes: number;
 };
 
+export type FreezeResult = {
+  kind: "round" | "month";
+  periodKey: string;
+  status: number;
+  ok: boolean;
+  /** The version just written. Null on every failure. */
+  version: number | null;
+  /** The version this one replaced as current, if any. It stays readable. */
+  supersededVersion: number | null;
+  message: string;
+};
+
 /** Big payloads are shown whole up to here; a report is read, not scrolled forever. */
 const MAX_SHOWN = 200_000;
 
@@ -111,5 +123,76 @@ export async function previewPayload(
         : res.status === 503
           ? "A key this route needs isn't set on this deployment. The message says which."
           : null,
+  };
+}
+
+/**
+ * Take a period's reading and keep it.
+ *
+ * The one button on this app that writes. It is here because of a real trap:
+ * fixing a view does not fix a report. A closed period is served from its frozen
+ * snapshot, so after May's week and offer cuts were corrected, a regeneration
+ * still returned the copy taken on 26 August — which had no byWeek block at all,
+ * because byWeek did not exist an hour before it. The data was right and every
+ * report would have said otherwise.
+ *
+ * `replace: true` is what makes this a RE-freeze; without it the route answers
+ * 409 and changes nothing, which is the correct default for a machine and the
+ * wrong one for a person who has just been told to do this on purpose.
+ *
+ * Nothing is sent anywhere. This writes one row into this app's own database,
+ * and AcqOS sees it the next time it asks — the wire still only ever answers.
+ *
+ * `force` is deliberately not exposed. The picker only ever offers a closed
+ * period, so a 422 here means the caller's idea of the period disagrees with the
+ * database's, and the honest answer to that is the error, not an override.
+ */
+export async function freezePeriod(
+  kind: "round" | "month",
+  clientId: string,
+  periodKey: string,
+): Promise<FreezeResult> {
+  const path =
+    kind === "round"
+      ? `/api/integration/round-insight?clientId=${encodeURIComponent(clientId)}&roundId=${encodeURIComponent(periodKey)}`
+      : `/api/integration/month-insight?clientId=${encodeURIComponent(clientId)}&month=${encodeURIComponent(periodKey)}`;
+
+  const key = process.env.INTEGRATION_SHARED_KEY;
+  const fail = (status: number, message: string): FreezeResult => ({
+    kind, periodKey, status, ok: false, version: null, supersededVersion: null, message,
+  });
+  if (!key) return fail(503, MISSING_INTEGRATION_KEY_MESSAGE);
+
+  let res: Response;
+  try {
+    res = await fetch(`${await origin()}${path}`, {
+      method: "POST",
+      headers: { "x-integration-key": key, "content-type": "application/json" },
+      body: JSON.stringify({
+        replace: true,
+        frozenBy: "funnel-os",
+        note: `Re-frozen from the AcqOS tab on ${new Date().toISOString().slice(0, 10)}.`,
+      }),
+      cache: "no-store",
+    });
+  } catch (e) {
+    return fail(0, `Could not reach the route: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  const body = (await res.json().catch(() => null)) as
+    | { version?: number; supersededVersion?: number | null; isFirst?: boolean; error?: string }
+    | null;
+
+  if (!res.ok) return fail(res.status, body?.error ?? `The route answered ${res.status}.`);
+
+  const v = body?.version ?? null;
+  const prior = body?.supersededVersion ?? null;
+  return {
+    kind, periodKey, status: res.status, ok: true,
+    version: v,
+    supersededVersion: prior,
+    message: prior
+      ? `Stored as v${v}. v${prior} is still readable — nothing was overwritten.`
+      : `Stored as v${v}. This period had no reading kept before now.`,
   };
 }

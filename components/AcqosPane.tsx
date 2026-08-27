@@ -1,7 +1,8 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { previewPayload, type Preview } from "@/app/actions/acqos";
+import { freezePeriod, previewPayload, type FreezeResult, type Preview } from "@/app/actions/acqos";
 import type { Wire } from "@/lib/funnel/wire";
 
 /**
@@ -82,6 +83,14 @@ export function AcqosPane({ wire, client, now }: { wire: Wire; client: string; n
   const [preview, setPreview] = useState<Preview | null>(null);
   const [pending, start] = useTransition();
 
+  // The Kept row picks its own period. Sharing the Out row's would mean reading
+  // one period and freezing another with no visible connection between the two.
+  const [keepKind, setKeepKind] = useState<"round" | "month">("month");
+  const [confirming, setConfirming] = useState(false);
+  const [frozenResult, setFrozenResult] = useState<FreezeResult | null>(null);
+  const [freezing, startFreeze] = useTransition();
+  const router = useRouter();
+
   const { inbound, latestRound, latestMonth, frozen, frozenReadable } = wire;
   const pushed = inbound.source !== null;
   const periodKey = kind === "round" ? latestRound?.id ?? null : latestMonth;
@@ -91,6 +100,27 @@ export function AcqosPane({ wire, client, now }: { wire: Wire; client: string; n
     if (!periodKey) return;
     setPreview(null);
     start(async () => setPreview(await previewPayload(kind, client, periodKey)));
+  }
+
+  // What the Kept row is pointed at, and what is already stored for it.
+  const keepKey = keepKind === "round" ? latestRound?.id ?? null : latestMonth;
+  const already = frozen.find((f) => f.kind === keepKind && f.key === keepKey) ?? null;
+  // A round still running has no closed reading to keep, and the route refuses
+  // it. Saying so here is better than offering a button that answers 422.
+  const keepOpen = keepKind === "round" && latestRound !== null && !latestRound.closed;
+  const canKeep = keepKey !== null && !keepOpen;
+
+  function freeze() {
+    if (!keepKey) return;
+    setConfirming(false);
+    setFrozenResult(null);
+    startFreeze(async () => {
+      const out = await freezePeriod(keepKind, client, keepKey);
+      setFrozenResult(out);
+      // The table above is read from the database, so it only tells the truth
+      // again once the page has re-read it.
+      if (out.ok) router.refresh();
+    });
   }
 
   return (
@@ -298,6 +328,90 @@ export function AcqosPane({ wire, client, now }: { wire: Wire; client: string; n
                 been frozen, and the panel won&rsquo;t say it is.
               </p>
             )}
+
+            {/*
+              The one control in this app that writes, and it earns its place.
+              Correcting a view does not correct a report: a closed period is
+              served from its snapshot, so a month frozen before a fix keeps
+              answering with the numbers it had. Without this the only way to
+              take a fresh reading was a POST from the other app.
+            */}
+            <div className="wire-pick keep">
+              <div className="seg">
+                <button
+                  type="button"
+                  aria-pressed={keepKind === "round"}
+                  disabled={!latestRound}
+                  onClick={() => { setKeepKind("round"); setConfirming(false); setFrozenResult(null); }}
+                >
+                  {latestRound ? `Round ${latestRound.id}` : "No rounds"}
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={keepKind === "month"}
+                  disabled={!latestMonth}
+                  onClick={() => { setKeepKind("month"); setConfirming(false); setFrozenResult(null); }}
+                >
+                  {latestMonth ? monthLabel(latestMonth) : "No months"}
+                </button>
+              </div>
+
+              {confirming ? (
+                <>
+                  <button className="btn primary" onClick={freeze} disabled={freezing}>
+                    {already ? `Yes — store v${already.currentVersion + 1}` : "Yes — store v1"}
+                  </button>
+                  <button className="btn" onClick={() => setConfirming(false)} disabled={freezing}>
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="btn"
+                  onClick={() => setConfirming(true)}
+                  disabled={!canKeep || freezing}
+                >
+                  {freezing ? "Storing…" : already ? "Re-freeze this period" : "Freeze this period"}
+                </button>
+              )}
+
+              <span className="wire-note">
+                {keepOpen ? (
+                  <>
+                    Round {latestRound?.id} is still running. Only a period that has closed can be
+                    kept.
+                  </>
+                ) : confirming ? (
+                  already ? (
+                    <>
+                      This <b>adds v{already.currentVersion + 1}</b> and keeps v
+                      {already.currentVersion}. AcqOS reads the newest by default; the old one stays
+                      readable.
+                    </>
+                  ) : (
+                    <>This stores the reading as v1. Nothing is overwritten — there is nothing here yet.</>
+                  )
+                ) : (
+                  <>
+                    <b>This writes.</b> It stores today&rsquo;s reading of a closed period into this
+                    app&rsquo;s own database — it does not send anything to AcqOS.
+                  </>
+                )}
+              </span>
+            </div>
+
+            {frozenResult ? (
+              <div className={frozenResult.ok ? "payload" : "payload bad"}>
+                <div className="payload-h">
+                  <span className={frozenResult.ok ? "dot ok" : "dot miss"} aria-hidden />
+                  <b>
+                    {frozenResult.kind === "month" ? monthLabel(frozenResult.periodKey) : `Round ${frozenResult.periodKey}`}
+                    {frozenResult.ok ? " — kept" : ` — not kept (HTTP ${frozenResult.status})`}
+                  </b>
+                </div>
+                <div className="payload-url">{frozenResult.message}</div>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
