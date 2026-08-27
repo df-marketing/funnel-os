@@ -6,6 +6,7 @@ import { TopBar, JourneyStrip, SideNav, NotWired, PaneControls, WIRED } from "@/
 import { ImportPane, UnmatchedPane } from "@/components/DataPanes";
 import { AcqosPane } from "@/components/AcqosPane";
 import { loadWire } from "@/lib/funnel/wire";
+import { loadDeclaredMetrics } from "@/lib/funnel/metrics";
 import {
   DEFAULT_OPTS, GRAPHABLE, isObjective, isVs, vsOption, type ViewOpts,
 } from "@/lib/funnel/chart";
@@ -100,6 +101,9 @@ export default async function Page({
    * list has been resolved, and this is a tab nobody opens by accident.
    */
   const wire = view === "acqos" ? await loadWire(current.client_id) : null;
+  // Only the Import tab needs to know what else this database measures, and it
+  // needs it fresh — a metric declared a minute ago should have a dropzone.
+  const declared = view === "import" ? await loadDeclaredMetrics() : [];
   /**
    * A stage tab is headed by the name the journey gives it, not by one this
    * file invented.
@@ -198,7 +202,7 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "import" ? <ImportPane imports={data.imports} client={current.client_id} /> : null}
+          {view === "import" ? <ImportPane imports={data.imports} client={current.client_id} declared={declared} /> : null}
 
           {/* `now` comes from the server so "6 minutes ago" renders the same
               string on both sides of hydration, and is measured by the clock

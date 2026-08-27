@@ -1,5 +1,7 @@
 import type { ImportStatus, UnmatchedSummary, UnmatchedReason, UnmatchedRow } from "@/lib/funnel/data";
 import { ImportUploader } from "./ImportUploader";
+import { STAGE_PREFIX, stageSpec } from "@/lib/import/sources";
+import type { DeclaredMetric } from "@/lib/funnel/metrics";
 import { UnmatchedActions } from "./UnmatchedActions";
 import { SOURCES, type SourceKey } from "@/lib/import/sources";
 
@@ -73,7 +75,12 @@ const when = (iso: string) => {
   return days === 1 ? "yesterday" : `${days} days ago`;
 };
 
-export function ImportPane({ imports, client }: { imports: ImportStatus[]; client: string }) {
+export function ImportPane({ imports, client, declared = [] }: {
+  imports: ImportStatus[];
+  client: string;
+  /** Metrics somebody declared beyond the six built in — 0048's table. */
+  declared?: DeclaredMetric[];
+}) {
   const stale = imports.filter((i) => i.is_stale);
   // The next file to drop is the first in dependency order that has never landed;
   // once they're all in, the job moves on to clearing the unmatched queue.
@@ -162,6 +169,71 @@ export function ImportPane({ imports, client }: { imports: ImportStatus[]; clien
           );
         })}
       </div>
+
+      {/*
+        Whatever else this client measures.
+        Below the straight line rather than in it, because the four built-in
+        files have a dependency order — each reads what the last one wrote — and
+        a declared stage does not: it needs the leads to exist and nothing after
+        it cares. Absent entirely for a client that declared nothing, which is
+        every client until somebody inserts a row.
+      */}
+      {declared.length ? (
+        <>
+          <div className="pane-head" style={{ marginTop: 22 }}>
+            <h2>Also measured</h2>
+            <p>
+              Stages this client counts beyond the four above. Each one was declared in{" "}
+              <span className="num">journey_metrics</span>, not written into the app — which is why
+              they can appear here without a release. Drop the export the same way; it goes through
+              the same matching, the same parking and the same diff.
+            </p>
+          </div>
+          <div className="sources">
+            {declared.map((m) => {
+              const spec = stageSpec(m.metric, m.label, m.eventType);
+              const key = `${STAGE_PREFIX}${m.metric}`;
+              const status = imports.find((i) => i.source === key);
+              return (
+                <div key={key} className="src-wrap">
+                  <div className="step-h">
+                    <span className="step-n">·</span>
+                    <p>
+                      One row per person who reached <b>{m.label}</b>. Matched on email or phone
+                      against people already here — never on a name — so a row for somebody with no
+                      lead parks rather than inventing them.
+                    </p>
+                  </div>
+                  <ImportUploader
+                    source={key}
+                    label={m.label}
+                    kind={spec.kind}
+                    client={client}
+                    expects={spec.fields.map((f) => f.field).join(" · ")}
+                  />
+                  <dl className="src-status">
+                    <dt>Last import</dt>
+                    <dd>
+                      {status ? (
+                        <span className="fresh">
+                          <span className={`dot ${status.is_stale ? "old" : "ok"}`} />
+                          {when(status.imported_at)}
+                        </span>
+                      ) : (
+                        <span className="fresh"><span className="dot miss" /> never</span>
+                      )}
+                    </dd>
+                    <dt>Covers</dt>
+                    <dd>{status ? `${status.coverage_start ?? "—"} → ${status.coverage_end ?? "—"}` : "—"}</dd>
+                    <dt>Rows</dt>
+                    <dd>{status?.row_count?.toLocaleString("en-SG") ?? "—"}</dd>
+                  </dl>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      ) : null}
 
       {stale.length ? (
         <div className="notice">

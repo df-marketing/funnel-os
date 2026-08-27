@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAll } from "@/lib/supabase/admin";
 import { parseCsv, toNumber, toDate, toTimestamp, localDay, type Row } from "./csv";
-import { SOURCES, mapColumns, type SourceKey } from "./sources";
+import { SOURCES, mapColumns, stageMetricOf, stageSpec, type ImportSourceKey, type SourceKey, type SourceSpec } from "./sources";
 import { buildIndex, matchRow, normEmail, normPhone, type KnownContact, type ParkReason } from "./identity";
 import { attributeLead, closeRoundFor, resolveRoundRef, resolveProduct, roundFromCampaign, type Round, type AdSetRun } from "./attribute";
 import { parseClarityScroll, ClarityError, sessionsFrom } from "./clarity";
@@ -21,7 +21,7 @@ import { parseClarityScroll, ClarityError, sessionsFrom } from "./clarity";
  */
 
 export type Plan = {
-  source: SourceKey;
+  source: ImportSourceKey;
   clientId: string;
   fileName: string;
   columnMap: Record<string, string>;
@@ -364,7 +364,7 @@ async function planScroll(
 export async function planImport(
   db: SupabaseClient,
   { source, clientId, fileName, text, asContactId }: {
-    source: SourceKey; clientId: string; fileName: string; text: string;
+    source: ImportSourceKey; clientId: string; fileName: string; text: string;
     /**
      * Resolving a parked row: the human has said who this is, so skip matching
      * and use this contact for every row.
@@ -378,7 +378,28 @@ export async function planImport(
     asContactId?: string;
   },
 ): Promise<Plan> {
-  const spec = SOURCES[source];
+  /**
+   * The spec is looked up, not indexed.
+   *
+   * A built-in source is a row of SOURCES. A `stage:` source is a metric
+   * somebody declared in journey_metrics, and its spec is built from that row —
+   * so importing a stage nobody declared fails here, by name, rather than
+   * writing events carrying an event_type the database will refuse.
+   */
+  const declaredMetric = stageMetricOf(source);
+  let spec: SourceSpec | undefined = declaredMetric ? undefined : SOURCES[source as SourceKey];
+  if (declaredMetric) {
+    const { data: jm, error: jmError } = await db
+      .from("journey_metrics")
+      .select("metric, label, event_type, is_core")
+      .eq("metric", declaredMetric)
+      .maybeSingle();
+    if (jmError) throw new ImportError(`Could not read journey_metrics: ${jmError.message}`);
+    if (!jm) throw new ImportError(`No metric "${declaredMetric}" is declared. Add it to journey_metrics before importing one.`);
+    if (jm.is_core) throw new ImportError(`"${declaredMetric}" is a core metric with its own import — use that source rather than stage:${declaredMetric}.`);
+    if (!jm.event_type) throw new ImportError(`"${declaredMetric}" is not counted from events, so there is no file to import for it.`);
+    spec = stageSpec(jm.metric as string, jm.label as string, jm.event_type as string);
+  }
   if (!spec) throw new ImportError(`Unknown source "${source}".`);
 
   /**
@@ -400,7 +421,7 @@ export async function planImport(
   const { data: remembered } = await db
     .from("v_column_map").select("column_map").eq("client_id", clientId).eq("source", source).maybeSingle();
 
-  const { map, missing, broken, unused } = mapColumns(source, headers, remembered?.column_map ?? null);
+  const { map, missing, broken, unused } = mapColumns(spec, headers, remembered?.column_map ?? null);
 
   if (missing.length) {
     throw new ImportError(
@@ -701,8 +722,18 @@ export async function planImport(
       continue;
     }
 
-    // ── ATTENDANCE ─────────────────────────────────────────────────────────
-    if (source === "attendance") {
+    /**
+     * ── A PERSON REACHED A STAGE ───────────────────────────────────────────
+     *
+     * Attendance was the only source that ever took this shape, so the branch
+     * was written as `source === "attendance"`. It is the shape of every
+     * per-person stage — somebody, a round, and when — so it now branches on
+     * the spec declaring an event type, and attendance is simply the first
+     * metric that does. A declared stage runs this exact path, which means the
+     * generic route is the one production has been exercising all along.
+     */
+    if (spec.eventType) {
+      const eventType = spec.eventType;
       if (!contactId) {
         const o = outcome as Extract<typeof outcome, { kind: "park" }>;
         park(o.reason, r, o.bestGuess, o.guessMethod, o.confidence);
@@ -723,12 +754,12 @@ export async function planImport(
         ?? new Date(`${dayOf(lastClass ?? round.end_date)}T20:00:00+08:00`).toISOString();
       track(sgDayOf(when));
 
-      const key = eventKey("attendance", contactId, roundId, when);
+      const key = eventKey(eventType, contactId, roundId, when);
       if (seenEvents.has(key)) { plan.counts.duplicates++; continue; }
       seenEvents.add(key);
 
       plan.ops.events.push({
-        event_id: uuid(), contact_id: contactId, round_id: roundId, event_type: "attendance",
+        event_id: uuid(), contact_id: contactId, round_id: roundId, event_type: eventType,
         event_date: when,
         lead_round_id: leadRoundByContact.get(contactId) ?? null,
         source: leadSourceByContact.get(contactId) ?? null,
@@ -736,10 +767,21 @@ export async function planImport(
         match_status: outcome.kind === "auto" ? "auto_resolved" : "matched",
       });
       supersede(r, contactId);
-      // attendance changes this contact's close_round_id for any later purchase
-      const list = attendancesByContact.get(contactId) ?? [];
-      list.push({ round_id: roundId, event_date: when });
-      attendancesByContact.set(contactId, list);
+      /**
+       * Only a class closes a sale.
+       *
+       * close_round_id says which class a purchase closed at, and 0020 and the
+       * sale attribution both rest on it. A declared stage is not a class — an
+       * appointment is not the room somebody bought in — so it must not move
+       * that credit. This is the one thing attendance still does that a generic
+       * stage does not, and it is gated on the event type rather than on the
+       * source name so it stays true if attendance is ever renamed.
+       */
+      if (eventType === "attendance") {
+        const list = attendancesByContact.get(contactId) ?? [];
+        list.push({ round_id: roundId, event_date: when });
+        attendancesByContact.set(contactId, list);
+      }
       plan.diff.newRows++;
       continue;
     }

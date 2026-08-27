@@ -31,6 +31,15 @@ export type SourceSpec = {
    * It is offered on the Import tab and it does not nag.
    */
   optional?: boolean;
+  /**
+   * The event_type each row becomes, for a source that imports people doing a
+   * thing. Absent on ads and scroll, which are not people.
+   *
+   * This is what makes a declared metric importable without new code: 0048 put
+   * the vocabulary in a table, and a stage source is that table's row wearing
+   * the shape the attendance import already had.
+   */
+  eventType?: string;
   /** What the dropzone says the file should contain, when field names won't do. */
   expects?: string;
   /** False where a blank template makes no sense — see template.ts. */
@@ -127,6 +136,10 @@ export const SOURCES: Record<SourceKey, SourceSpec> = {
     key: "attendance",
     label: "Attendance",
     kind: "Webinar platform · CSV",
+    // The first instance of the generic per-person stage import rather than a
+    // special case of it — see stageSpec below. Declaring the event type here
+    // is what lets the pipeline branch on the spec instead of on the name.
+    eventType: "attendance",
     fields: [
       f("round_id", true, "session", "session id", "webinar", "round"),
       f("email", true, "email address", "attendee email"),
@@ -177,11 +190,10 @@ const canon = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
  * was mapped before and has vanished is reported as `broken`, not re-guessed.
  */
 export function mapColumns(
-  source: SourceKey,
+  spec: SourceSpec,
   headers: string[],
   remembered?: Record<string, string> | null,
 ): { map: Record<string, string>; missing: string[]; broken: string[]; unused: string[] } {
-  const spec = SOURCES[source];
   const byCanon = new Map(headers.map((h) => [canon(h), h]));
   const map: Record<string, string> = {};
   const missing: string[] = [];
@@ -209,4 +221,49 @@ export function mapColumns(
   const unused = headers.filter((h) => !used.has(canon(h)));
 
   return { map, missing, broken, unused };
+}
+
+/**
+ * A source key naming a declared metric rather than one of the five built in.
+ *
+ * `stage:appointments` imports people who booked an appointment, for a client
+ * whose journey says it measures them. The prefix keeps the two namespaces
+ * apart so a declared metric can never collide with `ads` or `sales`, and so
+ * import_batches can permit the whole family with one pattern.
+ */
+export const STAGE_PREFIX = "stage:";
+
+export type ImportSourceKey = SourceKey | `${typeof STAGE_PREFIX}${string}`;
+
+/** The metric a stage source imports, or null if this is a built-in source. */
+export const stageMetricOf = (key: string): string | null =>
+  key.startsWith(STAGE_PREFIX) ? key.slice(STAGE_PREFIX.length) || null : null;
+
+/**
+ * The import spec for a declared metric.
+ *
+ * Deliberately the attendance shape — a person, a round, and when — because
+ * that IS the shape of "somebody reached this stage", and attendance was only
+ * ever the first example of it. minutes_watched is the one attendance-specific
+ * field and it is not offered here; a declared stage that needs its own column
+ * is a bigger request than this, and inventing an unused field would suggest
+ * otherwise.
+ */
+export function stageSpec(metric: string, label: string, eventType: string): SourceSpec {
+  return {
+    key: `${STAGE_PREFIX}${metric}` as SourceKey,
+    label,
+    kind: "CRM export · CSV",
+    eventType,
+    // Nothing forces a client to have one of these for every round, and a
+    // permanent warning beside the four real ones teaches people to ignore all
+    // five — the same reasoning scroll is optional for.
+    optional: true,
+    fields: [
+      f("round_id", true, "session", "session id", "round", "campaign"),
+      f("email", true, "email address", "contact email"),
+      f("phone", false, "phone number", "mobile", "contact number"),
+      f("event_date", false, "date", "booked at", "created", "timestamp"),
+    ],
+  };
 }

@@ -281,3 +281,45 @@ assert.equal(verdictOf(broke, brokeMoves).anyStepBroke, true, "and the verdict l
 
 console.log("funnel step walk: ok");
 console.log("funnel verdict: ok");
+
+// ── A declared metric is importable without new code ─────────────────────────
+{
+  const { SOURCES, STAGE_PREFIX, stageMetricOf, stageSpec, mapColumns } =
+    await import("../lib/import/sources.ts");
+
+  /**
+   * Attendance stops being a special case.
+   *
+   * The pipeline used to branch on `source === "attendance"`. It branches on the
+   * spec declaring an event type now, so attendance has to declare one — if it
+   * ever stopped, the attendance import would silently fall through to no branch
+   * at all and write nothing, which is the worst possible failure for an
+   * importer.
+   */
+  assert.equal(SOURCES.attendance.eventType, "attendance", "attendance declares its event type");
+  assert.ok(!SOURCES.ads.eventType, "ads is not people and declares none");
+  assert.ok(!SOURCES.leads.eventType, "leads has its own branch and declares none");
+
+  assert.equal(stageMetricOf("stage:appointments"), "appointments", "reads the metric off the key");
+  assert.equal(stageMetricOf("attendance"), null, "a built-in source is not a stage");
+  assert.equal(stageMetricOf(STAGE_PREFIX), null, "an empty metric is not a metric");
+
+  const spec = stageSpec("appointments", "Appointment", "appointment");
+  assert.equal(spec.eventType, "appointment", "a stage spec carries the event type it writes");
+  assert.equal(spec.optional, true, "a declared stage does not nag every round");
+  assert.ok(
+    !spec.fields.some((f) => f.field === "minutes_watched"),
+    "minutes_watched is attendance's alone and is not offered generically",
+  );
+
+  // The whole point: a CRM export maps against a spec nobody wrote by hand.
+  const mapped = mapColumns(spec, ["Email", "Session ID", "Booked at"]);
+  assert.deepEqual(mapped.missing, [], "a plausible CRM export maps with nothing missing");
+  assert.equal(mapped.map.email, "Email", "matches email by alias");
+  assert.equal(mapped.map.round_id, "Session ID", "matches the round by alias");
+  assert.equal(mapped.map.event_date, "Booked at", "matches the date by alias");
+
+  const short = mapColumns(spec, ["Email"]);
+  assert.deepEqual(short.missing, ["round_id"], "still refuses a file with no round to attach to");
+}
+console.log("declared metric import: ok");

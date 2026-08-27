@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient, MISSING_KEY_MESSAGE } from "@/lib/supabase/admin";
 import { planImport, ImportError, type Plan } from "@/lib/import/pipeline";
-import type { SourceKey } from "@/lib/import/sources";
+import type { ImportSourceKey } from "@/lib/import/sources";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -21,7 +21,7 @@ export async function POST(request: Request) {
   try {
     const form = await request.formData();
     const file = form.get("file");
-    const source = String(form.get("source") ?? "") as SourceKey;
+    const source = String(form.get("source") ?? "") as ImportSourceKey;
     const clientId = String(form.get("client") ?? "");
 
     if (!(file instanceof File)) return NextResponse.json({ error: "No file was uploaded." }, { status: 400 });
