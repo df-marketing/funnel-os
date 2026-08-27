@@ -36,6 +36,7 @@
 - Bucket instants by local day, and drop stale plans on commit.
 - pinned columns are now actually pinned in the UI
 - Closed period can be re-read — fixing a view does not fix a report, so the import pipeline allows re-reading a closed period.
+- A month is a calendar month, not the one a round started in.
 
 ## Architecture
 
