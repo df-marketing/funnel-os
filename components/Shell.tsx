@@ -43,7 +43,7 @@ export const FIXED_VIEWS = ["import", "unmatched", "month", "week", "round", "so
 export const WIRED = new Set([
   "month", "week", "round", "source", "roundsource",
   "targeting", "ads", "class", "preview", "middle",
-  "analysis", "import", "unmatched",
+  "analysis", "import", "unmatched", "acqos",
 ]);
 
 export function TopBar({
@@ -367,6 +367,12 @@ export function SideNav({
           Unmatched {unmatchedCount ? <span className="badge">{unmatchedCount}</span> : null}
         </>,
       )}
+      {/*
+        Under Data, not under its own heading: the wire is where a funnel comes
+        from and where the readings go, which is the same question as where the
+        four files come from. It is one more source, and the one nobody drops.
+      */}
+      {item("acqos", "AcqOS")}
 
       <div className="nav-group">Overview</div>
       {item("month", "By month")}

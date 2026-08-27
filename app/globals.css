@@ -505,3 +505,51 @@ i.goal { font: 600 9px var(--mono); letter-spacing: .07em; text-transform: upper
 .finding { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
 .finding-value { display: flex; flex-direction: column; gap: 5px; min-width: 180px; }
 .finding p { margin: 0; font-size: 12.5px; color: var(--ink-2); max-width: 78ch; flex: 1 1 380px; }
+
+/* ── the AcqOS wire ───────────────────────────────────────────────────────── */
+/* Three rows, each labelled by the direction it runs. The label column is fixed
+   so the arrows line up down the page: reading straight down them is meant to
+   tell you the shape of the integration before you read a word of it. */
+.wire { display: flex; flex-direction: column; gap: 12px; }
+.wire-row { display: flex; gap: 14px; align-items: flex-start;
+  border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); padding: 13px 15px; }
+.wire-dir { flex: 0 0 58px; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding-top: 1px; }
+.wire-arrow { font-family: var(--mono); font-size: 17px; line-height: 1; color: var(--accent); }
+.wire-lab { font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-3); font-weight: 600; }
+.wire-body { flex: 1 1 auto; min-width: 0; }
+.wire-body h3 { font-size: 13.5px; font-weight: 600; letter-spacing: -.1px; }
+.wire-body > p { margin: 3px 0 9px; font-size: 12px; color: var(--ink-2); max-width: 82ch; }
+
+.wire-facts { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; margin: 0;
+  font-size: 12px; }
+.wire-facts dt { color: var(--ink-3); }
+.wire-facts dd { margin: 0; font-family: var(--mono); font-size: 11.5px;
+  font-variant-numeric: tabular-nums; }
+
+.wire-pick { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+/* .seg was built for links; here the choice doesn't change the URL, because
+   picking a period to preview is not a different view of the account. */
+.wire-pick .seg button { font: inherit; font-size: 12px; padding: 5px 11px; border: 0;
+  background: var(--surface); color: var(--ink-2); cursor: pointer; }
+.wire-pick .seg button + button { border-left: 1px solid var(--line); }
+.wire-pick .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.wire-pick .seg button:disabled { opacity: .5; cursor: default; }
+.wire-note { font-size: 11.5px; color: var(--ink-3); }
+
+.payload { margin-top: 11px; border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--surface-2); overflow: hidden; }
+.payload.bad { border-color: var(--bad); }
+.payload-h { display: flex; align-items: center; gap: 8px; padding: 7px 11px;
+  font-size: 12px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.payload-url { padding: 6px 11px; font-size: 11px; word-break: break-all;
+  border-bottom: 1px solid var(--line-soft); }
+.payload .notice { margin: 9px 11px; }
+/* Capped rather than allowed to run the length of the page: this is evidence you
+   scan for a figure you already know, not a document. */
+.payload pre { margin: 0; padding: 11px; max-height: 460px; overflow: auto;
+  font-family: var(--mono); font-size: 11px; line-height: 1.45; color: var(--ink-2);
+  white-space: pre-wrap; word-break: break-word; }
+
+.wire-frozen { margin-top: 4px; }

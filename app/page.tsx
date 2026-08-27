@@ -4,6 +4,8 @@ import { SpineChart } from "@/components/SpineChart";
 import { RoundAnalysis } from "@/components/RoundAnalysis";
 import { TopBar, JourneyStrip, SideNav, NotWired, PaneControls, WIRED } from "@/components/Shell";
 import { ImportPane, UnmatchedPane } from "@/components/DataPanes";
+import { AcqosPane } from "@/components/AcqosPane";
+import { loadWire } from "@/lib/funnel/wire";
 import {
   DEFAULT_OPTS, GRAPHABLE, isObjective, isVs, vsOption, type ViewOpts,
 } from "@/lib/funnel/chart";
@@ -13,6 +15,7 @@ export const dynamic = "force-dynamic";
 const TITLES: Record<string, [string, string]> = {
   import:      ["Import", "Four sources, each on its own cadence. Staleness is surfaced here and in the header."],
   unmatched:   ["Unmatched", "Rows parked rather than guessed at. Never counted, never dropped."],
+  acqos:       ["AcqOS", "The wire to the planning side: what it sent us, and what it reads back."],
   month:       ["By month", "Management's first question. Metrics down, months across — the same spine as every other view."],
   week:        ["By week", "For a product that runs continuously. Weeks are always there; rounds only exist when one runs."],
   round:       ["By round", "One column per round. Adding 0826-02 adds a column, not a formula."],
@@ -90,6 +93,13 @@ export default async function Page({
 
   const current = data.clients.find((c) => c.client_id === params.client) ?? data.clients[0];
   const view = data.view;
+  /**
+   * Only the AcqOS tab pays for the wire's bookkeeping — it is three reads that
+   * every other tab would make and throw away. Fetched after getDashboard rather
+   * than inside it for the same reason: `current` isn't known until the client
+   * list has been resolved, and this is a tab nobody opens by accident.
+   */
+  const wire = view === "acqos" ? await loadWire(current.client_id) : null;
   /**
    * A stage tab is headed by the name the journey gives it, not by one this
    * file invented.
@@ -189,6 +199,8 @@ export default async function Page({
           ) : null}
 
           {view === "import" ? <ImportPane imports={data.imports} client={current.client_id} /> : null}
+
+          {view === "acqos" && wire ? <AcqosPane wire={wire} client={current.client_id} /> : null}
 
           {view === "unmatched" ? (
             <UnmatchedPane
