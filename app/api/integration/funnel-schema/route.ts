@@ -50,6 +50,35 @@ export async function POST(request: Request) {
     }
   }
 
+  /**
+   * The same split, one layer down: the validator says a metric looks like a
+   * metric name, and journey_metrics says whether anyone declared it.
+   *
+   * Until 0048 this list was six values in TypeScript, so a client who measured
+   * something else could not be described at all — SECOM's Appointment row
+   * rendered '—' because the vocabulary was source code. Declaring one is now
+   * an INSERT, and this is the check that makes a typo still fail loudly rather
+   * than storing a stage nothing can ever count.
+   */
+  const metrics = [...new Set(schema.stages.map((stage) => stage.metric))];
+  const { data: undeclared, error: metricError } = await db.rpc("fo_unknown_metrics", { p_metrics: metrics });
+  if (metricError) return NextResponse.json({ error: metricError.message }, { status: 500 });
+  const unknownMetrics = new Set((undeclared ?? []) as string[]);
+  if (unknownMetrics.size) {
+    return NextResponse.json({
+      ok: false,
+      errors: schema.stages
+        .filter((stage) => unknownMetrics.has(stage.metric))
+        .map((stage) => ({
+          stage: stage.order,
+          field: "metric",
+          message:
+            `no metric '${stage.metric}' is declared in this database. ` +
+            `Declared metrics live in journey_metrics; add a row for it before pushing a stage that uses it.`,
+        })),
+    }, { status: 400 });
+  }
+
   const { count, error: knownError } = await db
     .from("client_journey_config")
     .select("client_id", { count: "exact", head: true })

@@ -4,12 +4,17 @@ export const SOURCE_TYPES = ["meta", "google", "crm", "csv"] as const;
 export type SourceType = (typeof SOURCE_TYPES)[number];
 
 /**
- * The semantic stage metrics supported by v_journey_strip, mapped to the
- * metric object key returned by fo_cut. This is deliberately the same six-case
- * set as 0031's SQL CASE expression and each target is checked by TypeScript
- * against MetricKey. Additions must update both places in the same migration.
+ * The six metrics fo_metrics computes, mapped to their key in the object fo_cut
+ * returns. Still here, and still the same six-case set as 0031's SQL CASE,
+ * because these are the funnel's spine: the ratios built on them — CPM, CPL,
+ * CPA, ROAS — are named things with specific denominators, not generic
+ * divisions between adjacent stages.
+ *
+ * What it is NO LONGER is the list of metrics a push may name. 0048 moved that
+ * to the journey_metrics table, so a client can declare a measurement without a
+ * code change, and this map now describes only the core.
  */
-export const JOURNEY_METRIC_KEYS = {
+export const CORE_METRIC_KEYS = {
   impressions: "impr",
   clicks: "clicks",
   leads: "leads",
@@ -18,7 +23,20 @@ export const JOURNEY_METRIC_KEYS = {
   middle_purchases: "midBuy",
 } as const satisfies Record<string, MetricKey>;
 
-export type JourneyMetric = keyof typeof JOURNEY_METRIC_KEYS;
+/** @deprecated Use CORE_METRIC_KEYS. Kept so callers keep compiling. */
+export const JOURNEY_METRIC_KEYS = CORE_METRIC_KEYS;
+
+/**
+ * Any declared metric name, not one of six.
+ *
+ * Deliberately a string: the set lives in the database now, and a type that
+ * enumerated it here would put the list back in the source code with an extra
+ * step. The database says which names exist, on every push.
+ */
+export type JourneyMetric = string;
+
+/** Looks like a metric name. Whether one was ever declared is the database's answer. */
+const METRIC_NAME = /^[a-z][a-z0-9_]{1,40}$/;
 
 export type SchemaStage = {
   order: number;
@@ -125,8 +143,12 @@ export function validateFunnelSchema(input: unknown):
       if (!Number.isInteger(order) || Number(order) < 1) errors.push({ stage, field: "order", message: "must be a positive integer" });
       if (!SLUG.test(slug)) errors.push({ stage, field: "slug", message: "must be lowercase and hyphenated" });
       if (!name) errors.push({ stage, field: "name", message: "is required" });
-      if (!(metric in JOURNEY_METRIC_KEYS)) {
-        errors.push({ stage, field: "metric", message: `unknown metric '${metric}' — not in the journey-strip case expression` });
+      // Shape only. Whether anyone declared this metric is fo_unknown_metrics'
+      // answer, asked once for the whole payload by the route — the same split
+      // compareDimension already uses, and for the same reason: this module is
+      // pure and the list of declared metrics is a table.
+      if (!METRIC_NAME.test(metric)) {
+        errors.push({ stage, field: "metric", message: `'${metric}' is not a metric name — lowercase letters, digits and underscores` });
       }
       if (!SOURCE_TYPES.includes(sourceType as SourceType)) {
         errors.push({ stage, field: "sourceType", message: "must be meta, google, crm or csv" });
@@ -142,7 +164,7 @@ export function validateFunnelSchema(input: unknown):
 
       if (
         Number.isInteger(order) && Number(order) >= 1 && SLUG.test(slug) && name &&
-        metric in JOURNEY_METRIC_KEYS && SOURCE_TYPES.includes(sourceType as SourceType) && sourceRef &&
+        METRIC_NAME.test(metric) && SOURCE_TYPES.includes(sourceType as SourceType) && sourceRef &&
         (compareDimension === null || DIMENSION.test(string(compareDimension))) &&
         (rateLabel === null || string(rateLabel)) &&
         (unitPrice === null || (typeof unitPrice === "number" && Number.isFinite(unitPrice) && unitPrice >= 0))

@@ -32,15 +32,30 @@ const rejected = validateFunnelSchema({
   ...valid,
   stages: [
     valid.stages[0],
-    { ...valid.stages[1], order: 1, metric: "signups", sourceType: "stripe" },
+    { ...valid.stages[1], order: 1, metric: "Sign Ups!", sourceType: "stripe" },
   ],
 });
 assert.equal(rejected.ok, false, "bad schemas must be rejected as a whole");
 if (!rejected.ok) {
-  assert.ok(rejected.errors.some((e) => e.field === "metric"), "reports unsupported metrics");
+  assert.ok(rejected.errors.some((e) => e.field === "metric"), "reports malformed metric names");
   assert.ok(rejected.errors.some((e) => e.field === "sourceType"), "reports unsupported source types");
   assert.ok(rejected.errors.some((e) => e.field === "order"), "reports duplicate orders");
 }
+
+/**
+ * A metric this module has never heard of is no longer this module's to refuse.
+ *
+ * Before 0048 the list of metrics was six values in TypeScript, so a client
+ * measuring anything else could not be described at all. The vocabulary is a
+ * table now: 'signups' is a well-formed name, the validator passes it, and
+ * fo_unknown_metrics in the route says whether anyone declared it. This asserts
+ * the split, because collapsing it back would silently re-close the vocabulary.
+ */
+const undeclared = validateFunnelSchema({
+  ...valid,
+  stages: [valid.stages[0], { ...valid.stages[1], metric: "signups" }],
+});
+assert.equal(undeclared.ok, true, "a well-formed metric name is the database's call, not the validator's");
 
 // Two stages cannot share a slug: the database would take it (the key is
 // client_id + stage_order) and both would inherit the same preserved price.
