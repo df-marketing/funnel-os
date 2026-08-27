@@ -128,3 +128,4 @@
 - A month is reported on the spine its product actually runs — likely a fix aligning the reporting period with the actual product run date rather than some other date.
 - The most recent commit only touched the demo client (August round), with no changes to any other part of the project.
 - A demo round was added whose assets can actually be ranked — the demo is no longer a placeholder.
+- A declared metric gets a file to drop — likely means the import pipeline assigns each metric its own dedicated file for dropping data.
