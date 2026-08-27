@@ -36,6 +36,40 @@ function stamp(iso: string | null): string | null {
   return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${hh}:${mm}`;
 }
 
+/**
+ * How long ago, against a `now` the SERVER decided.
+ *
+ * Reading the browser's clock here would render one string on the server and a
+ * different one a moment later in the browser, which is a hydration error. It
+ * would also be answering with a clock that has nothing to do with the two
+ * deployments whose handshake this describes. So `now` is a prop, and both
+ * renders agree because they are given the same one.
+ *
+ * Floored, not rounded: 90 seconds is "1 minute ago". Overstating how recent
+ * something is, on the panel someone opens to ask whether a push landed, is the
+ * one direction the error must not go.
+ */
+function ago(iso: string | null, nowIso: string): string | null {
+  if (!iso) return null;
+  const then = new Date(iso).getTime();
+  const now = new Date(nowIso).getTime();
+  if (Number.isNaN(then) || Number.isNaN(now)) return null;
+
+  // A push stamped a few seconds ahead of us is clock skew between two
+  // deployments, not a push from the future. It reads as what it is: just now.
+  const secs = Math.max(0, Math.round((now - then) / 1000));
+  if (secs < 90) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins} minutes ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return "yesterday";
+  if (days < 30) return `${days} days ago`;
+  const months = Math.floor(days / 30);
+  return `${months} month${months === 1 ? "" : "s"} ago`;
+}
+
 /** "2026-05" → "May 2026". Nothing is parsed that isn't already a month key. */
 function monthLabel(key: string): string {
   const [y, m] = key.split("-");
@@ -43,7 +77,7 @@ function monthLabel(key: string): string {
   return MONTHS[i] ? `${MONTHS[i]} ${y}` : key;
 }
 
-export function AcqosPane({ wire, client }: { wire: Wire; client: string }) {
+export function AcqosPane({ wire, client, now }: { wire: Wire; client: string; now: string }) {
   const [kind, setKind] = useState<"round" | "month">("round");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [pending, start] = useTransition();
@@ -110,14 +144,16 @@ export function AcqosPane({ wire, client }: { wire: Wire; client: string }) {
                 )}
               </dd>
 
-              <dt>Version</dt>
-              <dd>{inbound.version !== null ? <>v{inbound.version}</> : <span className="dim">—</span>}</dd>
-
               <dt>Built by AcqOS</dt>
               <dd>{stamp(inbound.generatedAt) ?? <span className="dim">—</span>}</dd>
 
               <dt>Stored here</dt>
-              <dd>{stamp(inbound.syncedAt) ?? <span className="dim">—</span>}</dd>
+              <dd>
+                {stamp(inbound.syncedAt) ?? <span className="dim">—</span>}
+                {ago(inbound.syncedAt, now) ? (
+                  <span className="dim"> · {ago(inbound.syncedAt, now)}</span>
+                ) : null}
+              </dd>
 
               <dt>Stages</dt>
               <dd>
@@ -128,6 +164,24 @@ export function AcqosPane({ wire, client }: { wire: Wire; client: string }) {
                 ) : (
                   <span className="dim">none</span>
                 )}
+              </dd>
+
+              {/*
+                Last, and labelled for what it is.
+
+                This read "Version v1" and sat directly under Source, where it
+                looked like a count of pushes that had got stuck — a push landed
+                on 27 August and it still said v1, which invites exactly the
+                wrong question. It is the format of the payload itself: AcqOS
+                types it as the literal 1 and this app's validator refuses any
+                other value, so it will read 1 until the wire's shape changes.
+                The two timestamps above are what actually move, which is why
+                they are now above it and one of them says how long ago.
+              */}
+              <dt>Payload format</dt>
+              <dd>
+                {inbound.version !== null ? inbound.version : <span className="dim">—</span>}
+                <span className="dim"> · the wire&rsquo;s shape, not a count of pushes</span>
               </dd>
             </dl>
           </div>

@@ -200,7 +200,12 @@ export default async function Page({
 
           {view === "import" ? <ImportPane imports={data.imports} client={current.client_id} /> : null}
 
-          {view === "acqos" && wire ? <AcqosPane wire={wire} client={current.client_id} /> : null}
+          {/* `now` comes from the server so "6 minutes ago" renders the same
+              string on both sides of hydration, and is measured by the clock
+              that answered the request rather than the reader's. */}
+          {view === "acqos" && wire ? (
+            <AcqosPane wire={wire} client={current.client_id} now={new Date().toISOString()} />
+          ) : null}
 
           {view === "unmatched" ? (
             <UnmatchedPane

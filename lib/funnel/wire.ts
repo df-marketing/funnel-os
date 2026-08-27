@@ -19,8 +19,7 @@
  * never pushed, which is a true and useful thing to say.
  */
 
-import { unstable_cache } from "next/cache";
-import { createReadClient, FUNNEL_TAG } from "@/lib/supabase/read";
+import { createReadClient } from "@/lib/supabase/read";
 import { localDay } from "@/lib/import/csv";
 
 export type WireInbound = {
@@ -86,15 +85,25 @@ type FrozenRow = {
 };
 
 /**
- * Cached for a minute, not the five the rest of the chrome gets.
+ * Not cached. Deliberately, and against the habit of every other loader here.
  *
- * This panel is the thing someone opens to answer "did the push land?", and an
- * answer that is five minutes stale is worse than no answer — it reads as a
- * failed push and sends someone to look at AcqOS. A minute is short enough that
- * waiting it out is quicker than diagnosing it, and Refresh data clears it now.
+ * This panel exists to answer one question — "did the push land?" — and it is
+ * read in the thirty seconds after someone presses Send on the other app. A
+ * cached answer is wrong in exactly that window and right at every other time,
+ * which is the worst possible distribution of wrongness.
+ *
+ * It was cached for a minute at first, on the reasoning that a minute is short
+ * enough to wait out. That misread how unstable_cache expires: it serves the
+ * STALE entry and revalidates behind it, so the first reload after a push shows
+ * the old timestamp no matter how short the window is. Watched it happen — the
+ * panel said "yesterday" about a push that had landed three minutes earlier,
+ * which is the exact false negative that sends someone to go and debug a wire
+ * that is working.
+ *
+ * The cost is three indexed reads on a tab nobody opens by accident.
  */
-export const loadWire = unstable_cache(
-  async (clientId: string): Promise<Wire> => {
+export async function loadWire(clientId: string): Promise<Wire> {
+  {
     const db = createReadClient();
     const [config, rounds, frozen] = await Promise.all([
       db
@@ -175,7 +184,5 @@ export const loadWire = unstable_cache(
       frozenReadable: !frozen.error,
       error: failed.length ? failed.join(" · ") : null,
     };
-  },
-  ["funnel-wire"],
-  { tags: [FUNNEL_TAG], revalidate: 60 },
-);
+  }
+}
