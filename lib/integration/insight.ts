@@ -18,6 +18,7 @@ import type { Move } from "@/lib/funnel/analysis";
 import type { Diagnosis, StageRef } from "@/lib/funnel/diagnose";
 import { explainStep } from "@/lib/funnel/diagnose";
 import { coverageEnds, lastImported, type ImportStatusRow } from "./coverage";
+import { isTransientMessage, retryRead } from "@/lib/supabase/transient";
 
 /** One column out of fo_cut. Same shape the dashboard reads. */
 export type Cut = {
@@ -50,7 +51,20 @@ export type Scope = {
  * honours it on.
  */
 export async function cut(db: SupabaseClient, view: string, scope: Scope, offer: string | null = null): Promise<Cut[]> {
-  const { data, error } = await db.rpc("fo_cut", { p_view: view, ...scope, p_offer: offer });
+  /**
+   * Retried, because this is where the cold-start blip surfaced.
+   *
+   * AcqOS saw `v_metrics_by_month: JWT issued at future` three times in five
+   * minutes and shrugged it off, having built retries; this route turned the
+   * same blip into a 500 and cost a report. fo_cut is declared stable and reads
+   * nothing but views, so asking twice is free and cannot write anything.
+   */
+  const { data, error } = await retryRead(
+    // Awaited inside the thunk: the rpc builder is a thenable, not a Promise,
+    // and handing it back raw leaves the result type unresolvable.
+    async () => await db.rpc("fo_cut", { p_view: view, ...scope, p_offer: offer }),
+    (r) => ({ transient: !!r.error && isTransientMessage(r.error.message ?? "") }),
+  );
   if (error) throw new Error(`${view}: ${error.message}`);
   return (data ?? []) as Cut[];
 }
@@ -229,6 +243,66 @@ export const CHANNEL_SHARED_NOTE =
   "channel and must not be shown in a per-channel column or summed across channels. Spend, reach, " +
   "impressions, clicks and their own ratios (CPM, CPC, CTR) are genuinely per-channel. Ratios that " +
   "mix the two are already blank.";
+
+/**
+ * Why CPA and ROAS do not divide the counts printed beside them.
+ *
+ * 0020: these four count only what advertising PRODUCED. 0526-03 sold six
+ * preview places and its ads acquired none of the buyers — two AOAI members and
+ * four from the AI Community, people already in the room who cost nothing to
+ * reach — so its ROAS is not 3.62 and its CPA is not 192.20. Both are '—', and
+ * that is the true answer.
+ *
+ * The cost is that spend / prevBuy no longer reproduces cpa, which reads as an
+ * arithmetic fault to anyone who does not know the rule. The denominators now
+ * travel in the metrics as paidPrevBuy, paidPrevRev and paidMidRev, so the four
+ * can be checked rather than trusted.
+ */
+export const PAID_RETURNS_NOTE =
+  "cpa, roas, prevRoas and midRoas count only what advertising produced, not every sale in the " +
+  "window — a customer who was already in the community did not cost ad spend to acquire. So " +
+  "spend / prevBuy will NOT reproduce cpa. Divide by paidPrevBuy instead, which is carried in the " +
+  "same metrics object: cpa = spend / paidPrevBuy, roas = (paidPrevRev + paidMidRev) / spend. " +
+  "A cut whose ad-produced count is zero returns null for all four, which is the honest answer and " +
+  "not a missing value.";
+
+/**
+ * Why the audience and creative columns do not sum to the period.
+ *
+ * These cuts are built from the ad set that ACQUIRED each person, so a buyer
+ * who was never acquired by an ad has no column to sit in — that is 0020's rule
+ * again, applied by omission rather than by blanking. Shely's nine preview
+ * purchases are three from Paid Ads and six from AOAI and the AI Community; the
+ * three appear, the six are absent by design, and the columns reconcile to 33%.
+ *
+ * The zeroes on the named audiences are NOT that shortfall and must not be
+ * turned into nulls. Cold_Broad acquired 44 people and we followed every one of
+ * them to a purchase or not; none bought. That is a measurement, and 0 is what a
+ * measurement of none looks like.
+ */
+export const AD_SLICE_NOTE =
+  "Columns here are the ad set or creative that ACQUIRED each person, so they cover only people an " +
+  "ad brought in. Purchases and revenue from organic, community and referral leads have no column " +
+  "at all — deliberately, since no ad produced them — and these columns will therefore NOT sum to " +
+  "the period total. Check them against paidPrevBuy and paidPrevRev on the period, not against " +
+  "prevBuy and prevRev. A 0 on a named audience is a measurement: that audience's leads were " +
+  "followed and none of them bought. Only a null means unmeasured.";
+
+/**
+ * Why a week can have leads and no spend.
+ *
+ * A Meta export with no day breakdown carries one row per ad set for the whole
+ * reporting window, dated to the START of that window. Those rows cannot be put
+ * on a week without inventing which days the money went out on, so they are
+ * withheld from every week rather than placed on the wrong one.
+ */
+export const WEEK_ADS_NOTE =
+  "Weeks are real seven-day calendar buckets: every lead, attendance and sale is placed on the week " +
+  "of its own date. Ad figures are different — a Meta export with no day breakdown dates the whole " +
+  "period to its first day, which cannot be split across weeks. Where that is the case, spend, " +
+  "reach, impressions, clicks and every ratio built on them are null for EVERY week rather than " +
+  "placed on a week the money was not spent in. They fill in on their own once a day-broken-down " +
+  "export is imported. Round columns are unaffected.";
 
 /** YYYY-MM. The key v_metrics_by_month cuts on. */
 export const isMonth = (v: string | null): v is string => !!v && /^\d{4}-(0[1-9]|1[0-2])$/.test(v);

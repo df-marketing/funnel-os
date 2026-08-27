@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { checkIntegrationKey, MISSING_INTEGRATION_KEY_MESSAGE } from "@/lib/integration/auth";
 import { createAdminClient, MISSING_KEY_MESSAGE } from "@/lib/supabase/admin";
 import {
-  CHANNEL_SHARED, CHANNEL_SHARED_NOTE, coverageOf, cut as fetchCut, isIsoDayLoose,
-  REACH_NOTE, type Cut, type Scope,
+  AD_SLICE_NOTE, CHANNEL_SHARED, CHANNEL_SHARED_NOTE, coverageOf, cut as fetchCut, isIsoDayLoose,
+  PAID_RETURNS_NOTE, REACH_NOTE, WEEK_ADS_NOTE, type Cut, type Scope,
 } from "@/lib/integration/insight";
 
 export const runtime = "nodejs";
@@ -132,6 +132,11 @@ export async function GET(request: Request) {
        */
       notes: {
         reach: REACH_NOTE,
+        // Every cut carries cpa and roas, and on every cut they divide by
+        // something other than the counts printed beside them.
+        paidReturns: PAID_RETURNS_NOTE,
+        ...(cut === "adset" || cut === "ad" ? { adSlice: AD_SLICE_NOTE } : {}),
+        ...(cut === "week" ? { week: WEEK_ADS_NOTE } : {}),
         ...(channel ? { channel: CHANNEL_SHARED_NOTE, notChannelAttributable: [...CHANNEL_SHARED] } : {}),
       },
       generatedAt: new Date().toISOString(),

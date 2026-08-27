@@ -1,4 +1,5 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { isTransient, retryRead } from "./transient";
 
 /**
  * A cookie-free read client.
@@ -50,12 +51,28 @@ export function createReadClient() {
     {
       auth: { persistSession: false, autoRefreshToken: false },
       global: {
+        /**
+         * Every request through this client is a read — anon key, select-only
+         * policies — so retrying one cannot write anything twice. That is what
+         * makes a blanket retry safe here and not on the admin client.
+         */
         fetch: async (input, init) => {
-          try {
-            return await fetch(input as RequestInfo, init);
-          } catch (e) {
-            throw new TypeError(`Could not reach ${host()} — ${describe(e)}`);
-          }
+          const attempt = async () => {
+            try {
+              const res = await fetch(input as RequestInfo, init);
+              // Cloned because a body may only be read once and the caller still
+              // needs it. Only 5xx pays for the clone.
+              if (res.status >= 500) {
+                const body = await res.clone().text().catch(() => "");
+                return { res, transient: isTransient(res.status, body) };
+              }
+              return { res, transient: false };
+            } catch (e) {
+              throw new TypeError(`Could not reach ${host()} — ${describe(e)}`);
+            }
+          };
+          const out = await retryRead(attempt, (o) => ({ transient: o.transient }));
+          return out.res;
         },
       },
     },

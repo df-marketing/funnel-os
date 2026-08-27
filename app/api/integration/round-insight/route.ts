@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { checkIntegrationKey, MISSING_INTEGRATION_KEY_MESSAGE } from "@/lib/integration/auth";
 import { createAdminClient, MISSING_KEY_MESSAGE } from "@/lib/supabase/admin";
 import {
-  coverageOf, cut, journeyOf, moveJson, stepJson, targetsOf, type Cut, type Scope,
+  coverageOf, cut, journeyOf, moveJson, PAID_RETURNS_NOTE, stepJson, targetsOf, type Cut, type Scope,
 } from "@/lib/integration/insight";
 import { candidatesFrom, diffAssets, missedTargetIn, movesFor, rankedIssues, tooThinIn, type Asset } from "@/lib/funnel/analysis";
 import { brokenSteps, diagnose, verdictOf } from "@/lib/funnel/diagnose";
@@ -184,6 +184,9 @@ async function liveRound(request: Request): Promise<LiveRound | NextResponse> {
         notMeasured: candidates.unavailable,
       },
       coverage,
+      // Carried on the payload rather than documented elsewhere: the caller
+      // renders cpa and roas, and the caveat has to travel with the figure.
+      notes: { paidReturns: PAID_RETURNS_NOTE },
       generatedAt: new Date().toISOString(),
       },
     };
