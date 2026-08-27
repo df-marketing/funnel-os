@@ -84,6 +84,7 @@
 - gohighlevel writes tags for audience and ad in a specific way — the import reads from those actual tags, not from assumed or arbitrary tag structures.
 - Audience and ad fields are now read from the actual tags GoHighLevel writes, not from assumed/arbitrary tag keys.
 - Send the round's dates as dates, not as a sentence — likely a fix to import/export date formatting.
+- absent (null/missing) is treated as distinct from zero for sales and for spend that has no named audience.
 
 ## Notes
 
