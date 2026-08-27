@@ -129,3 +129,4 @@
 - The most recent commit only touched the demo client (August round), with no changes to any other part of the project.
 - A demo round was added whose assets can actually be ranked — the demo is no longer a placeholder.
 - A declared metric gets a file to drop — likely means the import pipeline assigns each metric its own dedicated file for dropping data.
+- Appointments tab/feature has been declared and is now shown working (functionally wired, not just described).
