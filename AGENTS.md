@@ -125,3 +125,4 @@
 - closed period insights (likely the 'by source' or 'by metric' tab data) are kept readable even after underlying data changes — they don't break or disappear.
 - After reviewing the commit message 'Call a stage what the journey calls it', no additional durable facts beyond what is already in memory were found — the commit appears to be a naming/cosmetic change.
 - A month is reported on the spine its product actually runs — likely a fix aligning the reporting period with the actual product run date rather than some other date.
+- The most recent commit only touched the demo client (August round), with no changes to any other part of the project.
