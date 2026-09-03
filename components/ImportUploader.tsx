@@ -7,7 +7,7 @@ type Summary = {
   source: string; fileName: string; rowCount: number;
   coverage: { start: string | null; end: string | null };
   columnMap: Record<string, string>; unusedColumns: string[];
-  counts: { matchedExact: number; matchedAuto: number; newContacts: number; parked: number; duplicates: number };
+  counts: { matchedExact: number; matchedAuto: number; newContacts: number; parked: number; duplicates: number; unidentified: number };
   attribution: { utm: number; dateWindow: number; none: number };
   diff: { newRows: number; changedRows: number; restatements: string[] };
   warnings: string[];
@@ -254,6 +254,18 @@ function Diff({ plan }: { plan: Summary }) {
           <>
             <dt>Already present</dt>
             <dd>{counts.duplicates} skipped</dd>
+          </>
+        )}
+
+        {/*
+          Its own line, above Parked and worded differently on purpose. These
+          two are the opposite outcomes of the same fact — the export named
+          nobody — and collapsing them would hide which way each row went.
+        */}
+        {counts.unidentified > 0 && (
+          <>
+            <dt>Counted, not named</dt>
+            <dd>{counts.unidentified} — in the round and source totals, attached to nobody</dd>
           </>
         )}
 
