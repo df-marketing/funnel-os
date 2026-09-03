@@ -34,6 +34,16 @@ export type Plan = {
     newContacts: number;
     parked: number;
     duplicates: number;
+    /**
+     * Rows counted as a headcount, with nobody attached.
+     *
+     * Kept apart from every other number on this screen because it is the one
+     * that has to stay arguable. These are people the app is sure ARRIVED and
+     * cannot NAME — countable in a round total and in a source total, and
+     * useless for anything that needs a person: they can never close a sale,
+     * never carry revenue, never leave the anonymous column.
+     */
+    unidentified: number;
   };
   attribution: { utm: number; dateWindow: number; none: number };
   diff: { newRows: number; changedRows: number; restatements: string[] };
@@ -137,6 +147,27 @@ function normChannel(raw: string | null): string {
   if (s.includes("tiktok")) return "tiktok";
   return "other";
 }
+
+/**
+ * The dedupe handle for a row that has a name and no identity.
+ *
+ * Deliberately NOT an identity. It is never compared against a contact, never
+ * used to attach a purchase, and never leaves this file — its only job is to
+ * make a headcount idempotent, so re-dropping the same roster counts the same
+ * people once rather than twice.
+ *
+ * Two people genuinely called "Katherine" in one round therefore collapse to
+ * one. That under-counts by one and cannot over-count, which is the direction
+ * every other rule here errs in. Measured on Shely's nine rosters: 188
+ * name-only rows, zero collisions.
+ */
+const anonKey = (rawName: string | null): string | null => {
+  const name = String(rawName ?? "").toLowerCase()
+    .replace(/\(.*?\)/g, " ")          // "Jay (Jael Tan)" is one person
+    .replace(/[^a-z0-9À-￿ ]/g, " ")
+    .split(/\s+/).filter(Boolean).join(" ");
+  return name ? `anon:${name}` : null;
+};
 
 const parkKey = (raw: unknown) => {
   const o = (raw ?? {}) as Record<string, unknown>;
@@ -322,7 +353,7 @@ async function planScroll(
     columnMap: {}, unusedColumns: [],
     rowCount: read.points.length,
     coverage: { start: read.captured_from, end: read.captured_to },
-    counts: { matchedExact: 0, matchedAuto: 0, newContacts: 0, parked: 0, duplicates: 0 },
+    counts: { matchedExact: 0, matchedAuto: 0, newContacts: 0, parked: 0, duplicates: 0, unidentified: 0 },
     attribution: { utm: 0, dateWindow: 0, none: 0 },
     diff: {
       newRows: prior ? 0 : read.points.length,
@@ -459,7 +490,7 @@ export async function planImport(
     source, clientId, fileName, columnMap: map, unusedColumns: unused,
     rowCount: rows.length,
     coverage: { start: null, end: null },
-    counts: { matchedExact: 0, matchedAuto: 0, newContacts: 0, parked: 0, duplicates: 0 },
+    counts: { matchedExact: 0, matchedAuto: 0, newContacts: 0, parked: 0, duplicates: 0, unidentified: 0 },
     attribution: { utm: 0, dateWindow: 0, none: 0 },
     diff: { newRows: 0, changedRows: 0, restatements: [] },
     warnings,
@@ -686,11 +717,70 @@ export async function planImport(
 
     // ── LEADS ──────────────────────────────────────────────────────────────
     if (source === "leads") {
+      const when = toTimestamp(val(r, "event_date"));
       if (!contactId) {
-        park(outcome.kind === "park" ? outcome.reason : "name_only", r, null, null, "none");
+        /**
+         * WE DON'T KNOW WHO IS NOT THE SAME AS WE DON'T KNOW IF.
+         *
+         * A row with a name, a date and a source but no address says three
+         * things the app can check and one it cannot. Parking it threw away
+         * all four, so a client whose organic list never fills in a form read
+         * as having no organic leads at all — 206 of Shely's 1,467, and the
+         * source column said "Organic" on every one of them.
+         *
+         * Counted here as a headcount and nothing more. It has no contact, so
+         * it can never carry revenue, close a sale, or be matched to a later
+         * purchase, and it never leaves the anonymous column. What it can do
+         * is appear in its round's total and its source's total, which is
+         * exactly what the export is evidence of.
+         *
+         * Still parked when the row cannot be placed at all: no name to dedupe
+         * a re-import against, no date, or no round. Counting one of those
+         * would be inventing the arrival, not just the identity.
+         */
+        /**
+         * Only a row carrying NO address at all. `name_only` is identity.ts's
+         * own word for that and nothing else reaches it.
+         *
+         * A row that has an email we simply don't hold yet is a different
+         * problem with a different fix — somebody can type the answer — so it
+         * keeps its place in the queue. Counting it here would take a
+         * resolvable row and quietly make it unresolvable.
+         */
+        const nameOnly = outcome.kind === "park" && outcome.reason === "name_only";
+        const anon = nameOnly ? anonKey(val(r, "name")) : null;
+        if (!anon || !when) {
+          park(outcome.kind === "park" ? outcome.reason : "name_only", r, null, null, "none");
+          continue;
+        }
+        const anonSet = val(r, "ad_set");
+        const anonAttr = attributeLead(when, anonSet, rounds, adRuns);
+        if (!anonAttr.roundId) {
+          park("no_matching_round", r, null, "no round covers this opt-in date", "none");
+          continue;
+        }
+        if (anonAttr.method === "utm") plan.attribution.utm++;
+        else if (anonAttr.method === "date_window") plan.attribution.dateWindow++;
+        else plan.attribution.none++;
+        const key = eventKey("lead", anon, anonAttr.roundId, when);
+        if (seenEvents.has(key)) { plan.counts.duplicates++; continue; }
+        seenEvents.add(key);
+        track(sgDayOf(when));
+        plan.ops.events.push({
+          event_id: uuid(), contact_id: null, round_id: anonAttr.roundId, event_type: "lead",
+          event_date: when, lead_round_id: anonAttr.roundId, attribution_method: anonAttr.method,
+          utm_campaign: val(r, "utm_campaign") || null,
+          ad_set: anonSet, ad: val(r, "ad"),
+          // Never "Paid Ads" by inference. A row the ads could have produced
+          // would also have carried an address; this one didn't, so the file's
+          // own answer stands or it is organic.
+          source: val(r, "source") || "Organic",
+          match_status: "unidentified",
+        });
+        plan.counts.unidentified++;
+        plan.diff.newRows++;
         continue;
       }
-      const when = toTimestamp(val(r, "event_date"));
       if (!when) { park("incomplete_row", r, null, "no usable opt-in date", "none"); continue; }
       track(sgDayOf(when));
 
@@ -734,13 +824,58 @@ export async function planImport(
      */
     if (spec.eventType) {
       const eventType = spec.eventType;
-      if (!contactId) {
-        const o = outcome as Extract<typeof outcome, { kind: "park" }>;
-        park(o.reason, r, o.bestGuess, o.guessMethod, o.confidence);
-        continue;
-      }
       const ref = val(r, "round_id");
       const roundId = ref ? resolveRoundRef(ref, rounds) : null;
+      if (!contactId) {
+        /**
+         * The same rule as leads, and the case that motivated it.
+         *
+         * A webinar roster is the one export where the people the app cannot
+         * name are not an accident: a third of Shely's room joins on a link
+         * somebody forwarded, so they never opted in and never gave an
+         * address. Parking them read as a show rate of 32% against a real one
+         * near 60%, and it read that way silently.
+         *
+         * A row naming a round is evidence somebody was in that room. That is
+         * countable. Who they were is not, and nothing downstream is allowed
+         * to pretend otherwise — the event carries no contact, so it cannot
+         * reach close_round_id, cannot take revenue, and cannot be resolved
+         * later into a person.
+         */
+        // See the leads branch: no address at all, or it stays in the queue.
+        const nameOnly = outcome.kind === "park" && outcome.reason === "name_only";
+        const anon = nameOnly ? anonKey(val(r, "name")) : null;
+        if (!anon || !roundId) {
+          const o = outcome as Extract<typeof outcome, { kind: "park" }>;
+          if (!roundId) park("no_matching_round", r, null, `no round matches session "${ref ?? ""}"`, "none");
+          else park(o.reason, r, o.bestGuess, o.guessMethod, o.confidence);
+          continue;
+        }
+        const anonRound = rounds.find((x) => x.round_id === roundId)!;
+        const anonLast = anonRound.session_dates.length
+          ? anonRound.session_dates.slice().sort().slice(-1)[0]
+          : null;
+        const anonWhen = toTimestamp(val(r, "event_date"))
+          ?? new Date(`${dayOf(anonLast ?? anonRound.end_date)}T20:00:00+08:00`).toISOString();
+        const key = eventKey(eventType, anon, roundId, anonWhen);
+        if (seenEvents.has(key)) { plan.counts.duplicates++; continue; }
+        seenEvents.add(key);
+        track(sgDayOf(anonWhen));
+        plan.ops.events.push({
+          event_id: uuid(), contact_id: null, round_id: roundId, event_type: eventType,
+          event_date: anonWhen,
+          // No lead behind them, so no acquisition round to inherit. Left null
+          // rather than filled with roundId: this round's class is where they
+          // were, not where they came from, and the two must not be conflated.
+          lead_round_id: null,
+          source: val(r, "source") || "Organic",
+          minutes_watched: Math.round(toNumber(val(r, "minutes_watched")) ?? 0) || null,
+          match_status: "unidentified",
+        });
+        plan.counts.unidentified++;
+        plan.diff.newRows++;
+        continue;
+      }
       if (!roundId) { park("no_matching_round", r, null, `no round matches session "${ref ?? ""}"`, "none"); continue; }
 
       const round = rounds.find((x) => x.round_id === roundId)!;

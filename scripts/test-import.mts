@@ -118,17 +118,17 @@ console.log("\nTime zone");
 console.log("\nColumn mapping");
 {
   const headers = ["Day", "Ad set name", "Amount spent (SGD)", "Impressions", "Reach", "Outbound clicks"];
-  const { map, missing } = mapColumns("ads", headers);
+  const { map, missing } = mapColumns(SOURCES.ads, headers);
   eq("maps aliases", map.spend, "Amount spent (SGD)");
   eq("nothing missing", missing, []);
 
   // Meta renames the spend column — this must break loudly
-  const renamed = mapColumns("ads", ["Day", "Ad set name", "Impressions"], map);
+  const renamed = mapColumns(SOURCES.ads, ["Day", "Ad set name", "Impressions"], map);
   ok("renamed required column is reported missing", renamed.missing.includes("spend"));
   ok("rename is described", renamed.broken.some((b) => b.includes("Amount spent")));
 
   // remembered mapping wins over alias guessing
-  const remembered = mapColumns("ads", headers, { spend: "Amount spent (SGD)", date: "Day" });
+  const remembered = mapColumns(SOURCES.ads, headers, { spend: "Amount spent (SGD)", date: "Day" });
   eq("remembered mapping reused", remembered.map.date, "Day");
 }
 
@@ -770,7 +770,7 @@ console.log("\nTemplates");
 {
   for (const source of ["ads", "leads", "attendance", "sales"] as const) {
     const { headers, rows } = parseCsv(buildTemplate(source));
-    const { missing, unused } = mapColumns(source, headers);
+    const { missing, unused } = mapColumns(SOURCES[source], headers);
     eq(`${source}: every required field maps`, missing, []);
     eq(`${source}: no stray columns`, unused, []);
     eq(`${source}: the "#" legend is not read as data`, rows.length, 2);
@@ -1593,6 +1593,69 @@ console.log("\nCLARITY SCROLL");
           && (e.detail ?? []).some((d) => /0526-03/.test(d));
     }
   })());
+}
+
+// A third of Shely's webinar room joins on a forwarded link, so those people
+// never opted in and the export carries a display name and nothing else. Every
+// one of them used to park, which read as a show rate of 32% against a real one
+// near 60% — and read that way silently, because a parked row is invisible on
+// every screen except the queue.
+//
+// "We don't know WHO" and "we don't know IF" are different facts. The first is
+// countable.
+console.log("\nUnidentified — counted as a headcount, attached to nobody");
+{
+  const db = () => fakeDb({ rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [] });
+
+  const att = await planImport(db(), {
+    source: "attendance", clientId: "shely", fileName: "zoom.csv",
+    text: [
+      "round_id,name,email,phone,source,minutes_watched",
+      "0526-02,Amy Teo,amy@x.com,,META Ads,88",   // has an address: resolvable, so it parks
+      "0526-02,Katherine,,,Organic,71",            // name only
+      "0526-02,Philip,,,Organic,64",               // name only
+      "0526-02,,,,Organic,12",                     // nothing at all
+    ].join("\n"),
+  });
+  eq("the named organic attendees are counted", att.counts.unidentified, 2);
+  eq("a row with an address but no match still parks", att.counts.parked, 2);
+  eq("only the two anonymous heads are written", att.ops.events.length, 2);
+  const anon = att.ops.events.filter((e) => e.contact_id === null);
+  eq("two of them have nobody attached", anon.length, 2);
+  eq("they carry the round they were in", anon[0].round_id, "0526-02");
+  eq("and the source the export gave", anon[0].source, "Organic");
+  eq("but no acquisition round to claim", anon[0].lead_round_id, null);
+  ok("they are labelled, not disguised", anon.every((e) => e.match_status === "unidentified"));
+
+  // Idempotence is the whole reason the name is read. Without a stable handle
+  // a re-dropped roster would count the same room twice.
+  const again = await planImport(db(), {
+    source: "attendance", clientId: "shely", fileName: "zoom.csv",
+    text: [
+      "round_id,name,email,phone,source,minutes_watched",
+      "0526-02,Katherine,,,Organic,71",
+      "0526-02,Katherine,,,Organic,71",
+    ].join("\n"),
+  });
+  eq("the same name twice in one round is one head", again.counts.unidentified, 1);
+  eq("and the second is a duplicate, not a park", again.counts.duplicates, 1);
+
+  // Same rule on the leads side, and it must not promote anyone into paid.
+  const leads = await planImport(db(), {
+    source: "leads", clientId: "shely", fileName: "ghl.csv",
+    text: [
+      "name,email,phone,event_date,source,utm_term",
+      "Judy Weng,,,2026-05-15,Organic,",
+      "Nisa de Souza,,,2026-05-15,AOAI,",
+      "Ghost,,,2026-05-15,,Cold_Broad",           // an ad set but still no address
+      "Undated,,,,Organic,",                       // no date: cannot be placed
+    ].join("\n"),
+  });
+  eq("named organic leads are counted", leads.counts.unidentified, 3);
+  eq("an undated row still parks", leads.counts.parked, 1);
+  eq("the export's own source is kept", leads.ops.events[1].source, "AOAI");
+  eq("a bare ad set does not make someone paid", leads.ops.events[2].source, "Organic");
+  ok("no contact is invented for any of them", leads.ops.contacts.length === 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

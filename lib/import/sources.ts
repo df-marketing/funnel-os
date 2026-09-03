@@ -103,6 +103,20 @@ export const SOURCES: Record<SourceKey, SourceSpec> = {
     fields: [
       f("email", true, "email address", "contact email"),
       f("phone", false, "phone number", "mobile"),
+      /**
+       * THE NAME IS NOT AN IDENTITY. It is a HEADCOUNT KEY.
+       *
+       * Nothing is ever matched on it — two "Victor tan" in two rounds are two
+       * people, and the importer still refuses to guess which. It is read for
+       * one narrow job: a row carrying a name, a source and a date but no
+       * address is a person we know ARRIVED and cannot NAME, and the two are
+       * different facts. Counting them needs something stable to dedupe a
+       * re-import against, and the name is the only thing such a row has.
+       *
+       * Same-name collisions inside one round therefore under-count by one,
+       * never over-count, which is the direction this app errs in everywhere.
+       */
+      f("name", false, "full name", "contact name", "attendee name", "participant"),
       f("event_date", true, "created", "created at", "date created", "opt-in date", "date"),
       /**
        * WHERE THE PERSON CAME FROM — Paid Ads, AOAI, Organic.
@@ -144,6 +158,17 @@ export const SOURCES: Record<SourceKey, SourceSpec> = {
       f("round_id", true, "session", "session id", "webinar", "round"),
       f("email", true, "email address", "attendee email"),
       f("phone", false, "phone number", "mobile", "contact number"),
+      // See the note on the leads spec: a headcount key, never a match key.
+      f("name", false, "full name", "attendee name", "participant", "name (original name)"),
+      /**
+       * An identified attendee inherits their source from the lead that
+       * acquired them, so this column is redundant for them. It is not
+       * redundant for anyone else: a webinar roster carries people who never
+       * opted in, and the export usually says which bucket they came from.
+       * Without it their headcount would land under "Unattributed" and the
+       * organic figure would still be missing.
+       */
+      f("source", false, "lead source", "acquisition source"),
       f("event_date", false, "joined at", "join time", "date"),
       f("minutes_watched", false, "minutes", "duration", "time in session"),
     ],
