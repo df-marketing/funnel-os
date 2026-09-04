@@ -56,3 +56,24 @@ export const cutFor = (view: string, asset: string | null = null): Cut2 | null =
   : view === "middle" ? "middle"
   : NEEDS_THIS_ROUND.has(view) ? "thisround"
   : null;
+
+/**
+ * One asset's rounds, or every asset.
+ *
+ * The round cuts carry every asset at once so a single fetch serves both
+ * states. Drilled in, only one group is wanted. group_key rather than the
+ * label, because the label is prettified for the screen and "(unsplit)" is not
+ * "Unsplit spend".
+ *
+ * Its own function so the table and the plot cannot disagree — they did once,
+ * and the drilled table showed one audience while the chart beside it drew all
+ * six.
+ */
+export const narrowToAsset = <T extends { group_key?: string | null }>(
+  cuts: T[],
+  view: string,
+  asset: string | null,
+): T[] => {
+  const isAssetTab = cutFor(view) === "adset" || cutFor(view) === "ad";
+  return isAssetTab && asset ? cuts.filter((c) => c.group_key === asset) : cuts;
+};

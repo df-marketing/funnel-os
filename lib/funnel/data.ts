@@ -4,7 +4,7 @@ import { cadencesFor, resolveSpine, type Cadence } from "./cadence";
 import {
   cutFor, NEEDS_MONTHS, NEEDS_WEEKS, NEEDS_ROUNDS, NEEDS_ADSETS, NEEDS_SOURCES,
   NEEDS_ROUND_SOURCE, NEEDS_ADS, NEEDS_SESSION, NEEDS_OFFER, NEEDS_THIS_ROUND,
-  NEEDS_UNMATCHED_DETAIL, type Cut2,
+  NEEDS_UNMATCHED_DETAIL, narrowToAsset, type Cut2,
 } from "./cuts";
 import type { Metrics } from "./spine";
 import type { ScrollRun } from "./scroll";
@@ -244,17 +244,6 @@ const EMPTY: Omit<Dashboard, "error" | "errorHint" | "view"> = {
 };
 
 /** Which tabs actually read a metrics table. Everything else is chrome-only. */
-/**
- * One asset's rounds, or every asset.
- *
- * The round cuts carry every asset at once so a single fetch serves both
- * states; drilled in, only one group is wanted and its rounds become the
- * columns. Matching on group_key rather than the label because the label is
- * prettified for the screen and "(unsplit)" is not "Unsplit spend".
- */
-const narrowToAsset = (cuts: Cut[], asset: string | null): Cut[] =>
-  !asset ? cuts : cuts.filter((c) => c.group_key === asset);
-
 
 /** Tabs that belong to a journey stage, so they only exist for some clients. */
 const STAGE_TABS = ["targeting", "ads", "lp", "class", "preview", "middle", "product", "checkout"];
@@ -677,6 +666,16 @@ async function build(
   const metrics =
     view === requested ? speculative : settled ? await loadMetrics(id, settled, filter) : null;
 
+  /**
+   * The columns every part of this screen shows.
+   *
+   * Drilled into an asset, only that asset's rounds are wanted — and only the
+   * two asset tabs have an asset at all, so nothing else can be narrowed by a
+   * stray ?asset= in the URL. group_key rather than the label, because the
+   * label is prettified and "(unsplit)" is not "Unsplit spend".
+   */
+  const shown = narrowToAsset(metrics?.columns ?? [], view, filter.asset);
+
   return {
     clients,
     products: options.products,
@@ -690,21 +689,25 @@ async function build(
     unmatched: chrome.unmatched,
     total: metrics?.total ?? null,
     baseline: metrics?.baseline ?? null,
-    byMonth: NEEDS_MONTHS.has(view) ? (metrics?.columns ?? []) : [],
-    byWeek: NEEDS_WEEKS.has(view) ? (metrics?.columns ?? []) : [],
-    byAd: NEEDS_ADS.has(view) ? narrowToAsset(metrics?.columns ?? [], filter.asset) : [],
-    bySession: NEEDS_SESSION.has(view) ? (metrics?.columns ?? []) : [],
-    byOffer: NEEDS_OFFER.has(view) ? (metrics?.columns ?? []) : [],
-    thisRound: NEEDS_THIS_ROUND.has(view) ? (metrics?.columns ?? []) : [],
-    byRound: NEEDS_ROUNDS.has(view) ? (metrics?.columns ?? []) : [],
+    byMonth: NEEDS_MONTHS.has(view) ? shown : [],
+    byWeek: NEEDS_WEEKS.has(view) ? shown : [],
+    byAd: NEEDS_ADS.has(view) ? shown : [],
+    bySession: NEEDS_SESSION.has(view) ? shown : [],
+    byOffer: NEEDS_OFFER.has(view) ? shown : [],
+    thisRound: NEEDS_THIS_ROUND.has(view) ? shown : [],
+    byRound: NEEDS_ROUNDS.has(view) ? shown : [],
     // Drilled in, the columns are one asset's rounds; the tab renders the same
     // table and the same plot, so the narrowing happens here rather than there.
-    byAdset: NEEDS_ADSETS.has(view) ? narrowToAsset(metrics?.columns ?? [], filter.asset) : [],
-    bySource: NEEDS_SOURCES.has(view) ? (metrics?.columns ?? []) : [],
-    byRoundSource: NEEDS_ROUND_SOURCE.has(view) ? (metrics?.columns ?? []) : [],
+    byAdset: NEEDS_ADSETS.has(view) ? shown : [],
+    bySource: NEEDS_SOURCES.has(view) ? shown : [],
+    byRoundSource: NEEDS_ROUND_SOURCE.has(view) ? shown : [],
     // One slot for both, because the tab already says which asset it is about
     // and the shape is identical either way.
-    columns: metrics?.columns ?? [],
+    // The GRAPH reads this and the tables read the lists above. They were two
+    // derivations of the same thing and only one was narrowed, so a drilled-in
+    // table showed one asset while the plot beside it drew all of them. One
+    // list, computed once, used by both.
+    columns: shown,
     roundContext: context,
     unmatchedReasons: detail?.reasons ?? [],
     unmatchedRows: detail?.rows ?? [],

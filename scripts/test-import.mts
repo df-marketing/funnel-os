@@ -26,7 +26,7 @@ import {
   curveOf, biggestDrop, ceilingOf, coverageOf, runsFor, type ScrollRun,
 } from "../lib/funnel/scroll";
 import { cadencesFor, resolveSpine } from "../lib/funnel/cadence";
-import { cutFor } from "../lib/funnel/cuts";
+import { cutFor, narrowToAsset } from "../lib/funnel/cuts";
 import {
   niceMax, axisMax, num, chartModel, lineRuns, colX, valueY, floorY, ticksFor, TICKS, GEO,
   colWidth, chartWidth, labelChars, wrapLabel, VS_OPTIONS, vsOption, isVs, DEFAULT_OPTS, AMOUNT_OF,
@@ -720,6 +720,23 @@ console.log("\nCuts — a tab drills only when something is drilled into");
   // Everything else ignores it entirely.
   eq("an asset does not change By round", cutFor("round", "Cold_Broad"), "round");
   eq("nor By month", cutFor("month", "Cold_Broad"), "month");
+
+  /**
+   * The table and the plot read the same list. They did not once: the table was
+   * narrowed and the chart was not, so a drilled-in screen showed one audience
+   * in the table and all six in the graph beside it.
+   */
+  const cols = [
+    { group_key: "Cold_Broad", cut_key: "Cold_Broad·0526-02" },
+    { group_key: "Cold_Broad", cut_key: "Cold_Broad·0526-03" },
+    { group_key: "Cold_BusinessOwners", cut_key: "Cold_BusinessOwners·0526-02" },
+  ];
+  eq("drilled in, only that asset's rounds", narrowToAsset(cols, "targeting", "Cold_Broad").length, 2);
+  eq("not drilled in, every asset", narrowToAsset(cols, "targeting", null).length, 3);
+  eq("the same on the ads tab", narrowToAsset(cols, "ads", "Cold_Broad").length, 2);
+  // A stray ?asset= on another tab must not silently empty it.
+  eq("a stray asset cannot narrow By round", narrowToAsset(cols, "round", "Cold_Broad").length, 3);
+  eq("nor By source", narrowToAsset(cols, "source", "Cold_Broad").length, 3);
 }
 
 console.log("\nPipeline — the list a lead was on beats a guess about dates");
