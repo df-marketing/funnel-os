@@ -137,3 +137,4 @@
 - A declared metric gets a file to drop — likely means the import pipeline assigns each metric its own dedicated file for dropping data.
 - Appointments tab/feature has been declared and is now shown working (functionally wired, not just described).
 - project still has no objective set — milestones lack a guiding north star.
+- dash before suffix matching was repaired in a recent commit
