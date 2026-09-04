@@ -27,6 +27,7 @@ import {
 } from "../lib/funnel/scroll";
 import { cadencesFor, resolveSpine } from "../lib/funnel/cadence";
 import { cutFor, narrowToAsset } from "../lib/funnel/cuts";
+import { NO_FILTER } from "../lib/funnel/data";
 import { WIRED } from "../components/Shell";
 import {
   niceMax, axisMax, num, chartModel, lineRuns, colX, valueY, floorY, ticksFor, TICKS, GEO,
@@ -775,6 +776,14 @@ console.log("\nCuts — a tab drills only when something is drilled into");
   eq("the attendance stage compares sequences", cutFor("class", null), "variant");
   eq("and one sequence's rounds", cutFor("class", "WA Sequence A"), "variantround");
   eq("the leads stage compares landing pages", cutFor("lp", null), "landing");
+  /*
+    COUNTRY. The brief's own definition of done, and the branch shipped without
+    it: with no country selected every figure must be what it was before the
+    filter existed. A filter that quietly moves an unfiltered number looks like
+    it works.
+  */
+  eq("country is off by default", NO_FILTER.country, null);
+  eq("and travels in the URL like the rest", "country" in NO_FILTER, true);
   // A stage that reads a cut must be listed as wired, or the tab renders its
   // table AND the "not wired yet" panel underneath it.
   eq("every tab with a cut is wired",

@@ -58,7 +58,7 @@ export default async function Page({
 }: {
   searchParams: Promise<{
     client?: string; view?: string;
-    product?: string; channel?: string; from?: string; to?: string;
+    product?: string; channel?: string; country?: string; from?: string; to?: string;
     asset?: string;
     mode?: string; objective?: string; vs?: string;
   }>;
@@ -73,6 +73,7 @@ export default async function Page({
   const filter: FilterKey = {
     product: params.product || null,
     channel: params.channel || null,
+    country: params.country || null,
     from: params.from || null,
     to: params.to || null,
     // Which single asset the ads and targeting tabs are drilled into. Absent
@@ -182,10 +183,12 @@ export default async function Page({
   const m = (data.total?.m ?? {}) as Record<string, unknown>;
   const channelBlanked =
     !!data.filter.channel && m.roas == null && Number(m.spend ?? 0) > 0 && m.rev != null;
+  const countryBlanked =
+    !!data.filter.country && m.roas == null && Number(m.spend ?? 0) > 0 && m.rev != null;
 
   return (
     <>
-      <TopBar clients={data.clients} current={current} imports={data.imports} />
+      <TopBar clients={data.clients} current={current} imports={data.imports} filter={data.filter} opts={opts} />
       <JourneyStrip
         strip={data.strip}
         client={current.client_id}
@@ -203,10 +206,12 @@ export default async function Page({
           filter={data.filter}
           products={data.products}
           channels={data.channels}
+          countries={data.countries}
           periods={data.periods}
           cadences={data.cadences}
           opts={opts}
           channelBlanked={channelBlanked}
+          countryBlanked={countryBlanked}
         />
 
         <main className="main">
