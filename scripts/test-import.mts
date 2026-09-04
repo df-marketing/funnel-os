@@ -663,6 +663,10 @@ console.log("\nPipeline — Meta's duplicate suffix is not a different audience"
       // 78 creative rows split away from their own spend this way.
       "a@example.sg,2026-05-14,Paid Ads,Cold_Broad – Copy,Static_LetAISell – Copy",
       "b@example.sg,2026-05-14,Paid Ads,Cold_Broad - Copy 2,Static_LetAISell - copy",
+      // A dash that went through the wrong decoder. The September export named
+      // its creatives this way and 103 leads kept a suffix the strip existed to
+      // remove, because the dash class did not include the mojibake sequence.
+      "e@example.sg,2026-05-14,Paid Ads,Cold_Broad \u00e2\u20ac\u201c Copy,Static_LetAISell \u00e2\u20ac\u201c Copy",
       "c@example.sg,2026-05-14,Paid Ads,Cold_Broad,Static_LetAISell",
     ].join("\n"),
   });

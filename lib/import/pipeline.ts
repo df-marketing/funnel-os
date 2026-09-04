@@ -181,9 +181,25 @@ function normChannel(raw: string | null): string {
  * otherwise written exactly as the export gave it.
  */
 const COPY_SUFFIX = /(?:\s*[-–—]\s*copy(?:\s*\d+)?)+\s*$/i;
+/**
+ * A dash that has been through the wrong decoder on its way here.
+ *
+ * "â€“" is a UTF-8 en dash read as Latin-1, and it arrives that way from
+ * spreadsheets that were saved by one tool and exported by another. It has to
+ * be repaired BEFORE the suffix is matched: the September export named its
+ * creatives "Static_ContentAtScale_StructuredText â€“ Copy", the dash class in
+ * COPY_SUFFIX did not include that sequence, and 103 leads kept a suffix the
+ * strip was written to remove. A name is also simply wrong when displayed like
+ * that, so this is worth doing for its own sake.
+ */
+const MOJIBAKE: Array<[RegExp, string]> = [
+  [/â€“/g, "–"], [/â€”/g, "—"], [/â€™/g, "’"], [/â€˜/g, "‘"],
+  [/â€œ/g, "“"], [/â€\u009d/g, "”"], [/Â /g, " "], [/\uFEFF/g, ""],
+];
 const normAsset = (raw: string | null): string | null => {
-  const s = String(raw ?? "").trim();
+  let s = String(raw ?? "").trim();
   if (!s) return raw === null || raw === undefined ? null : raw;
+  for (const [re, to] of MOJIBAKE) s = s.replace(re, to);
   const cleaned = s.replace(COPY_SUFFIX, "").trim();
   return cleaned || s;
 };
