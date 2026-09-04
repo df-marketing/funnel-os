@@ -162,3 +162,4 @@
 - Put the way out at the top of the pane — a recent ui commit repositions the exit/dismiss control.
 - A page claims the round it was used in (recent commit — a page asserts which round it belongs to).
 - No objective is set for the project.
+- an asset does not follow you to another tab — assets are scoped per tab, not shared across tabs.
