@@ -764,6 +764,14 @@ console.log("\nCuts — a tab drills only when something is drilled into");
   eq("a stray asset cannot narrow By round", narrowToAsset(cols, "round", "Cold_Broad").length, 3);
   eq("nor By source", narrowToAsset(cols, "source", "Cold_Broad").length, 3);
   eq("the leads stage narrows too", narrowToAsset(cols, "lp", "Cold_Broad").length, 2);
+  /*
+    An asset means something on ONE tab. Carried to another it matches no column
+    and the tab renders empty with a chip still naming it — a creative selected
+    on Landing Page Clicks, then Live Webinar Attendance clicked, and that tab
+    compares reminder sequences.
+  */
+  eq("a creative is nothing to the sequences tab",
+     narrowToAsset(cols, "class", "Static_GoViralonSocialWithoutShowingYourFace").length, 0);
 
   // The variant tab drills the same way — an arm, then that arm's rounds.
   /*

@@ -15,14 +15,22 @@ import {
  * Empty values are dropped rather than sent as "" — the URL should say what is
  * set, not carry blank filters on every page.
  */
-const href = (client: string, view: string, f?: FilterKey, o?: ViewOpts) => {
+const href = (client: string, view: string, f?: FilterKey, o?: ViewOpts, from?: string) => {
   const q = new URLSearchParams({ client, view });
   if (f?.product) q.set("product", f.product);
   if (f?.channel) q.set("channel", f.channel);
   if (f?.country) q.set("country", f.country);
   if (f?.from) q.set("from", f.from);
   if (f?.to) q.set("to", f.to);
-  if (f?.asset) q.set("asset", f.asset);
+  /*
+    The asset does NOT follow you to another tab.
+    Product, channel, country and period mean the same thing everywhere, so they
+    travel. An asset does not: "Static_GoViralonSocialWithoutShowingYourFace" is
+    a creative, and on the tab that compares reminder sequences it matches no
+    column at all — the tab drew "Nothing to plot" while the chip still named a
+    creative. Carried within a tab, dropped when leaving it.
+  */
+  if (f?.asset && (from === undefined || from === view)) q.set("asset", f.asset);
   // Carried on every link so switching tabs keeps you in the graph you were
   // reading, instead of dropping you back into the table each time.
   if (o && o.mode !== DEFAULT_OPTS.mode) q.set("mode", o.mode);
@@ -104,7 +112,9 @@ export function TopBar({
         {clients.map((c) => (
           <Link
             key={c.client_id}
-            href={href(c.client_id, "round", filter, opts)}
+            // switching client always lands on By round, which drills nothing,
+            // so the asset is dropped by naming a different origin
+            href={href(c.client_id, "round", filter, opts, "")}
             aria-pressed={c.client_id === current.client_id}
           >
             {c.client_name ?? c.client_id}
@@ -382,7 +392,7 @@ export function SideNav({
   countryBlanked: boolean;
 }) {
   const item = (slug: string, label: React.ReactNode) => (
-    <Link key={slug} href={href(client, slug, filter, opts)} aria-current={view === slug ? "page" : undefined}>
+    <Link key={slug} href={href(client, slug, filter, opts, view)} aria-current={view === slug ? "page" : undefined}>
       {label}
     </Link>
   );
