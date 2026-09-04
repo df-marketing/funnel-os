@@ -648,6 +648,56 @@ console.log("\nPipeline — sales");
   eq("and no ad credit", ghost.is_lead, false);
 }
 
+console.log("\nPipeline — a lead dated after the sale did not produce the sale");
+{
+  // Bought at 0526-02's class on the 19th, then registered for 0526-03 on the
+  // 23rd. Live, five buyers did exactly this and $2,094 followed the later
+  // opt-in into a round that had not met them — $397 of it into September.
+  const db = fakeDb({
+    rounds: ROUNDS,
+    contacts: [{ contact_id: "c1", email: "late@example.sg", phone: null, client_id: "shely" }],
+    events: [
+      { event_id: "e1", contact_id: "c1", round_id: "0526-03", event_type: "lead", event_date: "2026-05-23T09:00:00Z", lead_round_id: "0526-03", source: "Paid Ads", product: null, amount: null, refund_amount: null },
+    ],
+    ads_performance: [], v_column_map: [],
+  });
+  const plan = await planImport(db, {
+    source: "sales", clientId: "shely", fileName: "s.csv",
+    text: "Date,Email,Product,Amount\n2026-05-19,late@example.sg,2-hour preview workshop,297\n",
+  });
+  const s = plan.ops.events[0];
+  eq("the later opt-in does not claim it", s.lead_round_id, null);
+  eq("so the money stays where it arrived", s.round_id, "0526-02");
+  eq("and earns no ad credit", s.is_lead, false);
+  // The opt-in still names them. It must not sell to them: a purchase made
+  // before the opt-in was not produced by the advertising that followed it.
+  eq("a later Paid Ads opt-in cannot claim the sale for the ads", s.source, null);
+}
+
+console.log("\nPipeline — the round that acquired someone is the first one");
+{
+  // Registered in May, again in June, bought in June. May acquired them; June
+  // inherited them. Taking the later lead would erase Previous Paid Ads, which
+  // is the whole distinction that bucket exists to draw.
+  const db = fakeDb({
+    rounds: ROUNDS,
+    contacts: [{ contact_id: "c1", email: "twice@example.sg", phone: null, client_id: "shely" }],
+    events: [
+      { event_id: "e1", contact_id: "c1", round_id: "0526-02", event_type: "lead", event_date: "2026-05-14T09:00:00Z", lead_round_id: "0526-02", source: "Paid Ads", product: null, amount: null, refund_amount: null },
+      { event_id: "e2", contact_id: "c1", round_id: "0526-03", event_type: "lead", event_date: "2026-05-23T09:00:00Z", lead_round_id: "0526-03", source: "Organic", product: null, amount: null, refund_amount: null },
+    ],
+    ads_performance: [], v_column_map: [],
+  });
+  const plan = await planImport(db, {
+    source: "sales", clientId: "shely", fileName: "s.csv",
+    text: "Date,Email,Product,Amount\n2026-05-27,twice@example.sg,2-hour preview workshop,297\n",
+  });
+  const s = plan.ops.events[0];
+  eq("credited to the round that acquired them, not the latest", s.lead_round_id, "0526-02");
+  eq("the acquiring round's source travels with it", s.source, "Paid Ads");
+  eq("and it counts in ROAS", s.is_lead, true);
+}
+
 console.log("\nPipeline — a payment names a buyer, or it parks");
 {
   const db = fakeDb({
