@@ -27,6 +27,7 @@ import {
 } from "../lib/funnel/scroll";
 import { cadencesFor, resolveSpine } from "../lib/funnel/cadence";
 import { cutFor, narrowToAsset } from "../lib/funnel/cuts";
+import { WIRED } from "../components/Shell";
 import {
   niceMax, axisMax, num, chartModel, lineRuns, colX, valueY, floorY, ticksFor, TICKS, GEO,
   colWidth, chartWidth, labelChars, wrapLabel, VS_OPTIONS, vsOption, isVs, DEFAULT_OPTS, AMOUNT_OF, defaultVsFor, type VsKey,
@@ -774,6 +775,11 @@ console.log("\nCuts — a tab drills only when something is drilled into");
   eq("the attendance stage compares sequences", cutFor("class", null), "variant");
   eq("and one sequence's rounds", cutFor("class", "WA Sequence A"), "variantround");
   eq("the leads stage compares landing pages", cutFor("lp", null), "landing");
+  // A stage that reads a cut must be listed as wired, or the tab renders its
+  // table AND the "not wired yet" panel underneath it.
+  eq("every tab with a cut is wired",
+     ["month","week","round","source","roundsource","targeting","ads","lp","class","preview","middle"]
+       .every((v) => WIRED.has(v) && cutFor(v) !== null), true);
   eq("and one page's rounds", cutFor("lp", "LP1"), "landinground");
   eq("the attendance stage opens on show rate", defaultVsFor("class"), "attPct");
   /*

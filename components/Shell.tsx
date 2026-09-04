@@ -51,7 +51,9 @@ export const FIXED_VIEWS = ["import", "unmatched", "month", "week", "round", "so
 /** Which tabs are wired to real Supabase data today. Everything else says so. */
 export const WIRED = new Set([
   "month", "week", "round", "source", "roundsource",
-  "targeting", "ads", "class", "preview", "middle",
+  // "lp" joined this the moment it got a dimension to compare — it was the one
+  // stage tab with compare_dimension NULL, and the screen said so.
+  "targeting", "ads", "lp", "class", "preview", "middle",
   "analysis", "import", "unmatched", "acqos",
 ]);
 
