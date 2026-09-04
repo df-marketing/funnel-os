@@ -206,7 +206,8 @@ export function JourneyStrip({
             <Link
               className="stage"
               key={s.stage_slug}
-              href={href(client, s.stage_slug, filter, opts)}
+              // a strip card jumps to another stage, so it is leaving this tab
+              href={href(client, s.stage_slug, filter, opts, view)}
               aria-current={view === s.stage_slug}
             >
               <span className="sname">{s.stage_name}</span>
