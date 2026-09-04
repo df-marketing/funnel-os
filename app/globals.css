@@ -381,6 +381,19 @@ footer b { color: var(--ink-2); }
 
 /* A left-axis amount is a bar: something you could add up. The right-hand
    series stays a line, because a rate is not a quantity you can stack. */
+/* The asset a tab is drilled into, beside the view switch. It reads as a
+   removable thing rather than a link, because that is what it is. */
+.drill-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 4px 8px 4px 10px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface-2, transparent);
+  font: inherit; font-size: 12px; text-decoration: none; color: inherit;
+  white-space: nowrap;
+}
+.drill-chip:hover { border-color: currentColor; }
+.drill-chip b { font-weight: 600; opacity: .6; font-size: 14px; line-height: 1; }
+.drill-chip:hover b { opacity: 1; }
+
 /* A column header that leads somewhere. Underlined on hover only, so forty
    numeric columns do not read as forty links. */
 .col-drill { color: inherit; text-decoration: none; border-bottom: 1px dotted currentColor; }

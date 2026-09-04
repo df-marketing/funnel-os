@@ -467,6 +467,27 @@ export function PaneControls({
       </div>
 
       {/*
+        THE DRILLED-IN ASSET, WHERE THE EYE ALREADY IS.
+        It was a link inside a notice at the top of the pane, which on the table
+        view is above forty rows — so on any screen scrolled past the first
+        few, the only way out of a drilled-in tab was the browser's back button.
+        Reported three times as "there is no button".
+        A chip beside the view switch instead: the one control that changes what
+        the columns ARE sits next to the one that changes how they are drawn,
+        and it carries its own dismiss.
+      */}
+      {filter.asset ? (
+        <Link
+          className="drill-chip"
+          href={href(client, view, { ...filter, asset: null }, opts)}
+          title={`Stop looking at ${filter.asset} on its own`}
+        >
+          <span>{filter.asset}</span>
+          <b aria-hidden>×</b>
+        </Link>
+      ) : null}
+
+      {/*
         One selection across eight, in two labelled rows.
         Was Objective (four) x Spend-vs (two), which put the same metric name in
         both rows at once. The rows group; they do not compose.

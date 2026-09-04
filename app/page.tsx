@@ -230,7 +230,8 @@ export default async function Page({
                 <b>{filter.asset}</b>, round by round — the columns are its rounds, oldest first.
                 Every figure is the same arithmetic as the combined view, so these columns sum to
                 that tab&rsquo;s column.{" "}
-                <a href={withAsset(null)}>Back to all {DRILL_NOUN[view] ?? "columns"}</a>.
+                Clear it with the <b>{filter.asset} ×</b> chip beside Table and Graph, or{" "}
+                <a href={withAsset(null)}>go back to all {DRILL_NOUN[view] ?? "columns"}</a>.
               </div>
             </div>
           ) : null}
