@@ -8,7 +8,7 @@ import { AcqosPane } from "@/components/AcqosPane";
 import { loadWire } from "@/lib/funnel/wire";
 import { loadDeclaredMetrics } from "@/lib/funnel/metrics";
 import {
-  DEFAULT_OPTS, GRAPHABLE, isObjective, isVs, vsOption, type ViewOpts,
+  DEFAULT_OPTS, defaultVsFor, GRAPHABLE, isObjective, isVs, vsOption, type ViewOpts,
 } from "@/lib/funnel/chart";
 
 export const dynamic = "force-dynamic";
@@ -90,7 +90,7 @@ export default async function Page({
   const opts: ViewOpts = {
     mode: params.mode === "graph" ? "graph" : "table",
     objective: isObjective(params.objective) ? params.objective : DEFAULT_OPTS.objective,
-    vs: isVs(params.vs) ? params.vs : DEFAULT_OPTS.vs,
+    vs: isVs(params.vs) ? params.vs : defaultVsFor(params.view ?? ""),
   };
   const data = await getDashboard(params.client, params.view ?? "round", filter);
 

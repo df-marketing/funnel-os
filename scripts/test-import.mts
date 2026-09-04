@@ -29,7 +29,7 @@ import { cadencesFor, resolveSpine } from "../lib/funnel/cadence";
 import { cutFor, narrowToAsset } from "../lib/funnel/cuts";
 import {
   niceMax, axisMax, num, chartModel, lineRuns, colX, valueY, floorY, ticksFor, TICKS, GEO,
-  colWidth, chartWidth, labelChars, wrapLabel, VS_OPTIONS, vsOption, isVs, DEFAULT_OPTS, AMOUNT_OF,
+  colWidth, chartWidth, labelChars, wrapLabel, VS_OPTIONS, vsOption, isVs, DEFAULT_OPTS, AMOUNT_OF, defaultVsFor,
 } from "../lib/funnel/chart";
 import {
   compare, movesFor, issuesIn, rankedIssues, tooThinIn, missedTargetIn, diffAssets,
@@ -1420,16 +1420,24 @@ console.log("\nCommit — re-importing a source retires the batch it replaces");
    * ninth: drilled into one asset, it is the reading that shows an audience
    * going numb, and no view that sums the rounds together can.
    */
-  eq("nine ways to read spend, and no repeats",
-     new Set(VS_OPTIONS.map((o) => o.short)).size, 9);
+  eq("ten ways to read spend, and no repeats",
+     new Set(VS_OPTIONS.map((o) => o.short)).size, 10);
   eq("four are the outcome itself", VS_OPTIONS.filter((o) => o.kind === "amount").length, 4);
-  eq("five are its efficiency", VS_OPTIONS.filter((o) => o.kind === "efficiency").length, 5);
+  eq("six are its efficiency", VS_OPTIONS.filter((o) => o.kind === "efficiency").length, 6);
+  // A variant has no spend, so a cost per opens blank there. What an arm moves
+  // is the share of its own leads that showed up.
+  eq("the variant tab opens on show rate", defaultVsFor("variant"), "attPct");
+  eq("every other tab keeps the general default", defaultVsFor("round"), DEFAULT_OPTS.vs);
+  eq("show rate reads up", vsOption("attPct").betterWhen, "higher");
   // Frequency is impressions over reach and reach is not additive (0016), so
   // it must NOT bring a count to draw beside spend the way the others do.
   eq("frequency has no amount to draw beside it", AMOUNT_OF.freq, undefined);
   eq("every other efficiency does",
      VS_OPTIONS.filter((o) => o.kind === "efficiency" && o.key !== "freq")
        .every((o) => !!AMOUNT_OF[o.key]), true);
+  // Attendance % is attendance over LEADS, so its amount is attendance — not
+  // the revenue or spend the money-side efficiencies pair with.
+  eq("show rate draws the attendance behind it", AMOUNT_OF.attPct?.metric, "att");
   eq("no short label appears in both rows",
      VS_OPTIONS.filter((o) => o.kind === "amount")
        .some((a) => VS_OPTIONS.some((b) => b.kind === "efficiency" && b.short === a.short)), false);

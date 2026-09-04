@@ -90,7 +90,7 @@ export const isObjective = (v: string | null | undefined): v is ObjectiveKey =>
  * `objective` survives on This round, where it genuinely names a goal rather
  * than picking a line.
  */
-export type VsKey = "leads" | "att" | "prevBuy" | "rev" | "cpl" | "cpAtt" | "cpa" | "roas" | "freq";
+export type VsKey = "leads" | "att" | "prevBuy" | "rev" | "cpl" | "cpAtt" | "cpa" | "roas" | "freq" | "attPct";
 
 export type VsOption = {
   key: VsKey;
@@ -131,6 +131,17 @@ export const VS_OPTIONS: VsOption[] = [
    * spend.
    */
   { key: "freq",    metric: "freq",    short: "Frequency",           label: "Frequency",                 fmt: "d2", kind: "efficiency", betterWhen: "lower" },
+  /**
+   * SHOW RATE — attendance over leads, and the only honest reading of an A/B
+   * arm.
+   *
+   * A reminder sequence cannot buy more leads; it can only get more of the
+   * leads it was given into the room. So the count of attendees says almost
+   * nothing on its own — the arm with more leads will usually have more
+   * attendees — and the rate is the comparison. It is why the variant tab
+   * opens on this rather than on a cost per, which is blank there anyway.
+   */
+  { key: "attPct",  metric: "attPct",  short: "Show rate",           label: "Attendance %",              fmt: "p",  kind: "efficiency", betterWhen: "higher" },
 ];
 
 /**
@@ -152,6 +163,10 @@ export const AMOUNT_OF: Partial<Record<VsKey, { metric: MetricKey; label: string
   // ROAS is revenue over spend, and revenue is money — so it shares the left
   // axis honestly rather than by convention.
   roas:  { metric: "rev",     label: "Total Revenue (SGD)",     fmt: "m" },
+  // Attendance % is attendance over LEADS, not over spend — so the bar beside
+  // it is the attendance itself, and on a cut with no spend that is the only
+  // amount on the left axis. Which is correct: it is the whole story there.
+  attPct: { metric: "att",   label: "Overall Attendance",      fmt: "i" },
 };
 
 export const vsOption = (k: VsKey) => VS_OPTIONS.find((o) => o.key === k) ?? VS_OPTIONS[5];
@@ -168,6 +183,16 @@ export type ViewOpts = { mode: ViewMode; objective: ObjectiveKey; vs: VsKey };
  * lives in the URL.
  */
 export const DEFAULT_OPTS: ViewOpts = { mode: "table", objective: "att", vs: "cpAtt" };
+
+/**
+ * The reading a tab opens on, where the general default would be blank.
+ *
+ * A variant has no spend, so "cost per attendance" is a dash and the plot opens
+ * empty — technically honest and useless. What an arm moves is the share of its
+ * own leads that showed up, so that is what it opens on.
+ */
+export const defaultVsFor = (view: string): VsKey =>
+  view === "variant" ? "attPct" : DEFAULT_OPTS.vs;
 
 /**
  * Tabs whose cut is one-dimensional, so it can be an x-axis.
