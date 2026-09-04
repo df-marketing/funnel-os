@@ -605,8 +605,9 @@ export async function planImport(
     event_id: string; contact_id: string | null; round_id: string | null; event_type: string;
     event_date: string; product: string | null; amount: string | null; refund_amount: string | null;
     lead_round_id: string | null; source: string | null;
+    anon_key: string | null;
   }>(db, "events",
-    "event_id, contact_id, round_id, event_type, event_date, product, amount, refund_amount, lead_round_id, source",
+    "event_id, contact_id, round_id, event_type, event_date, product, amount, refund_amount, lead_round_id, source, anon_key",
     (q) => q.in("round_id", roundIds));
 
   const adRuns = await fetchAll<AdSetRun>(db, "ads_performance", "ad_set, round_id, date",
@@ -703,8 +704,17 @@ export async function planImport(
   // dedupe key per event type
   const eventKey = (t: string, contactId: string, roundId: string | null, date: string, product?: string | null) =>
     `${t}|${contactId}|${roundId ?? ""}|${sgDayOf(date)}|${product ?? ""}`;
+  /**
+   * An anonymous row has no contact, so `contact_id ?? ""` collapses every head
+   * in a room to one string that matches nothing the writer produces — and the
+   * re-import writes all of them again. 578 attendances became 790 that way.
+   * anon_key is the handle they were written with; 0054 stores it so this set
+   * can be rebuilt from what is already there.
+   */
   const seenEvents = new Set(
-    events.map((e) => eventKey(e.event_type, e.contact_id ?? "", e.round_id, e.event_date, e.product)),
+    events.map((e) =>
+      eventKey(e.event_type, e.anon_key ?? e.contact_id ?? "", e.round_id, e.event_date, e.product),
+    ),
   );
 
   // newly created contacts are matchable by later rows in the SAME file
@@ -837,7 +847,7 @@ export async function planImport(
         seenEvents.add(key);
         track(sgDayOf(when));
         plan.ops.events.push({
-          event_id: uuid(), contact_id: null, round_id: anonAttr.roundId, event_type: "lead",
+          event_id: uuid(), contact_id: null, round_id: anonAttr.roundId, event_type: "lead", anon_key: anon,
           event_date: when, lead_round_id: anonAttr.roundId, attribution_method: anonAttr.method,
           utm_campaign: val(r, "utm_campaign") || null,
           ad_set: anonSet, ad: val(r, "ad"),
@@ -861,16 +871,24 @@ export async function planImport(
       const utm = val(r, "utm_campaign");
       /**
        * A named round is not a hint, it is the file saying which of its lists
-       * this row was on. Only the UTM outranks it — a click on a round's ad is
-       * evidence about that ad — and a name that matches no round is ignored
-       * rather than trusted, so a typo cannot invent an attribution.
+       * this row was on, and nothing outranks it.
+       *
+       * The UTM did, briefly, on the reasoning that a click on a round's ad is
+       * evidence about that ad. It is — about the AD, which this row still
+       * records in ad_set and ad, and which every audience and creative figure
+       * is built from. It is not evidence about WHICH CLASS THEY SIGNED UP FOR.
+       * Somebody can click June's ad and register for July's webinar, and 90 of
+       * Shely's leads did exactly that: the UTM moved them to the round whose
+       * ad they clicked and off the list they were actually on.
+       *
+       * A name that matches no round is ignored rather than trusted, so a typo
+       * cannot invent an attribution.
        */
       const declared = val(r, "round_id");
       const stated = declared ? resolveRoundRef(declared, rounds) : null;
       const guess = attributeLead(when, adSet, rounds, adRuns);
-      const useStated = stated !== null && guess.method !== "utm";
-      const roundId = useStated ? stated : guess.roundId;
-      const method = useStated ? "declared" : guess.method;
+      const roundId = stated ?? guess.roundId;
+      const method = stated ? "declared" : guess.method;
       if (declared && !stated) {
         warnings.push(`Round "${declared}" isn't a round for this client — that row was attributed the usual way.`);
       }
@@ -947,7 +965,7 @@ export async function planImport(
         track(sgDayOf(anonWhen));
         plan.ops.events.push({
           event_id: uuid(), contact_id: null, round_id: roundId, event_type: eventType,
-          event_date: anonWhen,
+          event_date: anonWhen, anon_key: anon,
           // No lead behind them, so no acquisition round to inherit. Left null
           // rather than filled with roundId: this round's class is where they
           // were, not where they came from, and the two must not be conflated.

@@ -648,6 +648,29 @@ console.log("\nPipeline — sales");
   eq("and no ad credit", ghost.is_lead, false);
 }
 
+console.log("\nPipeline — a headcount survives being counted twice");
+{
+  const ROSTER = ["Session,Email,Name", "0526-02,,Katherine", "0526-02,,Marcus"].join("\n");
+  const t: Tables = { rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [], unmatched_rows: [], import_batches: [] };
+  const run = async (batchId: string) => {
+    const db = writableDb(t);
+    const plan = await planImport(db, { source: "attendance", clientId: "shely", fileName: "a.csv", text: ROSTER });
+    (t.import_batches ??= []).push({ batch_id: batchId, client_id: "shely", source: "attendance", status: "staged",
+      coverage_start: plan.coverage.start, coverage_end: plan.coverage.end });
+    await commitPlan(db, batchId, plan);
+    return plan;
+  };
+  await run("r1");
+  eq("two heads counted", (t.events ?? []).filter((e) => e.event_type === "attendance").length, 2);
+  // The bug: the name was the write key and was never stored, so the second
+  // import could not recognise them. 578 attendances became 790 this way.
+  const second = await run("r2");
+  eq("re-importing the same roster adds nobody", (t.events ?? []).filter((e) => e.event_type === "attendance").length, 2);
+  eq("and says they were already there", second.counts.duplicates, 2);
+  eq("the handle is stored, not the person", (t.events ?? [])[0].anon_key, "anon:katherine");
+  eq("and no contact was invented", (t.contacts ?? []).length, 0);
+}
+
 console.log("\nPipeline — the list a lead was on beats a guess about dates");
 {
   const db = fakeDb({
@@ -674,7 +697,12 @@ console.log("\nPipeline — the list a lead was on beats a guess about dates");
     (c) => c.contact_id === x.contact_id && c.email === e))!;
   eq("the named round wins over the date window", by("early@example.sg").round_id, "0526-03");
   eq("and is recorded as declared, not guessed", by("early@example.sg").attribution_method, "declared");
-  eq("a utm still outranks the named round", by("clicked@example.sg").round_id, "0526-02");
+  // The UTM records which AD they clicked — ad_set and ad still carry it, and
+  // every audience figure is built from those. It does not decide which class
+  // they signed up for: 90 of Shely's leads clicked one round's ad and
+  // registered for a later round's webinar.
+  eq("the named round outranks even a utm", by("clicked@example.sg").round_id, "0526-03");
+  eq("but the ad they clicked is still recorded", by("clicked@example.sg").ad_set, "Cold_Broad");
   eq("an unknown round falls back instead of inventing one", by("typo@example.sg").round_id, "0526-02");
   eq("and the import says so", plan.warnings.some((w) => w.includes("9999-99")), true);
 }
