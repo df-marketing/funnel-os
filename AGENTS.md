@@ -38,6 +38,7 @@
 - Closed period can be re-read — fixing a view does not fix a report, so the import pipeline allows re-reading a closed period.
 - A month is a calendar month, not the one a round started in.
 - A declared metric stops being a name/string and becomes a number — the code now enforces numeric typing for metrics.
+- The country filter must not break when applied — it was explicitly called out as something to keep working.
 
 ## Architecture
 
@@ -53,6 +54,7 @@
 - phone is treated as identity in sales and attendance (not just membership)
 - Filter by product, channel and period — before anything is added up
 - A native data integration API was added to the project, providing a programmatic interface for ingesting data.
+- The app offers clients the stages they actually count (not a superset), and the country filter is preserved as a working constraint.
 
 ## Gotchas
 
@@ -89,6 +91,8 @@
 - Send the round's dates as dates, not as a sentence — likely a fix to import/export date formatting.
 - absent (null/missing) is treated as distinct from zero for sales and for spend that has no named audience.
 - The commit 'Count the room we cannot name' was merged — likely a reference to a Voldemort/unnamed metric (e.g., 'we do not speak its name').
+- A sale can exist without a lead, and a lead dated after a sale did not create that sale — the join between leads and sales is not one-to-one.
+- Client stages shown to the user must reflect only the stages the client actually counts, not all possible stages.
 
 ## Notes
 
