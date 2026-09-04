@@ -101,9 +101,11 @@ export default async function Page({
    * list has been resolved, and this is a tab nobody opens by accident.
    */
   const wire = view === "acqos" ? await loadWire(current.client_id) : null;
-  // Only the Import tab needs to know what else this database measures, and it
+  // Only the Import tab needs to know what else THIS CLIENT measures, and it
   // needs it fresh — a metric declared a minute ago should have a dropzone.
-  const declared = view === "import" ? await loadDeclaredMetrics() : [];
+  // Scoped to the client: what the database can measure and what this client
+  // counts are different questions, and the heading answers the second.
+  const declared = view === "import" ? await loadDeclaredMetrics(current.client_id) : [];
   /**
    * A stage tab is headed by the name the journey gives it, not by one this
    * file invented.
