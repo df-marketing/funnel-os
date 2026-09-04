@@ -42,6 +42,7 @@
 - Middle pricing offer was removed from display/pricing
 - Bucket instants by the local day; drop stale plans on commit
 - every tab you can drill into can be left again — navigation is bidirectional.
+- The unmatched queue is now two-way.
 
 ## Architecture
 
@@ -101,6 +102,7 @@
 - Five import bugs found and fixed by testing against real exports
 - Unmatched queue made two-way; accept no longer loses money (fix for fund discard bug)
 - A link omits this tab's default, not the global one — behavior is scoped to the current tab's default rather than a site-wide default.
+- Accepting an unmatched item was discarding funds; fixed so accept no longer loses money.
 
 ## Notes
 
