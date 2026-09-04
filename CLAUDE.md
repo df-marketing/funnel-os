@@ -147,3 +147,4 @@
 - commit: 'An asset moves between rounds' — indicates a data model change where an asset (likely a financial or inventory item) is transferred or reallocated between rounds (e.g., import rounds, commitment rounds).
 - A tab drills only when something is drilled into
 - A variant is a thing you can compare
+- v_events view was given the column that the views read it for (likely a missing column fix).
