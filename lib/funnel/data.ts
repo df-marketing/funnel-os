@@ -128,6 +128,7 @@ export type UnmatchedRow = {
 
 type Cut2 =
   | "month" | "week" | "round" | "adset" | "source" | "roundsource"
+  | "adround" | "adsetround"
   | "ad" | "session" | "preview" | "middle" | "thisround";
 
 /**
@@ -187,6 +188,7 @@ export type Dashboard = {
   byAdset: Cut[];
   bySource: Cut[];
   byRoundSource: Cut[];
+  byAssetRound: Cut[];
   /**
    * The open tab's columns, whichever cut it reads. The per-cut arrays above
    * exist so each pane can name the one it means; this is the same list under a
@@ -221,7 +223,7 @@ export type Dashboard = {
 const EMPTY: Omit<Dashboard, "error" | "errorHint" | "view"> = {
   clients: [], stages: [], strip: [], total: null, baseline: null,
   products: [], channels: [], periods: [], filter: NO_FILTER, cadences: ["round"],
-  byMonth: [], byWeek: [], byRound: [], byAdset: [], bySource: [], byRoundSource: [],
+  byMonth: [], byWeek: [], byRound: [], byAdset: [], bySource: [], byRoundSource: [], byAssetRound: [],
   byAd: [], bySession: [], byOffer: [], thisRound: [],
   columns: [], roundContext: null,
   imports: [], unmatched: null,
@@ -240,6 +242,15 @@ const NEEDS_ROUNDS = new Set(["round"]);
 const NEEDS_ADSETS = new Set(["targeting"]);
 const NEEDS_SOURCES = new Set(["source"]);
 const NEEDS_ROUND_SOURCE = new Set(["roundsource"]);
+/**
+ * The same asset, round after round.
+ *
+ * A separate cut rather than a mode on the ads tab, because the two answer
+ * different questions and the flat one is still the right way to choose what to
+ * run next. This one is for noticing that the answer changed.
+ */
+const NEEDS_AD_ROUND = new Set(["adround"]);
+const NEEDS_ADSET_ROUND = new Set(["adsetround"]);
 const NEEDS_ADS = new Set(["ads"]);
 const NEEDS_SESSION = new Set(["class"]);
 const NEEDS_OFFER = new Set(["preview", "middle"]);
@@ -254,6 +265,8 @@ const cutFor = (view: string): Cut2 | null =>
   : NEEDS_ADSETS.has(view) ? "adset"
   : NEEDS_SOURCES.has(view) ? "source"
   : NEEDS_ROUND_SOURCE.has(view) ? "roundsource"
+  : NEEDS_AD_ROUND.has(view) ? "adround"
+  : NEEDS_ADSET_ROUND.has(view) ? "adsetround"
   : NEEDS_ADS.has(view) ? "ad"
   : NEEDS_SESSION.has(view) ? "session"
   // the two offer tabs share one view, told apart by a product filter, so a
@@ -426,6 +439,8 @@ const VIEW_FOR: Record<Cut2, string> = {
   middle:      "v_metrics_by_offer",
   thisround:   "v_metrics_this_round",
   adset:       "v_metrics_by_adset",
+  adround:     "v_metrics_by_ad_round",
+  adsetround:  "v_metrics_by_adset_round",
 };
 
 const loadMetrics = unstable_cache(
@@ -705,6 +720,10 @@ async function build(
     byAdset: NEEDS_ADSETS.has(view) ? (metrics?.columns ?? []) : [],
     bySource: NEEDS_SOURCES.has(view) ? (metrics?.columns ?? []) : [],
     byRoundSource: NEEDS_ROUND_SOURCE.has(view) ? (metrics?.columns ?? []) : [],
+    // One slot for both, because the tab already says which asset it is about
+    // and the shape is identical either way.
+    byAssetRound:
+      NEEDS_AD_ROUND.has(view) || NEEDS_ADSET_ROUND.has(view) ? (metrics?.columns ?? []) : [],
     columns: metrics?.columns ?? [],
     roundContext: context,
     unmatchedReasons: detail?.reasons ?? [],

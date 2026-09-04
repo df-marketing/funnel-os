@@ -22,6 +22,8 @@ const TITLES: Record<string, [string, string]> = {
   round:       ["By round", "One column per round. Adding 0826-02 adds a column, not a formula."],
   source:      ["By source", "Paid, organic, AOAI and the derived previous-round column."],
   roundsource: ["Round × source", "Both dimensions at once. Any dimension can be the columns; any other can split them."],
+  adsetround: ["Targeting × round", "One block per audience, its rounds along it. The flat tab says which audience is best; this one says whether that changed."],
+  adround: ["Ad × round", "One block per creative, its rounds along it. A creative at 2.2 overall can be 7.7 in one round and nothing in the next."],
   targeting:   ["Targeted views", "Every round's spend on each audience, summed — like for like."],
   ads:         ["Ads", "Creative, not audience. Same rounds, cut by the ad that ran."],
   lp:          ["Landing page", "Only rounds where more than one page ran, so a page isn't credited for traffic it never saw."],
@@ -351,6 +353,34 @@ export default async function Page({
                     The columns sum to the total, and the total matches{" "}
                     <b>By round</b> — the same events, cut a different way. A source with no leads
                     yet has no column at all.
+                  </>
+                }
+              />
+            </>
+          ) : null}
+
+          {(view === "adround" || view === "adsetround") && !showGraph ? (
+            <>
+              <div className="pane-head">
+                <h1>{title}</h1>
+                <p>{blurb}</p>
+              </div>
+              <SpineTable
+                title={view === "adround" ? "Ad × round" : "Targeting × round"}
+                sub={
+                  view === "adround"
+                    ? "one block per creative, every round it ran in, oldest first"
+                    : "one block per audience, every round it ran in, oldest first"
+                }
+                baseline={data.baseline}
+                total={data.total}
+                cuts={data.byAssetRound}
+                notice={
+                  <>
+                    <b>Reach is blank here on purpose.</b> Reach counts distinct people, so it
+                    cannot be added up across an asset&rsquo;s rounds — Meta only reports it per
+                    query. Every other figure is the same arithmetic as the flat tab, so a block
+                    here sums to that tab&rsquo;s row.
                   </>
                 }
               />
