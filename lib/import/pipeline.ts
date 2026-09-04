@@ -950,7 +950,8 @@ export async function planImport(
         event_id: uuid(), contact_id: contactId, round_id: roundId, event_type: "lead",
         event_date: when, lead_round_id: roundId, attribution_method: method,
         utm_campaign: utm || null, ad_set: adSet, ad: adName,
-        source: src, match_status: outcome.kind === "auto" ? "auto_resolved" : "matched",
+        source: src, variant: val(r, "variant"),
+        match_status: outcome.kind === "auto" ? "auto_resolved" : "matched",
       });
       supersede(r, contactId);
       plan.diff.newRows++;
@@ -1047,6 +1048,7 @@ export async function planImport(
         lead_round_id: leadRoundAsOf(contactId, when),
         source: sourceFor(contactId, when, val(r, "source")),
         minutes_watched: Math.round(toNumber(val(r, "minutes_watched")) ?? 0) || null,
+        variant: val(r, "variant"),
         match_status: outcome.kind === "auto" ? "auto_resolved" : "matched",
       });
       supersede(r, contactId);

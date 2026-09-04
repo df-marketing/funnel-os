@@ -10,7 +10,8 @@
 export type Cut2 =
   | "month" | "week" | "round" | "adset" | "source" | "roundsource"
   | "adround" | "adsetround"
-  | "ad" | "session" | "preview" | "middle" | "thisround";
+  | "ad" | "session" | "preview" | "middle" | "thisround"
+  | "variant" | "variantround";
 
 const NEEDS_MONTHS = new Set(["month"]);
 /**
@@ -25,10 +26,12 @@ const NEEDS_SOURCES = new Set(["source"]);
 const NEEDS_ROUND_SOURCE = new Set(["roundsource"]);
 const NEEDS_ADS = new Set(["ads"]);
 const NEEDS_SESSION = new Set(["class"]);
+/** A people-side A/B — reminder sequence, landing page, whatever was tested. */
+const NEEDS_VARIANT = new Set(["variant"]);
 export const NEEDS_OFFER = new Set(["preview", "middle"]);
 export const NEEDS_THIS_ROUND = new Set(["analysis"]);
 export const NEEDS_UNMATCHED_DETAIL = new Set(["unmatched"]);
-export { NEEDS_MONTHS, NEEDS_WEEKS, NEEDS_ROUNDS, NEEDS_ADSETS, NEEDS_SOURCES, NEEDS_ROUND_SOURCE, NEEDS_ADS, NEEDS_SESSION };
+export { NEEDS_MONTHS, NEEDS_WEEKS, NEEDS_ROUNDS, NEEDS_ADSETS, NEEDS_SOURCES, NEEDS_ROUND_SOURCE, NEEDS_ADS, NEEDS_SESSION, NEEDS_VARIANT };
 
 /**
  * THE ASSET SWITCH LIVES INSIDE THE TAB'S OWN BRANCH, DELIBERATELY.
@@ -49,6 +52,7 @@ export const cutFor = (view: string, asset: string | null = null): Cut2 | null =
   : NEEDS_SOURCES.has(view) ? "source"
   : NEEDS_ROUND_SOURCE.has(view) ? "roundsource"
   : NEEDS_ADS.has(view) ? (asset ? "adround" : "ad")
+  : NEEDS_VARIANT.has(view) ? (asset ? "variantround" : "variant")
   : NEEDS_SESSION.has(view) ? "session"
   // the two offer tabs share one view, told apart by a product filter, so a
   // metric cannot mean one thing on Preview and another on Middle
@@ -74,6 +78,7 @@ export const narrowToAsset = <T extends { group_key?: string | null }>(
   view: string,
   asset: string | null,
 ): T[] => {
-  const isAssetTab = cutFor(view) === "adset" || cutFor(view) === "ad";
+  const flat = cutFor(view);
+  const isAssetTab = flat === "adset" || flat === "ad" || flat === "variant";
   return isAssetTab && asset ? cuts.filter((c) => c.group_key === asset) : cuts;
 };

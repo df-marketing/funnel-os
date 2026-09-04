@@ -22,6 +22,7 @@ const TITLES: Record<string, [string, string]> = {
   round:       ["By round", "One column per round. Adding 0826-02 adds a column, not a formula."],
   source:      ["By source", "Paid, organic, AOAI and the derived previous-round column."],
   roundsource: ["Round × source", "Both dimensions at once. Any dimension can be the columns; any other can split them."],
+  variant: ["A/B variants", "Whatever was tested on people once they were here — a reminder sequence, a landing page, a subject line. Click one to see it round by round."],
   targeting:   ["Targeted views", "Every round's spend on each audience, summed — like for like."],
   ads:         ["Ads", "Creative, not audience. Same rounds, cut by the ad that ran."],
   lp:          ["Landing page", "Only rounds where more than one page ran, so a page isn't credited for traffic it never saw."],
@@ -375,6 +376,37 @@ export default async function Page({
                     The columns sum to the total, and the total matches{" "}
                     <b>By round</b> — the same events, cut a different way. A source with no leads
                     yet has no column at all.
+                  </>
+                }
+              />
+            </>
+          ) : null}
+
+          {view === "variant" && !showGraph ? (
+            <>
+              <div className="pane-head">
+                <h1>{title}</h1>
+                <p>{blurb}</p>
+              </div>
+              <SpineTable
+                title={filter.asset ? `${filter.asset}, round by round` : "Variant comparison"}
+                sub={
+                  filter.asset
+                    ? "the rounds this arm ran in, oldest first"
+                    : "one column per arm · read Attendance % first, it is what a reminder sequence moves"
+                }
+                baseline={data.baseline}
+                total={data.total}
+                cuts={data.byVariant}
+                drillTo={filter.asset ? undefined : (c) => withAsset(c.cut_key)}
+                notice={
+                  <>
+                    <b>Spend is blank here, and that is the honest answer.</b> The ads were bought
+                    before anyone was sorted into an arm, so no money belongs to one — splitting it
+                    would invent a cost per lead nobody paid. What a variant moves is what happens
+                    to people already here: <b>Attendance %</b>, then purchases.{" "}
+                    <b>Read the rounds before believing the total.</b> An arm can win overall and
+                    lose most rounds.
                   </>
                 }
               />

@@ -164,6 +164,21 @@ export const SOURCES: Record<SourceKey, SourceSpec> = {
       f("ad_set", false, "utm_term", "ad set name", "adset", "audience", "utm_campaign"),
       f("ad", false, "utm_content", "ad name", "creative"),
       f("utm_campaign", false, "utm campaign", "campaign"),
+      /**
+       * WHICH ARM OF A TEST THIS PERSON WAS IN.
+       *
+       * Optional, and generic on purpose. Shely's Registration Lists have
+       * carried "WA Sequence A" / "WA Sequence B" since 0726-02 — 357 people
+       * across four rounds — and the app could not read it, so the question it
+       * was run to answer had no screen. The same column holds an email
+       * sequence, a landing page, a subject line or a price test; the app
+       * compares whatever the export names, without a migration per experiment.
+       *
+       * Never inferred. Blank means the export did not say, which is not the
+       * same as a control group and is not counted as one.
+       */
+      f("variant", false, "wa sequence", "whatsapp sequence", "email sequence",
+        "reminder sequence", "sequence", "test variant", "ab test", "experiment"),
     ],
   },
   attendance: {
@@ -191,6 +206,21 @@ export const SOURCES: Record<SourceKey, SourceSpec> = {
       f("source", false, "lead source", "acquisition source"),
       f("event_date", false, "joined at", "join time", "date"),
       f("minutes_watched", false, "minutes", "duration", "time in session"),
+      /**
+       * WHICH ARM OF A TEST THIS PERSON WAS IN.
+       *
+       * Optional, and generic on purpose. Shely's Registration Lists have
+       * carried "WA Sequence A" / "WA Sequence B" since 0726-02 — 357 people
+       * across four rounds — and the app could not read it, so the question it
+       * was run to answer had no screen. The same column holds an email
+       * sequence, a landing page, a subject line or a price test; the app
+       * compares whatever the export names, without a migration per experiment.
+       *
+       * Never inferred. Blank means the export did not say, which is not the
+       * same as a control group and is not counted as one.
+       */
+      f("variant", false, "wa sequence", "whatsapp sequence", "email sequence",
+        "reminder sequence", "sequence", "test variant", "ab test", "experiment"),
     ],
   },
   sales: {

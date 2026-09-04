@@ -180,6 +180,9 @@ export const DEFAULT_OPTS: ViewOpts = { mode: "table", objective: "att", vs: "cp
  */
 export const GRAPHABLE = new Set([
   "month", "week", "round", "source", "targeting", "ads", "class", "preview", "middle",
+  // A variant has no spend of its own, so the left axis is empty and the plot
+  // is one line — still the right shape for "did the show rate move".
+  "variant",
 ]);
 
 /**

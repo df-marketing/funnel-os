@@ -685,6 +685,30 @@ console.log("\nPipeline — Meta's duplicate suffix is not a different audience"
   eq("a name that is not a suffix is left alone", keep.ops.events[0].ad_set, "Copywriting_Coaches");
 }
 
+console.log("\nPipeline — the arm of a test is read, never inferred");
+{
+  const db = fakeDb({ rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [] });
+  const plan = await planImport(db, {
+    source: "leads", clientId: "shely", fileName: "l.csv",
+    // The header Shely's own Registration Lists use. 357 people carried it for
+    // four rounds while the app could not read the column.
+    text: [
+      "Round,Email,Created,Source,WA Sequence",
+      "a@example.sg,2026-05-14,Paid Ads,x".replace(/^/, "0526-02,"),
+      "0526-02,b@example.sg,2026-05-14,Paid Ads,WA Sequence A",
+      "0526-02,c@example.sg,2026-05-14,Paid Ads,WA Sequence B",
+      "0526-02,d@example.sg,2026-05-14,Paid Ads,",
+    ].join("\n"),
+  });
+  const by = (e: string) => plan.ops.events.find((x) =>
+    plan.ops.contacts.some((c) => c.contact_id === x.contact_id && c.email === e))!;
+  eq("the column is recognised by the name the export uses", by("b@example.sg").variant, "WA Sequence A");
+  eq("and the other arm", by("c@example.sg").variant, "WA Sequence B");
+  // Blank is not a control group and must not be turned into one.
+  eq("no arm stated is null, not a bucket", by("d@example.sg").variant, null);
+  eq("nothing is invented from the source", by("a@example.sg").variant, "x");
+}
+
 console.log("\nPipeline — a headcount survives being counted twice");
 {
   const ROSTER = ["Session,Email,Name", "0526-02,,Katherine", "0526-02,,Marcus"].join("\n");
@@ -737,6 +761,10 @@ console.log("\nCuts — a tab drills only when something is drilled into");
   // A stray ?asset= on another tab must not silently empty it.
   eq("a stray asset cannot narrow By round", narrowToAsset(cols, "round", "Cold_Broad").length, 3);
   eq("nor By source", narrowToAsset(cols, "source", "Cold_Broad").length, 3);
+
+  // The variant tab drills the same way — an arm, then that arm's rounds.
+  eq("variants, nothing selected", cutFor("variant", null), "variant");
+  eq("one arm selected, its rounds", cutFor("variant", "WA Sequence A"), "variantround");
 }
 
 console.log("\nPipeline — the list a lead was on beats a guess about dates");
