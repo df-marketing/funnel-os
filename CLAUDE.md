@@ -106,6 +106,9 @@
 - Unmatched queue made two-way; accept no longer loses money (fix for fund discard bug)
 - A link omits this tab's default, not the global one — behavior is scoped to the current tab's default rather than a site-wide default.
 - Accepting an unmatched item was discarding funds; fixed so accept no longer loses money.
+- Callers must be moved before dropping what they call — indicates a dependency ordering constraint.
+- Stripe integration was fully dropped from the project.
+- Accepting an unmatched item previously lost money — fixed by making the unmatched queue two-way.
 
 ## Notes
 
