@@ -22,8 +22,6 @@ const TITLES: Record<string, [string, string]> = {
   round:       ["By round", "One column per round. Adding 0826-02 adds a column, not a formula."],
   source:      ["By source", "Paid, organic, AOAI and the derived previous-round column."],
   roundsource: ["Round × source", "Both dimensions at once. Any dimension can be the columns; any other can split them."],
-  adsetround: ["Targeting × round", "One block per audience, its rounds along it. The flat tab says which audience is best; this one says whether that changed."],
-  adround: ["Ad × round", "One block per creative, its rounds along it. A creative at 2.2 overall can be 7.7 in one round and nothing in the next."],
   targeting:   ["Targeted views", "Every round's spend on each audience, summed — like for like."],
   ads:         ["Ads", "Creative, not audience. Same rounds, cut by the ad that ran."],
   lp:          ["Landing page", "Only rounds where more than one page ran, so a page isn't credited for traffic it never saw."],
@@ -47,6 +45,7 @@ export default async function Page({
   searchParams: Promise<{
     client?: string; view?: string;
     product?: string; channel?: string; from?: string; to?: string;
+    asset?: string;
     mode?: string; objective?: string; vs?: string;
   }>;
 }) {
@@ -62,7 +61,30 @@ export default async function Page({
     channel: params.channel || null,
     from: params.from || null,
     to: params.to || null,
+    // Which single asset the ads and targeting tabs are drilled into. Absent
+    // means all of them, which is what those tabs have always shown.
+    asset: params.asset || null,
   };
+  /**
+   * Drilling into one asset, and back out again.
+   *
+   * The same URL machinery as every other filter, so a single creative's whole
+   * history is a link you can send to someone — which is the point: "look at
+   * what happened to this ad in July" should not require telling them which
+   * five controls to set.
+   */
+  const withAsset = (a: string | null) => {
+    const q = new URLSearchParams();
+    q.set("client", params.client ?? "");
+    if (params.view) q.set("view", params.view);
+    for (const k of ["product", "channel", "from", "to", "mode", "objective", "vs"] as const) {
+      const v = params[k];
+      if (v) q.set(k, v);
+    }
+    if (a) q.set("asset", a);
+    return `/?${q}`;
+  };
+
   /** Table or graph, and what the graph is about. Same rule: the URL is the state. */
   const opts: ViewOpts = {
     mode: params.mode === "graph" ? "graph" : "table",
@@ -359,34 +381,6 @@ export default async function Page({
             </>
           ) : null}
 
-          {(view === "adround" || view === "adsetround") && !showGraph ? (
-            <>
-              <div className="pane-head">
-                <h1>{title}</h1>
-                <p>{blurb}</p>
-              </div>
-              <SpineTable
-                title={view === "adround" ? "Ad × round" : "Targeting × round"}
-                sub={
-                  view === "adround"
-                    ? "one block per creative, every round it ran in, oldest first"
-                    : "one block per audience, every round it ran in, oldest first"
-                }
-                baseline={data.baseline}
-                total={data.total}
-                cuts={data.byAssetRound}
-                notice={
-                  <>
-                    <b>Reach is blank here on purpose.</b> Reach counts distinct people, so it
-                    cannot be added up across an asset&rsquo;s rounds — Meta only reports it per
-                    query. Every other figure is the same arithmetic as the flat tab, so a block
-                    here sums to that tab&rsquo;s row.
-                  </>
-                }
-              />
-            </>
-          ) : null}
-
           {view === "roundsource" && !showGraph ? (
             <>
               <div className="pane-head">
@@ -418,6 +412,24 @@ export default async function Page({
             </>
           ) : null}
 
+          {/*
+            Drilled in, the columns stopped being assets and became rounds. That
+            is a different question on the same tab, so it says so — and offers
+            the way back, because a filter you cannot see is a filter you cannot
+            undo.
+          */}
+          {(view === "targeting" || view === "ads") && filter.asset ? (
+            <div className="notice info" style={{ marginBottom: 12 }}>
+              <span className="ico">→</span>
+              <div>
+                <b>{filter.asset}</b>, round by round — the columns are its rounds, oldest first.
+                Every figure is the same arithmetic as the combined view, so these columns sum to
+                that tab&rsquo;s column.{" "}
+                <a href={withAsset(null)}>Back to all {view === "ads" ? "creatives" : "audiences"}</a>.
+              </div>
+            </div>
+          ) : null}
+
           {view === "targeting" && !showGraph ? (
             <>
               <div className="pane-head">
@@ -430,6 +442,7 @@ export default async function Page({
                 baseline={data.baseline}
                 total={data.total}
                 cuts={data.byAdset}
+                drillTo={filter.asset ? undefined : (c) => withAsset(c.group_key ?? c.cut_key)}
                 notice={
                   <>
                     <b>Audiences are bridged from people to ads by</b>{" "}
@@ -465,6 +478,7 @@ export default async function Page({
                 baseline={data.baseline}
                 total={data.total}
                 cuts={data.byAd}
+                drillTo={filter.asset ? undefined : (c) => withAsset(c.group_key ?? c.cut_key)}
                 notice={
                   <>
                     <b>Spend and impressions are per creative; reach and clicks are not.</b> Both

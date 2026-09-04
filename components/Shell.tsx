@@ -21,6 +21,7 @@ const href = (client: string, view: string, f?: FilterKey, o?: ViewOpts) => {
   if (f?.channel) q.set("channel", f.channel);
   if (f?.from) q.set("from", f.from);
   if (f?.to) q.set("to", f.to);
+  if (f?.asset) q.set("asset", f.asset);
   // Carried on every link so switching tabs keeps you in the graph you were
   // reading, instead of dropping you back into the table each time.
   if (o && o.mode !== DEFAULT_OPTS.mode) q.set("mode", o.mode);
@@ -37,11 +38,11 @@ const href = (client: string, view: string, f?: FilterKey, o?: ViewOpts) => {
  * sidebar. Cadence decides the sidebar — see `cadencesFor` in data.ts — and a
  * URL for the wrong spine is redirected to the right one rather than 404'd.
  */
-export const FIXED_VIEWS = ["import", "unmatched", "month", "week", "round", "source", "roundsource", "adround", "adsetround", "analysis"];
+export const FIXED_VIEWS = ["import", "unmatched", "month", "week", "round", "source", "roundsource", "analysis"];
 
 /** Which tabs are wired to real Supabase data today. Everything else says so. */
 export const WIRED = new Set([
-  "month", "week", "round", "source", "roundsource", "adround", "adsetround",
+  "month", "week", "round", "source", "roundsource",
   "targeting", "ads", "class", "preview", "middle",
   "analysis", "import", "unmatched", "acqos",
 ]);
@@ -386,8 +387,6 @@ export function SideNav({
       {cadences.includes("round") ? item("round", "By round") : null}
       {item("source", "By source")}
       {item("roundsource", "Round × source")}
-      {item("adsetround", "Targeting × round")}
-      {item("adround", "Ad × round")}
 
       <div className="nav-group">
         Compare <span className="derived">one per journey stage</span>

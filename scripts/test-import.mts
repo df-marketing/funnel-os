@@ -28,7 +28,7 @@ import {
 import { cadencesFor, resolveSpine } from "../lib/funnel/cadence";
 import {
   niceMax, axisMax, num, chartModel, lineRuns, colX, valueY, floorY, ticksFor, TICKS, GEO,
-  colWidth, chartWidth, labelChars, wrapLabel, VS_OPTIONS, vsOption, isVs, DEFAULT_OPTS,
+  colWidth, chartWidth, labelChars, wrapLabel, VS_OPTIONS, vsOption, isVs, DEFAULT_OPTS, AMOUNT_OF,
 } from "../lib/funnel/chart";
 import {
   compare, movesFor, issuesIn, rankedIssues, tooThinIn, missedTargetIn, diffAssets,
@@ -1355,13 +1355,21 @@ console.log("\nCommit — re-importing a source retires the batch it replaces");
   eq("and up is better there", chartModel([cut("x", { rev: "5067" })], "roas").vs.betterWhen, "higher");
 
   /**
-   * One control, eight options. It used to be four objectives x two readings,
-   * which put the same metric name in both rows at once.
+   * One control, nine options. It used to be four objectives x two readings,
+   * which put the same metric name in both rows at once. Frequency was the
+   * ninth: drilled into one asset, it is the reading that shows an audience
+   * going numb, and no view that sums the rounds together can.
    */
-  eq("eight ways to read spend, and no repeats",
-     new Set(VS_OPTIONS.map((o) => o.short)).size, 8);
+  eq("nine ways to read spend, and no repeats",
+     new Set(VS_OPTIONS.map((o) => o.short)).size, 9);
   eq("four are the outcome itself", VS_OPTIONS.filter((o) => o.kind === "amount").length, 4);
-  eq("four are its efficiency", VS_OPTIONS.filter((o) => o.kind === "efficiency").length, 4);
+  eq("five are its efficiency", VS_OPTIONS.filter((o) => o.kind === "efficiency").length, 5);
+  // Frequency is impressions over reach and reach is not additive (0016), so
+  // it must NOT bring a count to draw beside spend the way the others do.
+  eq("frequency has no amount to draw beside it", AMOUNT_OF.freq, undefined);
+  eq("every other efficiency does",
+     VS_OPTIONS.filter((o) => o.kind === "efficiency" && o.key !== "freq")
+       .every((o) => !!AMOUNT_OF[o.key]), true);
   eq("no short label appears in both rows",
      VS_OPTIONS.filter((o) => o.kind === "amount")
        .some((a) => VS_OPTIONS.some((b) => b.kind === "efficiency" && b.short === a.short)), false);

@@ -90,7 +90,7 @@ export const isObjective = (v: string | null | undefined): v is ObjectiveKey =>
  * `objective` survives on This round, where it genuinely names a goal rather
  * than picking a line.
  */
-export type VsKey = "leads" | "att" | "prevBuy" | "rev" | "cpl" | "cpAtt" | "cpa" | "roas";
+export type VsKey = "leads" | "att" | "prevBuy" | "rev" | "cpl" | "cpAtt" | "cpa" | "roas" | "freq";
 
 export type VsOption = {
   key: VsKey;
@@ -116,6 +116,21 @@ export const VS_OPTIONS: VsOption[] = [
   // The one that goes UP when it improves. It sits with the efficiencies
   // because that is what it measures, not because it is a cost.
   { key: "roas",    metric: "roas",    short: "ROAS",                label: "Overall ROAS",              fmt: "d1", kind: "efficiency", betterWhen: "higher" },
+  /**
+   * FREQUENCY — the one that answers "have they seen it too many times".
+   *
+   * It sits with the efficiencies because it is a rate rather than an amount,
+   * and lower is better in the sense that matters here: the same audience
+   * shown the same creative eleven times is not the audience that saw it
+   * twice, and the moment that stops working is invisible on any view that
+   * sums the rounds together. Drilled into one asset, spend rising while
+   * frequency climbs and cost per lead climbs with it IS ad fatigue, drawn.
+   *
+   * No AMOUNT_OF entry: frequency is impressions over reach, and reach is not
+   * additive (0016), so the count behind it cannot honestly be drawn beside
+   * spend.
+   */
+  { key: "freq",    metric: "freq",    short: "Frequency",           label: "Frequency",                 fmt: "d2", kind: "efficiency", betterWhen: "lower" },
 ];
 
 /**

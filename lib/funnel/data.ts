@@ -141,9 +141,23 @@ export type FilterKey = {
   channel: string | null;
   from: string | null;
   to: string | null;
+  /**
+   * ONE ASSET, AND THEN THE ROUNDS ARE THE COLUMNS.
+   *
+   * Not a filter in the fo_cut sense — it never reaches the database settings.
+   * It turns the asset tabs from "every asset, summed over its rounds" into
+   * "this asset, round by round", which is the same tab answering the second
+   * half of the same question: the flat view says which creative is best, this
+   * says whether that has been true all along.
+   *
+   * Frequency is why it exists. An audience that has seen a creative eleven
+   * times is not the audience that saw it twice, and no amount of summing the
+   * rounds together will show the moment it stopped working.
+   */
+  asset: string | null;
 };
 
-export const NO_FILTER: FilterKey = { product: null, channel: null, from: null, to: null };
+export const NO_FILTER: FilterKey = { product: null, channel: null, from: null, to: null, asset: null };
 
 export type Product = {
   product_id: string;
@@ -188,7 +202,6 @@ export type Dashboard = {
   byAdset: Cut[];
   bySource: Cut[];
   byRoundSource: Cut[];
-  byAssetRound: Cut[];
   /**
    * The open tab's columns, whichever cut it reads. The per-cut arrays above
    * exist so each pane can name the one it means; this is the same list under a
@@ -223,7 +236,7 @@ export type Dashboard = {
 const EMPTY: Omit<Dashboard, "error" | "errorHint" | "view"> = {
   clients: [], stages: [], strip: [], total: null, baseline: null,
   products: [], channels: [], periods: [], filter: NO_FILTER, cadences: ["round"],
-  byMonth: [], byWeek: [], byRound: [], byAdset: [], bySource: [], byRoundSource: [], byAssetRound: [],
+  byMonth: [], byWeek: [], byRound: [], byAdset: [], bySource: [], byRoundSource: [],
   byAd: [], bySession: [], byOffer: [], thisRound: [],
   columns: [], roundContext: null,
   imports: [], unmatched: null,
@@ -249,25 +262,36 @@ const NEEDS_ROUND_SOURCE = new Set(["roundsource"]);
  * different questions and the flat one is still the right way to choose what to
  * run next. This one is for noticing that the answer changed.
  */
-const NEEDS_AD_ROUND = new Set(["adround"]);
-const NEEDS_ADSET_ROUND = new Set(["adsetround"]);
+const NEEDS_AD_ROUND = new Set(["ads"]);
+const NEEDS_ADSET_ROUND = new Set(["targeting"]);
 const NEEDS_ADS = new Set(["ads"]);
 const NEEDS_SESSION = new Set(["class"]);
 const NEEDS_OFFER = new Set(["preview", "middle"]);
 const NEEDS_THIS_ROUND = new Set(["analysis"]);
 const NEEDS_UNMATCHED_DETAIL = new Set(["unmatched"]);
 
+/**
+ * One asset's rounds, or every asset.
+ *
+ * The round cuts carry every asset at once so a single fetch serves both
+ * states; drilled in, only one group is wanted and its rounds become the
+ * columns. Matching on group_key rather than the label because the label is
+ * prettified for the screen and "(unsplit)" is not "Unsplit spend".
+ */
+const narrowToAsset = (cuts: Cut[], asset: string | null): Cut[] =>
+  !asset ? cuts : cuts.filter((c) => c.group_key === asset);
+
 /** The cut a tab reads, or null if it reads none. */
-const cutFor = (view: string): Cut2 | null =>
+const cutFor = (view: string, asset: string | null = null): Cut2 | null =>
   NEEDS_MONTHS.has(view) ? "month"
   : NEEDS_WEEKS.has(view) ? "week"
   : NEEDS_ROUNDS.has(view) ? "round"
-  : NEEDS_ADSETS.has(view) ? "adset"
+  : NEEDS_ADSETS.has(view) ? (asset ? "adsetround" : "adset")
   : NEEDS_SOURCES.has(view) ? "source"
   : NEEDS_ROUND_SOURCE.has(view) ? "roundsource"
   : NEEDS_AD_ROUND.has(view) ? "adround"
   : NEEDS_ADSET_ROUND.has(view) ? "adsetround"
-  : NEEDS_ADS.has(view) ? "ad"
+  : NEEDS_ADS.has(view) ? (asset ? "adround" : "ad")
   : NEEDS_SESSION.has(view) ? "session"
   // the two offer tabs share one view, told apart by a product filter, so a
   // metric cannot mean one thing on Preview and another on Middle
@@ -673,7 +697,7 @@ async function build(
   // Chrome and the requested tab's data go out together — one wave, not three.
   // The tab is fetched speculatively: confirming it's valid for this client needs
   // the journey stages, and waiting for those would put the waterfall back.
-  const wanted = cutFor(requested);
+  const wanted = cutFor(requested, filter.asset);
   const [chrome, strip, options, speculative, detail] = await Promise.all([
     loadChrome(id),
     loadStrip(id, filter),
@@ -693,7 +717,7 @@ async function build(
 
   // Only when the guess was wrong — switching to a client whose journey lacks the
   // open tab — does a second fetch happen, and it's usually a cache hit.
-  const settled = cutFor(view);
+  const settled = cutFor(view, filter.asset);
   const metrics =
     view === requested ? speculative : settled ? await loadMetrics(id, settled, filter) : null;
 
@@ -712,18 +736,18 @@ async function build(
     baseline: metrics?.baseline ?? null,
     byMonth: NEEDS_MONTHS.has(view) ? (metrics?.columns ?? []) : [],
     byWeek: NEEDS_WEEKS.has(view) ? (metrics?.columns ?? []) : [],
-    byAd: NEEDS_ADS.has(view) ? (metrics?.columns ?? []) : [],
+    byAd: NEEDS_ADS.has(view) ? narrowToAsset(metrics?.columns ?? [], filter.asset) : [],
     bySession: NEEDS_SESSION.has(view) ? (metrics?.columns ?? []) : [],
     byOffer: NEEDS_OFFER.has(view) ? (metrics?.columns ?? []) : [],
     thisRound: NEEDS_THIS_ROUND.has(view) ? (metrics?.columns ?? []) : [],
     byRound: NEEDS_ROUNDS.has(view) ? (metrics?.columns ?? []) : [],
-    byAdset: NEEDS_ADSETS.has(view) ? (metrics?.columns ?? []) : [],
+    // Drilled in, the columns are one asset's rounds; the tab renders the same
+    // table and the same plot, so the narrowing happens here rather than there.
+    byAdset: NEEDS_ADSETS.has(view) ? narrowToAsset(metrics?.columns ?? [], filter.asset) : [],
     bySource: NEEDS_SOURCES.has(view) ? (metrics?.columns ?? []) : [],
     byRoundSource: NEEDS_ROUND_SOURCE.has(view) ? (metrics?.columns ?? []) : [],
     // One slot for both, because the tab already says which asset it is about
     // and the shape is identical either way.
-    byAssetRound:
-      NEEDS_AD_ROUND.has(view) || NEEDS_ADSET_ROUND.has(view) ? (metrics?.columns ?? []) : [],
     columns: metrics?.columns ?? [],
     roundContext: context,
     unmatchedReasons: detail?.reasons ?? [],

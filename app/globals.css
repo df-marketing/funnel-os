@@ -381,6 +381,11 @@ footer b { color: var(--ink-2); }
 
 /* A left-axis amount is a bar: something you could add up. The right-hand
    series stays a line, because a rate is not a quantity you can stack. */
+/* A column header that leads somewhere. Underlined on hover only, so forty
+   numeric columns do not read as forty links. */
+.col-drill { color: inherit; text-decoration: none; border-bottom: 1px dotted currentColor; }
+.col-drill:hover { border-bottom-style: solid; }
+
 .chart-bar { stroke: none; }
 .chart-bar-0 { fill: var(--plot-a); }
 .chart-bar-1 { fill: var(--plot-a); opacity: .42; }
