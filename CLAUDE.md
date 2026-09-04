@@ -114,6 +114,7 @@
 - Accepting an unmatched item previously lost money — fixed by making the unmatched queue two-way.
 - The journey strip is leaving the tab too — likely a UI layout bug where the journey strip overflows or detaches from its intended container when navigating tabs.
 - Unmatched queue is now two-way; accepting an unmatched item no longer discards funds.
+- absent (null/missing values) is distinct from zero for sales and for spend without a named audience
 
 ## Notes
 
@@ -169,3 +170,5 @@
 - No objective is set for the project.
 - an asset does not follow you to another tab — assets are scoped per tab, not shared across tabs.
 - a round can run two countries, so the country is not the round's — rounds are multi-country entities.
+- the unmatched queue is two-way; accepting an unmatched item no longer discards/loses money
+- this is a project that reads attendance & sales exports and imports them into a supabase-backed analytics app
