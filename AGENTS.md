@@ -152,3 +152,4 @@
 - v_events view was given the column that the views read it for (likely a missing column fix).
 - variant tab was opened on the reading view (the one 'that means something').
 - Put the way out at the top of the pane — a recent ui commit repositions the exit/dismiss control.
+- A page claims the round it was used in (recent commit — a page asserts which round it belongs to).
