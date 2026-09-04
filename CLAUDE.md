@@ -44,6 +44,8 @@
 - every tab you can drill into can be left again — navigation is bidirectional.
 - The unmatched queue is now two-way.
 - A stage with a cut is a wired stage.
+- a lead list can now be 'believed' (imported/committed as truth)
+- country filtering was added to rounds
 
 ## Architecture
 
