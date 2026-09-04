@@ -204,6 +204,19 @@ const normAsset = (raw: string | null): string | null => {
   return cleaned || s;
 };
 
+/**
+ * WHICH COUNTRY'S CAMPAIGN BROUGHT SOMEBODY IN.
+ *
+ * Every campaign in this account is prefixed DF_SG_ or DF_MY_, and a round can
+ * run both at once — 0926-01 did, which is why the country cannot live on the
+ * round. Read from the lead's own utm_campaign; anything that is not that shape
+ * is not a country and is not guessed into one.
+ */
+const countryOf = (campaign: string | null): string | null => {
+  const m = /^DF_([A-Z]{2})_/.exec(String(campaign ?? "").trim().toUpperCase());
+  return m ? m[1] : null;
+};
+
 const anonKey = (rawName: string | null): string | null => {
   const name = String(rawName ?? "").toLowerCase()
     .replace(/\(.*?\)/g, " ")          // "Jay (Jael Tan)" is one person
@@ -649,8 +662,10 @@ export async function planImport(
     event_date: string; product: string | null; amount: string | null; refund_amount: string | null;
     lead_round_id: string | null; source: string | null;
     anon_key: string | null;
+    country: string | null;
+    utm_campaign: string | null;
   }>(db, "events",
-    "event_id, contact_id, round_id, event_type, event_date, product, amount, refund_amount, lead_round_id, source, anon_key",
+    "event_id, contact_id, round_id, event_type, event_date, product, amount, refund_amount, lead_round_id, source, anon_key, country, utm_campaign",
     (q) => q.in("round_id", roundIds));
 
   const adRuns = await fetchAll<AdSetRun>(db, "ads_performance", "ad_set, round_id, date",
@@ -680,6 +695,8 @@ export async function planImport(
   /** Every opt-in this person has, oldest first. */
   const leadsByContact = new Map<string, { round: string; date: string; source: string | null }[]>();
   const leadSourceByContact = new Map<string, string>();
+  /** A person's country, from the campaign that acquired them. */
+  const leadCountryByContact = new Map<string, string>();
   for (const e of events) {
     if (!e.contact_id) continue;
     if (e.event_type === "attendance") {
@@ -692,6 +709,8 @@ export async function planImport(
       list.push({ round: e.lead_round_id, date: e.event_date, source: e.source ?? null });
       leadsByContact.set(e.contact_id, list);
       if (e.source) leadSourceByContact.set(e.contact_id, e.source);
+      const c = e.country ?? countryOf(e.utm_campaign ?? null);
+      if (c) leadCountryByContact.set(e.contact_id, c);
     }
   }
   for (const list of leadsByContact.values()) {
@@ -951,6 +970,7 @@ export async function planImport(
         event_date: when, lead_round_id: roundId, attribution_method: method,
         utm_campaign: utm || null, ad_set: adSet, ad: adName,
         source: src, variant: val(r, "variant"),
+        country: countryOf(utm),
         match_status: outcome.kind === "auto" ? "auto_resolved" : "matched",
       });
       supersede(r, contactId);
@@ -1049,6 +1069,8 @@ export async function planImport(
         source: sourceFor(contactId, when, val(r, "source")),
         minutes_watched: Math.round(toNumber(val(r, "minutes_watched")) ?? 0) || null,
         variant: val(r, "variant"),
+        // no campaign on an attendance row — nobody clicks an ad to attend
+        country: leadCountryByContact.get(contactId) ?? null,
         match_status: outcome.kind === "auto" ? "auto_resolved" : "matched",
       });
       supersede(r, contactId);
@@ -1145,6 +1167,7 @@ export async function planImport(
         // not get to restate how somebody was acquired. The column answers only
         // where no lead can. See sourceFor above and the note in sources.ts.
         source: sourceFor(contactId, when, val(r, "source")),
+        country: leadCountryByContact.get(contactId) ?? null,
         is_lead: Boolean(leadRound),
         match_status: outcome.kind === "auto" ? "auto_resolved" : "matched",
       });

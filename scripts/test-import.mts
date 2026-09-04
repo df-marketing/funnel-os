@@ -687,6 +687,27 @@ console.log("\nPipeline — Meta's duplicate suffix is not a different audience"
   eq("a name that is not a suffix is left alone", keep.ops.events[0].ad_set, "Copywriting_Coaches");
 }
 
+console.log("\nPipeline — a round can run two countries");
+{
+  const db = fakeDb({ rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [] });
+  const plan = await planImport(db, {
+    source: "leads", clientId: "shely", fileName: "l.csv",
+    // 0926-01 ran both at once — DF_SG_ and DF_MY_ campaigns side by side — so
+    // a country on the ROUND has none for it, and the filter offered SG only.
+    text: [
+      "Email,Created,Source,utm_campaign",
+      "sg@example.sg,2026-05-14,Paid Ads,DF_SG_Preview_Sprint1_0526_02_LP1GHL",
+      "my@example.sg,2026-05-14,Paid Ads,DF_MY_Preview_Sprint1_0526_02_LP1GHL",
+      "none@example.sg,2026-05-14,Organic,",
+    ].join("\n"),
+  });
+  const by = (e: string) => plan.ops.events.find((x) =>
+    plan.ops.contacts.some((c) => c.contact_id === x.contact_id && c.email === e))!;
+  eq("the campaign prefix names the country", by("sg@example.sg").country, "SG");
+  eq("both countries in one round", by("my@example.sg").country, "MY");
+  eq("no campaign is not a country", by("none@example.sg").country, null);
+}
+
 console.log("\nPipeline — the arm of a test is read, never inferred");
 {
   const db = fakeDb({ rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [] });

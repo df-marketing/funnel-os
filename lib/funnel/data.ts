@@ -458,14 +458,31 @@ const loadMetrics = unstable_cache(
 const loadFilterOptions = unstable_cache(
   async (id: string) => {
     const db = createReadClient();
-    const [products, channels, rounds] = await Promise.all([
+    const [products, channels, rounds, adCountries] = await Promise.all([
       db.from("v_products").select("*").eq("client_id", id).order("ord"),
       db.from("v_client_channels").select("*").eq("client_id", id).order("ord"),
       db.from("rounds").select("round_id, start_date, end_date, country").eq("client_id", id).order("start_date"),
+      // the country a campaign names, which is the level a mixed round has one at
+      db.from("v_ads").select("round_id, country").eq("client_id", id).not("country", "is", null),
     ]);
     const rs = (ok(rounds, "rounds") as { round_id: string; start_date: string; end_date: string; country: string | null }[] | null) ?? [];
-    const countryCounts = new Map<string, number>();
-    for (const r of rs) if (r.country) countryCounts.set(r.country, (countryCounts.get(r.country) ?? 0) + 1);
+    /**
+     * The countries this client actually ran in, counted over ROUNDS but
+     * gathered from the ad rows.
+     *
+     * It used to read rounds.country alone, and a round that ran two countries
+     * has none — so the client's own SG/MY round offered SG only, and choosing
+     * it deleted that round, and September with it, from every screen. The ad
+     * rows knew: DF_SG_ and DF_MY_ campaigns, side by side in the same round.
+     */
+    const countryCounts = new Map<string, Set<string>>();
+    for (const r of rs) if (r.country) {
+      (countryCounts.get(r.country) ?? countryCounts.set(r.country, new Set()).get(r.country)!).add(r.round_id);
+    }
+    for (const a of (ok(adCountries, "v_ads") as { round_id: string; country: string | null }[] | null) ?? []) {
+      if (!a.country) continue;
+      (countryCounts.get(a.country) ?? countryCounts.set(a.country, new Set()).get(a.country)!).add(a.round_id);
+    }
 
     /**
      * Only periods that exist. A month with no round is not offered, because
@@ -503,7 +520,8 @@ const loadFilterOptions = unstable_cache(
     return {
       products: (ok(products, "v_products") as Product[] | null) ?? [],
       channels: (ok(channels, "v_client_channels") as ChannelOption[] | null) ?? [],
-      countries: [...countryCounts].sort(([a], [b]) => a.localeCompare(b)).map(([country, round_count]) => ({ country, round_count })),
+      countries: [...countryCounts].sort(([a], [b]) => a.localeCompare(b))
+        .map(([country, rounds]) => ({ country, round_count: rounds.size })),
       periods,
     };
   },
