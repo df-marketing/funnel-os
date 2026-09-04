@@ -208,6 +208,9 @@ export const GRAPHABLE = new Set([
   // A variant has no spend of its own, so the left axis is empty and the plot
   // is one line — still the right shape for "did the show rate move".
   "variant",
+  // A landing page DOES carry spend — the campaign points at it — so this one
+  // plots the full input-against-outcome the ad tabs do.
+  "landing",
 ]);
 
 /**

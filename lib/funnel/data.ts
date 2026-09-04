@@ -4,7 +4,7 @@ import { cadencesFor, resolveSpine, type Cadence } from "./cadence";
 import {
   cutFor, NEEDS_MONTHS, NEEDS_WEEKS, NEEDS_ROUNDS, NEEDS_ADSETS, NEEDS_SOURCES,
   NEEDS_ROUND_SOURCE, NEEDS_ADS, NEEDS_SESSION, NEEDS_OFFER, NEEDS_THIS_ROUND,
-  NEEDS_UNMATCHED_DETAIL, NEEDS_VARIANT, narrowToAsset, type Cut2,
+  NEEDS_UNMATCHED_DETAIL, NEEDS_VARIANT, NEEDS_LANDING, narrowToAsset, type Cut2,
 } from "./cuts";
 import type { Metrics } from "./spine";
 import type { ScrollRun } from "./scroll";
@@ -203,6 +203,7 @@ export type Dashboard = {
   bySource: Cut[];
   byRoundSource: Cut[];
   byVariant: Cut[];
+  byLanding: Cut[];
   /**
    * The open tab's columns, whichever cut it reads. The per-cut arrays above
    * exist so each pane can name the one it means; this is the same list under a
@@ -237,7 +238,7 @@ export type Dashboard = {
 const EMPTY: Omit<Dashboard, "error" | "errorHint" | "view"> = {
   clients: [], stages: [], strip: [], total: null, baseline: null,
   products: [], channels: [], periods: [], filter: NO_FILTER, cadences: ["round"],
-  byMonth: [], byWeek: [], byRound: [], byAdset: [], bySource: [], byRoundSource: [], byVariant: [],
+  byMonth: [], byWeek: [], byRound: [], byAdset: [], bySource: [], byRoundSource: [], byVariant: [], byLanding: [],
   byAd: [], bySession: [], byOffer: [], thisRound: [],
   columns: [], roundContext: null,
   imports: [], unmatched: null,
@@ -413,6 +414,8 @@ const VIEW_FOR: Record<Cut2, string> = {
   adsetround:  "v_metrics_by_adset_round",
   variant:     "v_metrics_by_variant",
   variantround:"v_metrics_by_variant_round",
+  landing:     "v_metrics_by_lp",
+  landinground:"v_metrics_by_lp_round",
 };
 
 const loadMetrics = unstable_cache(
@@ -705,6 +708,7 @@ async function build(
     bySource: NEEDS_SOURCES.has(view) ? shown : [],
     byRoundSource: NEEDS_ROUND_SOURCE.has(view) ? shown : [],
     byVariant: NEEDS_VARIANT.has(view) ? shown : [],
+    byLanding: NEEDS_LANDING.has(view) ? shown : [],
     // One slot for both, because the tab already says which asset it is about
     // and the shape is identical either way.
     // The GRAPH reads this and the tables read the lists above. They were two

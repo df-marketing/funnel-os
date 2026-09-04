@@ -22,6 +22,7 @@ const TITLES: Record<string, [string, string]> = {
   round:       ["By round", "One column per round. Adding 0826-02 adds a column, not a formula."],
   source:      ["By source", "Paid, organic, AOAI and the derived previous-round column."],
   roundsource: ["Round × source", "Both dimensions at once. Any dimension can be the columns; any other can split them."],
+  landing: ["Landing pages", "LP1 against LP2, read from the campaign that pointed at each one. Click a page to see it round by round."],
   variant: ["A/B variants", "Whatever was tested on people once they were here — a reminder sequence, a landing page, a subject line. Click one to see it round by round."],
   targeting:   ["Targeted views", "Every round's spend on each audience, summed — like for like."],
   ads:         ["Ads", "Creative, not audience. Same rounds, cut by the ad that ran."],
@@ -51,6 +52,7 @@ const DRILL_NOUN: Record<string, string> = {
   targeting: "audiences",
   ads: "creatives",
   variant: "variants",
+  landing: "landing pages",
 };
 const DRILLABLE = new Set(Object.keys(DRILL_NOUN));
 
@@ -413,6 +415,39 @@ export default async function Page({
                     The columns sum to the total, and the total matches{" "}
                     <b>By round</b> — the same events, cut a different way. A source with no leads
                     yet has no column at all.
+                  </>
+                }
+              />
+            </>
+          ) : null}
+
+          {view === "landing" && !showGraph ? (
+            <>
+              <div className="pane-head">
+                <h1>{title}</h1>
+                <p>{blurb}</p>
+              </div>
+              <SpineTable
+                title={filter.asset ? `${filter.asset}, round by round` : "Landing page comparison"}
+                sub={
+                  filter.asset
+                    ? "the rounds this page ran in, oldest first"
+                    : "one column per page · the campaign that pointed at it carries the spend, so cost per lead is answerable here"
+                }
+                baseline={data.baseline}
+                total={data.total}
+                cuts={data.byLanding}
+                drillTo={filter.asset ? undefined : (c) => withAsset(c.cut_key)}
+                notice={
+                  <>
+                    <b>The page is read from the campaign name, not stored.</b> Six spellings across
+                    the account — <span className="num">LP1GHL</span>,{" "}
+                    <span className="num">LP1GHLHenry</span>,{" "}
+                    <span className="num">LP1GHL(0826_02)</span> — and the{" "}
+                    <span className="num">LP1</span> / <span className="num">LP2</span> token is the
+                    only thing they agree on. Two campaigns say <span className="num">LP</span> with
+                    no number and are left out rather than guessed into a column; the rounds before
+                    the test carry no page at all, which is not a third page and not a zero.
                   </>
                 }
               />

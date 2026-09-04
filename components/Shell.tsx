@@ -46,11 +46,11 @@ const href = (client: string, view: string, f?: FilterKey, o?: ViewOpts) => {
  * sidebar. Cadence decides the sidebar — see `cadencesFor` in data.ts — and a
  * URL for the wrong spine is redirected to the right one rather than 404'd.
  */
-export const FIXED_VIEWS = ["import", "unmatched", "month", "week", "round", "source", "roundsource", "variant", "analysis"];
+export const FIXED_VIEWS = ["import", "unmatched", "month", "week", "round", "source", "roundsource", "variant", "landing", "analysis"];
 
 /** Which tabs are wired to real Supabase data today. Everything else says so. */
 export const WIRED = new Set([
-  "month", "week", "round", "source", "roundsource", "variant",
+  "month", "week", "round", "source", "roundsource", "variant", "landing",
   "targeting", "ads", "class", "preview", "middle",
   "analysis", "import", "unmatched", "acqos",
 ]);
@@ -395,6 +395,7 @@ export function SideNav({
       {cadences.includes("round") ? item("round", "By round") : null}
       {item("source", "By source")}
       {item("roundsource", "Round × source")}
+      {item("landing", "Landing pages")}
       {item("variant", "A/B variants")}
 
       <div className="nav-group">
