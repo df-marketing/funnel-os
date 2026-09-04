@@ -41,6 +41,33 @@ create index if not exists idx_events_variant
   on events (round_id, variant)
   where variant is not null;
 
+-- v_events has to carry it, because every metric view reads facts through that
+-- view and not through the table. Appended LAST — create or replace may add a
+-- column but never insert or reorder one, and doing so silently shifts every
+-- column in whatever reads it.
+create or replace view v_events as
+select
+  r.client_id,
+  e.event_id, e.contact_id, e.round_id, e.event_type, e.event_date,
+  e.lead_round_id, e.close_round_id, e.attribution_method, e.utm_campaign,
+  e.source, e.match_status, e.product, e.minutes_watched,
+  e.amount, e.refund_amount, e.refund_date, e.is_lead, e.import_batch_id,
+  case
+    when e.source = 'Paid Ads'
+     and coalesce(e.close_round_id, e.round_id) is distinct from e.lead_round_id
+      then 'Previous Paid Ads'
+    else e.source
+  end as attribution_bucket,
+  e.ad_set,
+  e.ad,
+  r.product_id,
+  e.variant
+from events e
+join rounds r on r.round_id = e.round_id
+where fo_filter_people_ok(r.product_id, r.start_date, r.end_date);
+
+grant select on v_events to anon, authenticated;
+
 -- ── THE VARIANT, ACROSS EVERY ROUND ────────────────────────────────────────
 create or replace view v_metrics_by_variant as
 with lead_variant as (
