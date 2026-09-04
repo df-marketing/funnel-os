@@ -765,6 +765,17 @@ console.log("\nCuts — a tab drills only when something is drilled into");
   // The variant tab drills the same way — an arm, then that arm's rounds.
   eq("variants, nothing selected", cutFor("variant", null), "variant");
   eq("one arm selected, its rounds", cutFor("variant", "WA Sequence A"), "variantround");
+  /*
+    Every tab the router will drill must also offer the way back. The variant
+    tab was wired into the drill and left out of the banner that clears it, so
+    it could be entered and not left except by editing the URL.
+  */
+  const DRILLABLE = ["targeting", "ads", "variant"];
+  eq("every drillable tab is one the router drills",
+     DRILLABLE.every((v) => cutFor(v, "x") !== cutFor(v, null)), true);
+  eq("and no other tab is drillable",
+     ["month", "week", "round", "source", "roundsource", "class", "analysis"]
+       .every((v) => cutFor(v, "x") === cutFor(v, null)), true);
 }
 
 console.log("\nPipeline — the list a lead was on beats a guess about dates");

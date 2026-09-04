@@ -40,6 +40,20 @@ const NOT_WIRED_REASON: Record<string, string> = {
   checkout: "Northsea's checkout stage. This tab does not exist in Shely's account at all.",
 };
 
+/**
+ * Tabs whose columns can be drilled into, and what one of their columns IS.
+ *
+ * One list rather than a condition repeated per tab: the variant tab was added
+ * to the drill machinery and left out of the way back, so it could be entered
+ * and not left.
+ */
+const DRILL_NOUN: Record<string, string> = {
+  targeting: "audiences",
+  ads: "creatives",
+  variant: "variants",
+};
+const DRILLABLE = new Set(Object.keys(DRILL_NOUN));
+
 export default async function Page({
   searchParams,
 }: {
@@ -450,14 +464,20 @@ export default async function Page({
             the way back, because a filter you cannot see is a filter you cannot
             undo.
           */}
-          {(view === "targeting" || view === "ads") && filter.asset ? (
+          {/*
+            Every tab that can be drilled into gets this, not just the two it was
+            written for. The variant tab was left out and there was then no way
+            back to both arms except editing the URL — a filter you cannot see is
+            a filter you cannot undo, and one you can see but not clear is worse.
+          */}
+          {DRILLABLE.has(view) && filter.asset ? (
             <div className="notice info" style={{ marginBottom: 12 }}>
               <span className="ico">→</span>
               <div>
                 <b>{filter.asset}</b>, round by round — the columns are its rounds, oldest first.
                 Every figure is the same arithmetic as the combined view, so these columns sum to
                 that tab&rsquo;s column.{" "}
-                <a href={withAsset(null)}>Back to all {view === "ads" ? "creatives" : "audiences"}</a>.
+                <a href={withAsset(null)}>Back to all {DRILL_NOUN[view] ?? "columns"}</a>.
               </div>
             </div>
           ) : null}
