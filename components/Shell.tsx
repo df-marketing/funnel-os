@@ -3,7 +3,7 @@ import { fmtCount, type MetricKey, type Metrics } from "@/lib/funnel/spine";
 import { RefreshButton } from "./RefreshButton";
 import { SOURCES, type SourceKey } from "@/lib/import/sources";
 import type {
-  Client, Stage, StripCard, ImportStatus, Product, ChannelOption, FilterKey, Cadence,
+  Client, Stage, StripCard, ImportStatus, Product, ChannelOption, CountryOption, FilterKey, Cadence,
 } from "@/lib/funnel/data";
 import {
   DEFAULT_OPTS, OBJECTIVE_KEYS, OBJECTIVES, GRAPHABLE, VS_OPTIONS, type ViewOpts,
@@ -13,12 +13,13 @@ import {
  * Every link carries the whole filter, so a filtered screen survives clicking
  * to another tab and can be pasted to someone else and land the same.
  * Empty values are dropped rather than sent as "" — the URL should say what is
- * set, not carry four blanks on every page.
+ * set, not carry blank filters on every page.
  */
 const href = (client: string, view: string, f?: FilterKey, o?: ViewOpts) => {
   const q = new URLSearchParams({ client, view });
   if (f?.product) q.set("product", f.product);
   if (f?.channel) q.set("channel", f.channel);
+  if (f?.country) q.set("country", f.country);
   if (f?.from) q.set("from", f.from);
   if (f?.to) q.set("to", f.to);
   // Carried on every link so switching tabs keeps you in the graph you were
@@ -47,11 +48,13 @@ export const WIRED = new Set([
 ]);
 
 export function TopBar({
-  clients, current, imports,
+  clients, current, imports, filter, opts,
 }: {
   clients: Client[];
   current: Client;
   imports: ImportStatus[];
+  filter: FilterKey;
+  opts: ViewOpts;
 }) {
   const stale = imports.filter((i) => i.is_stale);
   /**
@@ -90,7 +93,7 @@ export function TopBar({
         {clients.map((c) => (
           <Link
             key={c.client_id}
-            href={href(c.client_id, "round")}
+            href={href(c.client_id, "round", filter, opts)}
             aria-pressed={c.client_id === current.client_id}
           >
             {c.client_name ?? c.client_id}
@@ -202,7 +205,7 @@ export function JourneyStrip({
 }
 
 /**
- * Product · Channel · Period, above everything else in the nav.
+ * Product · Channel · Country · Period, above everything else in the nav.
  *
  * Rendered as links rather than a form so a filtered screen has a real address:
  * it survives a reload, a click to another tab, and being pasted to someone
@@ -212,16 +215,19 @@ export function JourneyStrip({
  * the client has no products; showing one says they have exactly one.
  */
 function FilterBar({
-  client, view, filter, products, channels, periods, opts, channelBlanked,
+  client, view, filter, products, channels, countries, periods, opts, channelBlanked, countryBlanked,
 }: {
   /** True only when choosing this channel actually blanked some rates. */
   channelBlanked: boolean;
+  /** True only when choosing this country actually blanked some rates. */
+  countryBlanked: boolean;
   client: string;
   view: string;
   filter: FilterKey;
   opts: ViewOpts;
   products: Product[];
   channels: ChannelOption[];
+  countries: CountryOption[];
   periods: { key: string; label: string; from: string | null; to: string | null }[];
 }) {
   const row = (
@@ -281,6 +287,19 @@ function FilterBar({
         (channel) => ({ ...filter, channel }),
       )}
       {row(
+        "Country",
+        [
+          { key: null, label: "All" },
+          ...countries.map((c) => ({
+            key: c.country,
+            label: c.country,
+            sub: `${c.round_count} round${c.round_count === 1 ? "" : "s"}`,
+          })),
+        ],
+        filter.country,
+        (country) => ({ ...filter, country }),
+      )}
+      {row(
         "Period",
         [
           { key: null, label: "All time" },
@@ -319,13 +338,22 @@ function FilterBar({
           )}
         </p>
       ) : null}
+      {filter.country ? (
+        <p className="filter-note">
+          Country keeps whole {filter.country} rounds. A mixed or unstated round is not assigned to a
+          country and appears only under All.
+          {countryBlanked ? (
+            <> <b>ROAS, CPA, CPL and Lead gen % are blank</b> because this country selection removed spend.</>
+          ) : null}
+        </p>
+      ) : null}
     </div>
   );
 }
 
 export function SideNav({
-  stages, client, view, unmatchedCount, filter, products, channels, periods, cadences, opts,
-  channelBlanked,
+  stages, client, view, unmatchedCount, filter, products, channels, countries, periods, cadences, opts,
+  channelBlanked, countryBlanked,
 }: {
   stages: Stage[];
   client: string;
@@ -334,11 +362,13 @@ export function SideNav({
   filter: FilterKey;
   products: Product[];
   channels: ChannelOption[];
+  countries: CountryOption[];
   periods: { key: string; label: string; from: string | null; to: string | null }[];
   /** Which of By week and By round this selection has something to put in. */
   cadences: Cadence[];
   opts: ViewOpts;
   channelBlanked: boolean;
+  countryBlanked: boolean;
 }) {
   const item = (slug: string, label: React.ReactNode) => (
     <Link key={slug} href={href(client, slug, filter, opts)} aria-current={view === slug ? "page" : undefined}>
@@ -356,7 +386,9 @@ export function SideNav({
         channelBlanked={channelBlanked}
         products={products}
         channels={channels}
+        countries={countries}
         periods={periods}
+        countryBlanked={countryBlanked}
       />
 
       <div className="nav-group">Data</div>

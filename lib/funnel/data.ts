@@ -138,11 +138,12 @@ type Cut2 =
 export type FilterKey = {
   product: string | null;
   channel: string | null;
+  country: string | null;
   from: string | null;
   to: string | null;
 };
 
-export const NO_FILTER: FilterKey = { product: null, channel: null, from: null, to: null };
+export const NO_FILTER: FilterKey = { product: null, channel: null, country: null, from: null, to: null };
 
 export type Product = {
   product_id: string;
@@ -163,6 +164,9 @@ export type ChannelOption = {
   ad_rows: number;
   spend: number | null;
 };
+
+/** Countries stated on this client's rounds. A null country is deliberately not an option. */
+export type CountryOption = { country: string; round_count: number };
 
 /**
  * Everything the dashboard needs for one client, in one round-trip set.
@@ -203,6 +207,7 @@ export type Dashboard = {
   /** What the filter bar can offer, and what it is currently set to. */
   products: Product[];
   channels: ChannelOption[];
+  countries: CountryOption[];
   periods: Period[];
   filter: FilterKey;
   /**
@@ -220,7 +225,7 @@ export type Dashboard = {
 
 const EMPTY: Omit<Dashboard, "error" | "errorHint" | "view"> = {
   clients: [], stages: [], strip: [], total: null, baseline: null,
-  products: [], channels: [], periods: [], filter: NO_FILTER, cadences: ["round"],
+  products: [], channels: [], countries: [], periods: [], filter: NO_FILTER, cadences: ["round"],
   byMonth: [], byWeek: [], byRound: [], byAdset: [], bySource: [], byRoundSource: [],
   byAd: [], bySession: [], byOffer: [], thisRound: [],
   columns: [], roundContext: null,
@@ -387,7 +392,7 @@ const loadStrip = unstable_cache(
     const db = createReadClient();
     const strip = await db.rpc("fo_cut", {
       p_view: "v_journey_strip",
-      p_client: id, p_product: f.product, p_channel: f.channel, p_from: f.from, p_to: f.to,
+      p_client: id, p_product: f.product, p_channel: f.channel, p_from: f.from, p_to: f.to, p_country: f.country,
     });
     return (ok(strip, "v_journey_strip") as StripCard[] | null) ?? [];
   },
@@ -431,7 +436,7 @@ const VIEW_FOR: Record<Cut2, string> = {
 const loadMetrics = unstable_cache(
   async (id: string, cut: Cut2, f: FilterKey) => {
     const db = createReadClient();
-    const scope = { p_client: id, p_product: f.product, p_channel: f.channel, p_from: f.from, p_to: f.to };
+    const scope = { p_client: id, p_product: f.product, p_channel: f.channel, p_from: f.from, p_to: f.to, p_country: f.country };
 
     const [total, baseline, columns] = await Promise.all([
       db.rpc("fo_cut", { p_view: "v_metrics_total", ...scope }),
@@ -466,9 +471,11 @@ const loadFilterOptions = unstable_cache(
     const [products, channels, rounds] = await Promise.all([
       db.from("v_products").select("*").eq("client_id", id).order("ord"),
       db.from("v_client_channels").select("*").eq("client_id", id).order("ord"),
-      db.from("rounds").select("round_id, start_date, end_date").eq("client_id", id).order("start_date"),
+      db.from("rounds").select("round_id, start_date, end_date, country").eq("client_id", id).order("start_date"),
     ]);
-    const rs = (ok(rounds, "rounds") as { round_id: string; start_date: string; end_date: string }[] | null) ?? [];
+    const rs = (ok(rounds, "rounds") as { round_id: string; start_date: string; end_date: string; country: string | null }[] | null) ?? [];
+    const countryCounts = new Map<string, number>();
+    for (const r of rs) if (r.country) countryCounts.set(r.country, (countryCounts.get(r.country) ?? 0) + 1);
 
     /**
      * Only periods that exist. A month with no round is not offered, because
@@ -506,6 +513,7 @@ const loadFilterOptions = unstable_cache(
     return {
       products: (ok(products, "v_products") as Product[] | null) ?? [],
       channels: (ok(channels, "v_client_channels") as ChannelOption[] | null) ?? [],
+      countries: [...countryCounts].sort(([a], [b]) => a.localeCompare(b)).map(([country, round_count]) => ({ country, round_count })),
       periods,
     };
   },
@@ -525,7 +533,7 @@ const loadFilterOptions = unstable_cache(
 const loadRoundContext = unstable_cache(
   async (id: string, f: FilterKey): Promise<RoundContext> => {
     const db = createReadClient();
-    const scope = { p_client: id, p_product: f.product, p_channel: f.channel, p_from: f.from, p_to: f.to };
+    const scope = { p_client: id, p_product: f.product, p_channel: f.channel, p_from: f.from, p_to: f.to, p_country: f.country };
 
     const [rounds, months, targets] = await Promise.all([
       db.rpc("fo_cut", { p_view: "v_metrics_this_round", ...scope }),
@@ -686,6 +694,7 @@ async function build(
     clients,
     products: options.products,
     channels: options.channels,
+    countries: options.countries,
     periods: options.periods,
     filter,
     cadences,
