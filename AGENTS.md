@@ -43,6 +43,7 @@
 - Bucket instants by the local day; drop stale plans on commit
 - every tab you can drill into can be left again — navigation is bidirectional.
 - The unmatched queue is now two-way.
+- A stage with a cut is a wired stage.
 
 ## Architecture
 
@@ -155,3 +156,4 @@
 - variant tab was opened on the reading view (the one 'that means something').
 - Put the way out at the top of the pane — a recent ui commit repositions the exit/dismiss control.
 - A page claims the round it was used in (recent commit — a page asserts which round it belongs to).
+- No objective is set for the project.
