@@ -39,6 +39,8 @@
 - A month is a calendar month, not the one a round started in.
 - A declared metric stops being a name/string and becomes a number — the code now enforces numeric typing for metrics.
 - The country filter must not break when applied — it was explicitly called out as something to keep working.
+- Middle pricing offer was removed from display/pricing
+- Bucket instants by the local day; drop stale plans on commit
 
 ## Architecture
 
@@ -95,6 +97,8 @@
 - Client stages shown to the user must reflect only the stages the client actually counts, not all possible stages.
 - A headcount survives being counted twice — duplicates in attendance are handled safely.
 - Drill-into pattern: instead of adding a new tab, the app drills into one asset at a time.
+- Five import bugs found and fixed by testing against real exports
+- Unmatched queue made two-way; accept no longer loses money (fix for fund discard bug)
 
 ## Notes
 
@@ -142,3 +146,4 @@
 - Recent commit message is meaningless ('Draw the count an efficiency is an efficiency of') — no substantive change captured.
 - commit: 'An asset moves between rounds' — indicates a data model change where an asset (likely a financial or inventory item) is transferred or reallocated between rounds (e.g., import rounds, commitment rounds).
 - A tab drills only when something is drilled into
+- A variant is a thing you can compare
