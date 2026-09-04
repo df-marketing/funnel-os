@@ -148,3 +148,4 @@
 - A tab drills only when something is drilled into
 - A variant is a thing you can compare
 - v_events view was given the column that the views read it for (likely a missing column fix).
+- variant tab was opened on the reading view (the one 'that means something').
