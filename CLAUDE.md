@@ -172,3 +172,4 @@
 - a round can run two countries, so the country is not the round's — rounds are multi-country entities.
 - the unmatched queue is two-way; accepting an unmatched item no longer discards/loses money
 - this is a project that reads attendance & sales exports and imports them into a supabase-backed analytics app
+- The table says it too, instead of drawing an empty pane — likely a UI fix where an empty state was replaced by the table content being displayed directly.
