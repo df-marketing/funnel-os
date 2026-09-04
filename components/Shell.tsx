@@ -6,7 +6,7 @@ import type {
   Client, Stage, StripCard, ImportStatus, Product, ChannelOption, FilterKey, Cadence,
 } from "@/lib/funnel/data";
 import {
-  DEFAULT_OPTS, OBJECTIVE_KEYS, OBJECTIVES, GRAPHABLE, VS_OPTIONS, type ViewOpts,
+  DEFAULT_OPTS, defaultVsFor, OBJECTIVE_KEYS, OBJECTIVES, GRAPHABLE, VS_OPTIONS, type ViewOpts,
 } from "@/lib/funnel/chart";
 
 /**
@@ -26,7 +26,15 @@ const href = (client: string, view: string, f?: FilterKey, o?: ViewOpts) => {
   // reading, instead of dropping you back into the table each time.
   if (o && o.mode !== DEFAULT_OPTS.mode) q.set("mode", o.mode);
   if (o && o.objective !== DEFAULT_OPTS.objective) q.set("objective", o.objective);
-  if (o && o.vs !== DEFAULT_OPTS.vs) q.set("vs", o.vs);
+  /*
+    Against THIS TAB'S default, not the global one.
+    A URL leaves out whatever the page would have chosen anyway, which keeps it
+    short — but the variant tab opens on show rate rather than cost per
+    attendance, so comparing against the global default dropped `vs=cpAtt` from
+    that tab's own link and the page then read the omission as show rate.
+    Clicking "Cost per attendance" there lit up "Show rate".
+  */
+  if (o && o.vs !== defaultVsFor(view)) q.set("vs", o.vs);
   return `/?${q}`;
 };
 

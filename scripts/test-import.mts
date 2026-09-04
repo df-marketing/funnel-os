@@ -29,7 +29,7 @@ import { cadencesFor, resolveSpine } from "../lib/funnel/cadence";
 import { cutFor, narrowToAsset } from "../lib/funnel/cuts";
 import {
   niceMax, axisMax, num, chartModel, lineRuns, colX, valueY, floorY, ticksFor, TICKS, GEO,
-  colWidth, chartWidth, labelChars, wrapLabel, VS_OPTIONS, vsOption, isVs, DEFAULT_OPTS, AMOUNT_OF, defaultVsFor,
+  colWidth, chartWidth, labelChars, wrapLabel, VS_OPTIONS, vsOption, isVs, DEFAULT_OPTS, AMOUNT_OF, defaultVsFor, type VsKey,
 } from "../lib/funnel/chart";
 import {
   compare, movesFor, issuesIn, rankedIssues, tooThinIn, missedTargetIn, diffAssets,
@@ -1429,6 +1429,17 @@ console.log("\nCommit — re-importing a source retires the batch it replaces");
   eq("the variant tab opens on show rate", defaultVsFor("variant"), "attPct");
   eq("every other tab keeps the general default", defaultVsFor("round"), DEFAULT_OPTS.vs);
   eq("show rate reads up", vsOption("attPct").betterWhen, "higher");
+  /*
+    A link leaves out whatever the page would choose anyway. Compared against
+    the GLOBAL default rather than the tab's, the variant tab's own "Cost per
+    attendance" link dropped vs= entirely — and the page then read the omission
+    as show rate, so clicking one button lit up another.
+  */
+  const omitted = (view: string, vs: VsKey) => vs === defaultVsFor(view);
+  eq("a tab omits only its own default", omitted("variant", "attPct"), true);
+  eq("and keeps everything else", omitted("variant", "cpAtt"), false);
+  eq("elsewhere the global default is still the one omitted", omitted("round", "cpAtt"), true);
+  eq("and show rate is carried there", omitted("round", "attPct"), false);
   // Frequency is impressions over reach and reach is not additive (0016), so
   // it must NOT bring a count to draw beside spend the way the others do.
   eq("frequency has no amount to draw beside it", AMOUNT_OF.freq, undefined);
