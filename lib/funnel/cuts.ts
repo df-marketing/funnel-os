@@ -26,11 +26,24 @@ const NEEDS_ADSETS = new Set(["targeting"]);
 const NEEDS_SOURCES = new Set(["source"]);
 const NEEDS_ROUND_SOURCE = new Set(["roundsource"]);
 const NEEDS_ADS = new Set(["ads"]);
-const NEEDS_SESSION = new Set(["class"]);
-/** A people-side A/B — reminder sequence, landing page, whatever was tested. */
-const NEEDS_VARIANT = new Set(["variant"]);
-/** Which page the campaign pointed at — LP1 against LP2, with the spend. */
-const NEEDS_LANDING = new Set(["landing"]);
+/**
+ * A stage tab compares along the dimension its journey declares, and these two
+ * were built as tabs of their own before that was wired.
+ *
+ *   Leads                    the landing page — what turns a click into a lead
+ *   Live Webinar Attendance  the reminder sequence — what gets them in the room
+ *
+ * The attendance stage used to compare rounds.session_label, which on this
+ * client is one distinct label per round — "Class 19 May", "Class 28 May",
+ * twelve of them — so that tab was By round wearing different words. The
+ * sequence is the thing that stage is actually testing.
+ *
+ * v_metrics_by_session is left in place: a client whose rounds share a class
+ * format has a real comparison there, and this one does not.
+ */
+const NEEDS_SESSION = new Set<string>([]);
+const NEEDS_VARIANT = new Set(["class"]);
+const NEEDS_LANDING = new Set(["lp"]);
 export const NEEDS_OFFER = new Set(["preview", "middle"]);
 export const NEEDS_THIS_ROUND = new Set(["analysis"]);
 export const NEEDS_UNMATCHED_DETAIL = new Set(["unmatched"]);

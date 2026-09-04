@@ -761,22 +761,31 @@ console.log("\nCuts — a tab drills only when something is drilled into");
   // A stray ?asset= on another tab must not silently empty it.
   eq("a stray asset cannot narrow By round", narrowToAsset(cols, "round", "Cold_Broad").length, 3);
   eq("nor By source", narrowToAsset(cols, "source", "Cold_Broad").length, 3);
+  eq("the leads stage narrows too", narrowToAsset(cols, "lp", "Cold_Broad").length, 2);
 
   // The variant tab drills the same way — an arm, then that arm's rounds.
-  eq("variants, nothing selected", cutFor("variant", null), "variant");
-  eq("one arm selected, its rounds", cutFor("variant", "WA Sequence A"), "variantround");
-  eq("landing pages, nothing selected", cutFor("landing", null), "landing");
-  eq("one page selected, its rounds", cutFor("landing", "LP1"), "landinground");
+  /*
+    The two stage tabs that carry a dimension of their own. Leads compares the
+    landing page — what turns a click into a lead — and Live Webinar Attendance
+    compares the reminder sequence, which is what that stage is actually
+    testing. It used to compare rounds.session_label, one distinct label per
+    round, which made it By round wearing different words.
+  */
+  eq("the attendance stage compares sequences", cutFor("class", null), "variant");
+  eq("and one sequence's rounds", cutFor("class", "WA Sequence A"), "variantround");
+  eq("the leads stage compares landing pages", cutFor("lp", null), "landing");
+  eq("and one page's rounds", cutFor("lp", "LP1"), "landinground");
+  eq("the attendance stage opens on show rate", defaultVsFor("class"), "attPct");
   /*
     Every tab the router will drill must also offer the way back. The variant
     tab was wired into the drill and left out of the banner that clears it, so
     it could be entered and not left except by editing the URL.
   */
-  const DRILLABLE = ["targeting", "ads", "variant", "landing"];
+  const DRILLABLE = ["targeting", "ads", "class", "lp"];
   eq("every drillable tab is one the router drills",
      DRILLABLE.every((v) => cutFor(v, "x") !== cutFor(v, null)), true);
   eq("and no other tab is drillable",
-     ["month", "week", "round", "source", "roundsource", "class", "analysis"]
+     ["month", "week", "round", "source", "roundsource", "analysis", "preview", "middle"]
        .every((v) => cutFor(v, "x") === cutFor(v, null)), true);
 }
 
@@ -1439,7 +1448,7 @@ console.log("\nCommit — re-importing a source retires the batch it replaces");
   eq("six are its efficiency", VS_OPTIONS.filter((o) => o.kind === "efficiency").length, 6);
   // A variant has no spend, so a cost per opens blank there. What an arm moves
   // is the share of its own leads that showed up.
-  eq("the variant tab opens on show rate", defaultVsFor("variant"), "attPct");
+
   eq("every other tab keeps the general default", defaultVsFor("round"), DEFAULT_OPTS.vs);
   eq("show rate reads up", vsOption("attPct").betterWhen, "higher");
   /*
@@ -1449,8 +1458,8 @@ console.log("\nCommit — re-importing a source retires the batch it replaces");
     as show rate, so clicking one button lit up another.
   */
   const omitted = (view: string, vs: VsKey) => vs === defaultVsFor(view);
-  eq("a tab omits only its own default", omitted("variant", "attPct"), true);
-  eq("and keeps everything else", omitted("variant", "cpAtt"), false);
+  eq("a tab omits only its own default", omitted("class", "attPct"), true);
+  eq("and keeps everything else", omitted("class", "cpAtt"), false);
   eq("elsewhere the global default is still the one omitted", omitted("round", "cpAtt"), true);
   eq("and show rate is carried there", omitted("round", "attPct"), false);
   // Frequency is impressions over reach and reach is not additive (0016), so

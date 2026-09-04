@@ -192,7 +192,7 @@ export const DEFAULT_OPTS: ViewOpts = { mode: "table", objective: "att", vs: "cp
  * own leads that showed up, so that is what it opens on.
  */
 export const defaultVsFor = (view: string): VsKey =>
-  view === "variant" ? "attPct" : DEFAULT_OPTS.vs;
+  view === "class" ? "attPct" : DEFAULT_OPTS.vs;
 
 /**
  * Tabs whose cut is one-dimensional, so it can be an x-axis.
@@ -207,10 +207,10 @@ export const GRAPHABLE = new Set([
   "month", "week", "round", "source", "targeting", "ads", "class", "preview", "middle",
   // A variant has no spend of its own, so the left axis is empty and the plot
   // is one line — still the right shape for "did the show rate move".
-  "variant",
-  // A landing page DOES carry spend — the campaign points at it — so this one
-  // plots the full input-against-outcome the ad tabs do.
-  "landing",
+  // The two stage tabs that now carry a dimension of their own. "lp" plots the
+  // full input-against-outcome — a campaign points at a landing page, so the
+  // spend is its own; "class" has no spend and opens on show rate.
+  "lp",
 ]);
 
 /**

@@ -22,8 +22,6 @@ const TITLES: Record<string, [string, string]> = {
   round:       ["By round", "One column per round. Adding 0826-02 adds a column, not a formula."],
   source:      ["By source", "Paid, organic, AOAI and the derived previous-round column."],
   roundsource: ["Round × source", "Both dimensions at once. Any dimension can be the columns; any other can split them."],
-  landing: ["Landing pages", "LP1 against LP2, read from the campaign that pointed at each one. Click a page to see it round by round."],
-  variant: ["A/B variants", "Whatever was tested on people once they were here — a reminder sequence, a landing page, a subject line. Click one to see it round by round."],
   targeting:   ["Targeted views", "Every round's spend on each audience, summed — like for like."],
   ads:         ["Ads", "Creative, not audience. Same rounds, cut by the ad that ran."],
   lp:          ["Landing page", "Only rounds where more than one page ran, so a page isn't credited for traffic it never saw."],
@@ -36,7 +34,6 @@ const TITLES: Record<string, [string, string]> = {
 };
 
 const NOT_WIRED_REASON: Record<string, string> = {
-  lp:       "Deliberately parked. Every other stage tab reads the cut named in its journey config; this one's compare_dimension is null — no landing-page dimension has been decided and no column exists to hold one. Guessing it would put a number on screen that nobody chose. Needs Anis.",
   product:  "Northsea Supply's product-page stage. Same engine, different journey — it appears when that account has rounds.",
   checkout: "Northsea's checkout stage. This tab does not exist in Shely's account at all.",
 };
@@ -51,8 +48,8 @@ const NOT_WIRED_REASON: Record<string, string> = {
 const DRILL_NOUN: Record<string, string> = {
   targeting: "audiences",
   ads: "creatives",
-  variant: "variants",
-  landing: "landing pages",
+  class: "sequences",
+  lp: "landing pages",
 };
 const DRILLABLE = new Set(Object.keys(DRILL_NOUN));
 
@@ -421,7 +418,7 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "landing" && !showGraph ? (
+          {view === "lp" && !showGraph ? (
             <>
               <div className="pane-head">
                 <h1>{title}</h1>
@@ -454,7 +451,7 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "variant" && !showGraph ? (
+          {view === "class" && !showGraph ? (
             <>
               <div className="pane-head">
                 <h1>{title}</h1>
@@ -611,37 +608,6 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "class" && !showGraph ? (
-            <>
-              <div className="pane-head">
-                <h1>{title}</h1>
-                <p>{blurb}</p>
-              </div>
-              <SpineTable
-                title="Class comparison"
-                sub="rounds grouped by session label · Class A against Class B"
-                baseline={data.baseline}
-                total={data.total}
-                cuts={data.bySession}
-                notice={
-                  <>
-                    <b>Spend is kept here, not blanked.</b> A class format doesn&rsquo;t buy traffic,
-                    but the rounds that ran it did — and cost per attendee by class is the whole
-                    reason to compare them. The old sheet protected the class format and could not
-                    see what it cost.
-                  </>
-                }
-                note={
-                  <>
-                    Both of May&rsquo;s rounds ran the same class, so this reads one column today and
-                    splits the moment a round with a different{" "}
-                    <span className="num">session_label</span> is imported. One column is the true
-                    answer, not a broken one.
-                  </>
-                }
-              />
-            </>
-          ) : null}
 
           {(view === "preview" || view === "middle") && !showGraph ? (
             <>
