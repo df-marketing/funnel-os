@@ -41,6 +41,7 @@
 - The country filter must not break when applied — it was explicitly called out as something to keep working.
 - Middle pricing offer was removed from display/pricing
 - Bucket instants by the local day; drop stale plans on commit
+- every tab you can drill into can be left again — navigation is bidirectional.
 
 ## Architecture
 
