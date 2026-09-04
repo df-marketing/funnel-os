@@ -104,6 +104,26 @@ export const SOURCES: Record<SourceKey, SourceSpec> = {
       f("email", true, "email address", "contact email"),
       f("phone", false, "phone number", "mobile"),
       /**
+       * WHICH ROUND'S LIST THIS ROW CAME FROM — believed over any guess.
+       *
+       * Optional, because a raw GoHighLevel export does not have it. Read where
+       * it does, because a per-round Registration List is not evidence about a
+       * round, it IS the round: the export is one file per round and the row is
+       * on it.
+       *
+       * Without this the round was inferred, and the inference is wrong in a way
+       * no date can fix — PEOPLE REGISTER BEFORE THE ADS RUN. On Shely's own
+       * lists, 74 of 0826-01's 97 registrants signed up while 0726-04 was still
+       * advertising, so a date window filed them under the previous round. One
+       * list lost two thirds of its people that way.
+       *
+       * utm_campaign stays ahead of it, because a lead who clicked a specific
+       * round's ad is evidence about that ad. This answers the case where there
+       * is no UTM at all — organic and community sign-ups, which is exactly
+       * where the date window was doing the guessing.
+       */
+      f("round_id", false, "round", "session", "session id", "registration list"),
+      /**
        * THE NAME IS NOT AN IDENTITY. It is a HEADCOUNT KEY.
        *
        * Nothing is ever matched on it — two "Victor tan" in two rounds are two

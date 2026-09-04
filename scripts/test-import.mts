@@ -648,6 +648,37 @@ console.log("\nPipeline — sales");
   eq("and no ad credit", ghost.is_lead, false);
 }
 
+console.log("\nPipeline — the list a lead was on beats a guess about dates");
+{
+  const db = fakeDb({
+    rounds: ROUNDS, contacts: [], events: [], v_column_map: [],
+    // Cold_Broad ran in 0526-02, so a lead carrying it is evidence about that
+    // round's spend regardless of which list they later appeared on.
+    ads_performance: [{ round_id: "0526-02", date: "2026-05-14", ad_set: "Cold_Broad", ad: "A", spend: "10", impressions: 100, reach: 90, clicks: 5 }],
+  });
+  const plan = await planImport(db, {
+    source: "leads", clientId: "shely", fileName: "leads.csv",
+    text: [
+      "Round,Email,Created,Source,utm_term",
+      // Registered on the 14th — inside 0526-02's window — for 0526-03's class.
+      // People sign up before the ads run; the date window cannot know that and
+      // filed 74 of one real list's 97 people under the previous round.
+      "0526-03,early@example.sg,2026-05-14,Organic,",
+      // A UTM still wins: a click on a round's ad is evidence about that ad.
+      "0526-03,clicked@example.sg,2026-05-14,Paid Ads,Cold_Broad",
+      // A round this client does not have is ignored, not trusted.
+      "9999-99,typo@example.sg,2026-05-14,Organic,",
+    ].join("\n"),
+  });
+  const by = (e: string) => plan.ops.events.find((x) => x.event_date && plan.ops.contacts.some(
+    (c) => c.contact_id === x.contact_id && c.email === e))!;
+  eq("the named round wins over the date window", by("early@example.sg").round_id, "0526-03");
+  eq("and is recorded as declared, not guessed", by("early@example.sg").attribution_method, "declared");
+  eq("a utm still outranks the named round", by("clicked@example.sg").round_id, "0526-02");
+  eq("an unknown round falls back instead of inventing one", by("typo@example.sg").round_id, "0526-02");
+  eq("and the import says so", plan.warnings.some((w) => w.includes("9999-99")), true);
+}
+
 console.log("\nPipeline — a lead dated after the sale did not produce the sale");
 {
   // Bought at 0526-02's class on the 19th, then registered for 0526-03 on the

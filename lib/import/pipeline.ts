@@ -859,10 +859,24 @@ export async function planImport(
       const adSet = val(r, "ad_set");
       const adName = val(r, "ad");
       const utm = val(r, "utm_campaign");
-      const { roundId, method } = attributeLead(when, adSet, rounds, adRuns);
+      /**
+       * A named round is not a hint, it is the file saying which of its lists
+       * this row was on. Only the UTM outranks it — a click on a round's ad is
+       * evidence about that ad — and a name that matches no round is ignored
+       * rather than trusted, so a typo cannot invent an attribution.
+       */
+      const declared = val(r, "round_id");
+      const stated = declared ? resolveRoundRef(declared, rounds) : null;
+      const guess = attributeLead(when, adSet, rounds, adRuns);
+      const useStated = stated !== null && guess.method !== "utm";
+      const roundId = useStated ? stated : guess.roundId;
+      const method = useStated ? "declared" : guess.method;
+      if (declared && !stated) {
+        warnings.push(`Round "${declared}" isn't a round for this client — that row was attributed the usual way.`);
+      }
       if (method === "utm") plan.attribution.utm++;
       else if (method === "date_window") plan.attribution.dateWindow++;
-      else plan.attribution.none++;
+      else if (method !== "declared") plan.attribution.none++;
 
       if (!roundId) { park("no_matching_round", r, null, "no round covers this opt-in date", "none"); continue; }
 
