@@ -1,6 +1,11 @@
 import { unstable_cache } from "next/cache";
 import { createReadClient, FUNNEL_TAG } from "@/lib/supabase/read";
 import { cadencesFor, resolveSpine, type Cadence } from "./cadence";
+import {
+  cutFor, NEEDS_MONTHS, NEEDS_WEEKS, NEEDS_ROUNDS, NEEDS_ADSETS, NEEDS_SOURCES,
+  NEEDS_ROUND_SOURCE, NEEDS_ADS, NEEDS_SESSION, NEEDS_OFFER, NEEDS_THIS_ROUND,
+  NEEDS_UNMATCHED_DETAIL, type Cut2,
+} from "./cuts";
 import type { Metrics } from "./spine";
 import type { ScrollRun } from "./scroll";
 
@@ -126,11 +131,6 @@ export type UnmatchedRow = {
   raw_data: Record<string, unknown> | null;
 };
 
-type Cut2 =
-  | "month" | "week" | "round" | "adset" | "source" | "roundsource"
-  | "adround" | "adsetround"
-  | "ad" | "session" | "preview" | "middle" | "thisround";
-
 /**
  * What the filter bar is currently set to. Null on any field means "not
  * filtering on this" — the same thing the database means by an unset setting,
@@ -244,32 +244,6 @@ const EMPTY: Omit<Dashboard, "error" | "errorHint" | "view"> = {
 };
 
 /** Which tabs actually read a metrics table. Everything else is chrome-only. */
-const NEEDS_MONTHS = new Set(["month"]);
-/**
- * Whether this tab is in the sidebar is not decided here — see `cadencesFor`.
- * A product that runs in rounds offers By round; one that runs continuously
- * offers By week. The data says which; this file only knows how to fetch both.
- */
-const NEEDS_WEEKS = new Set(["week"]);
-const NEEDS_ROUNDS = new Set(["round"]);
-const NEEDS_ADSETS = new Set(["targeting"]);
-const NEEDS_SOURCES = new Set(["source"]);
-const NEEDS_ROUND_SOURCE = new Set(["roundsource"]);
-/**
- * The same asset, round after round.
- *
- * A separate cut rather than a mode on the ads tab, because the two answer
- * different questions and the flat one is still the right way to choose what to
- * run next. This one is for noticing that the answer changed.
- */
-const NEEDS_AD_ROUND = new Set(["ads"]);
-const NEEDS_ADSET_ROUND = new Set(["targeting"]);
-const NEEDS_ADS = new Set(["ads"]);
-const NEEDS_SESSION = new Set(["class"]);
-const NEEDS_OFFER = new Set(["preview", "middle"]);
-const NEEDS_THIS_ROUND = new Set(["analysis"]);
-const NEEDS_UNMATCHED_DETAIL = new Set(["unmatched"]);
-
 /**
  * One asset's rounds, or every asset.
  *
@@ -281,24 +255,6 @@ const NEEDS_UNMATCHED_DETAIL = new Set(["unmatched"]);
 const narrowToAsset = (cuts: Cut[], asset: string | null): Cut[] =>
   !asset ? cuts : cuts.filter((c) => c.group_key === asset);
 
-/** The cut a tab reads, or null if it reads none. */
-const cutFor = (view: string, asset: string | null = null): Cut2 | null =>
-  NEEDS_MONTHS.has(view) ? "month"
-  : NEEDS_WEEKS.has(view) ? "week"
-  : NEEDS_ROUNDS.has(view) ? "round"
-  : NEEDS_ADSETS.has(view) ? (asset ? "adsetround" : "adset")
-  : NEEDS_SOURCES.has(view) ? "source"
-  : NEEDS_ROUND_SOURCE.has(view) ? "roundsource"
-  : NEEDS_AD_ROUND.has(view) ? "adround"
-  : NEEDS_ADSET_ROUND.has(view) ? "adsetround"
-  : NEEDS_ADS.has(view) ? (asset ? "adround" : "ad")
-  : NEEDS_SESSION.has(view) ? "session"
-  // the two offer tabs share one view, told apart by a product filter, so a
-  // metric cannot mean one thing on Preview and another on Middle
-  : view === "preview" ? "preview"
-  : view === "middle" ? "middle"
-  : NEEDS_THIS_ROUND.has(view) ? "thisround"
-  : null;
 
 /** Tabs that belong to a journey stage, so they only exist for some clients. */
 const STAGE_TABS = ["targeting", "ads", "lp", "class", "preview", "middle", "product", "checkout"];

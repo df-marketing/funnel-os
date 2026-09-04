@@ -26,6 +26,7 @@ import {
   curveOf, biggestDrop, ceilingOf, coverageOf, runsFor, type ScrollRun,
 } from "../lib/funnel/scroll";
 import { cadencesFor, resolveSpine } from "../lib/funnel/cadence";
+import { cutFor } from "../lib/funnel/cuts";
 import {
   niceMax, axisMax, num, chartModel, lineRuns, colX, valueY, floorY, ticksFor, TICKS, GEO,
   colWidth, chartWidth, labelChars, wrapLabel, VS_OPTIONS, vsOption, isVs, DEFAULT_OPTS, AMOUNT_OF,
@@ -705,6 +706,20 @@ console.log("\nPipeline — a headcount survives being counted twice");
   eq("and says they were already there", second.counts.duplicates, 2);
   eq("the handle is stored, not the person", (t.events ?? [])[0].anon_key, "anon:katherine");
   eq("and no contact was invented", (t.contacts ?? []).length, 0);
+}
+
+console.log("\nCuts — a tab drills only when something is drilled into");
+{
+  // It regressed exactly once: a set naming "ads" was tested before the branch
+  // that handles "ads", so the tab drew rounds whether or not an asset was
+  // chosen. These four are the whole contract.
+  eq("ads, nothing selected, compares creatives", cutFor("ads", null), "ad");
+  eq("ads, one selected, compares its rounds", cutFor("ads", "Static_X"), "adround");
+  eq("targeting, nothing selected, compares audiences", cutFor("targeting", null), "adset");
+  eq("targeting, one selected, compares its rounds", cutFor("targeting", "Cold_Broad"), "adsetround");
+  // Everything else ignores it entirely.
+  eq("an asset does not change By round", cutFor("round", "Cold_Broad"), "round");
+  eq("nor By month", cutFor("month", "Cold_Broad"), "month");
 }
 
 console.log("\nPipeline — the list a lead was on beats a guess about dates");
