@@ -216,6 +216,11 @@ export type Dashboard = {
    * and has no reason to know which tab that is.
    */
   columns: Cut[];
+  /**
+   * Rounds this comparison DOES have rows in, when the period filter is what
+   * emptied it. Null means the cut is not empty, or is empty everywhere.
+   */
+  elsewhere: string[] | null;
   /** Only on This round — the extra context the CRO steps need. */
   roundContext: RoundContext | null;
   imports: ImportStatus[];
@@ -246,7 +251,7 @@ const EMPTY: Omit<Dashboard, "error" | "errorHint" | "view"> = {
   products: [], channels: [], countries: [], periods: [], filter: NO_FILTER, cadences: ["round"],
   byMonth: [], byWeek: [], byRound: [], byAdset: [], bySource: [], byRoundSource: [], byVariant: [], byLanding: [],
   byAd: [], bySession: [], byOffer: [], thisRound: [],
-  columns: [], roundContext: null,
+  columns: [], elsewhere: null, roundContext: null,
   imports: [], unmatched: null,
   unmatchedReasons: [], unmatchedRows: [],
 };
@@ -404,6 +409,17 @@ const loadStrip = unstable_cache(
  * Only the open tab's cut is fetched. The Import tab used to pull every round
  * and every ad set to render four dropzones that display neither.
  */
+/**
+ * The by-round twin of a flat cut, where one exists. Used only to answer "which
+ * rounds did this run in" when a period filter has emptied the tab.
+ */
+const ROUND_COMPANION: Partial<Record<Cut2, string>> = {
+  adset:   "v_metrics_by_adset_round",
+  ad:      "v_metrics_by_ad_round",
+  variant: "v_metrics_by_variant_round",
+  landing: "v_metrics_by_lp_round",
+};
+
 const VIEW_FOR: Record<Cut2, string> = {
   month:       "v_metrics_by_month",
   week:        "v_metrics_by_week",
@@ -439,10 +455,47 @@ const loadMetrics = unstable_cache(
         p_offer: cut === "preview" || cut === "middle" ? cut : null,
       }),
     ]);
+    const cols = (ok(columns, `metrics:${cut}`) as Cut[] | null) ?? [];
+
+    /**
+     * WHERE IT DOES EXIST.
+     *
+     * An empty cut said "no columns under the current filter", which is true and
+     * useless — it does not say whether the comparison has no data at all or
+     * simply none in the period you happen to be standing in. The A/B test ran in
+     * four rounds of July and early August; on September the tab drew nothing and
+     * looked broken.
+     *
+     * So when a cut comes back empty AND a period is narrowing it, ask the same
+     * view again with the period dropped. If rows appear, the data exists and the
+     * period is what removed it — and the rounds it ran in are worth naming,
+     * because they are where the reader has to go.
+     *
+     * Only on an empty cut, so the common path costs nothing.
+     */
+    let elsewhere: string[] | null = null;
+    if (!cols.length && (f.from || f.to)) {
+      const wide = { ...scope, p_from: null, p_to: null };
+      const companion = ROUND_COMPANION[cut];
+      const probe = await db.rpc("fo_cut", {
+        p_view: companion ?? VIEW_FOR[cut],
+        ...wide,
+        p_offer: cut === "preview" || cut === "middle" ? cut : null,
+      });
+      const rows = (probe.error ? null : (probe.data as Cut[] | null)) ?? [];
+      if (rows.length) {
+        // the companion cuts BY round, so its labels are the round ids
+        elsewhere = companion
+          ? [...new Set(rows.map((r) => r.cut_label).filter(Boolean) as string[])].sort()
+          : [];
+      }
+    }
+
     return {
       total: (ok(total, "v_metrics_total") as Cut[] | null)?.[0] ?? null,
       baseline: (ok(baseline, "v_metrics_baseline") as Cut[] | null)?.[0] ?? null,
-      columns: (ok(columns, `metrics:${cut}`) as Cut[] | null) ?? [],
+      columns: cols,
+      elsewhere,
     };
   },
   ["funnel-metrics"],
@@ -762,6 +815,7 @@ async function build(
     // table showed one asset while the plot beside it drew all of them. One
     // list, computed once, used by both.
     columns: shown,
+    elsewhere: metrics?.elsewhere ?? null,
     roundContext: context,
     unmatchedReasons: detail?.reasons ?? [],
     unmatchedRows: detail?.rows ?? [],

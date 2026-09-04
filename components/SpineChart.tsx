@@ -34,12 +34,17 @@ import {
  * that rule costs nothing visible and changes what the chart says.
  */
 export function SpineChart({
-  title, sub, cuts, vs, notice, note,
+  title, sub, cuts, vs, elsewhere, notice, note,
 }: {
   title: string;
   sub: string;
   cuts: Cut[];
   vs: VsKey;
+  /**
+   * Rounds this comparison has rows in, when the period filter is what emptied
+   * it. Turns "nothing here" into "not here, but there".
+   */
+  elsewhere?: string[] | null;
   notice?: React.ReactNode;
   note?: React.ReactNode;
 }) {
@@ -62,6 +67,17 @@ export function SpineChart({
           <div>
             <b>Nothing to plot.</b> This cut has no columns under the current filter, so
             there is no axis to draw. The table says the same thing with the same rows.
+            {elsewhere ? (
+              <>
+                {" "}
+                <b>The period is what removed them.</b> This comparison has rows
+                {elsewhere.length ? (
+                  <> in {elsewhere.join(", ")}</>
+                ) : null}{" "}
+                — none of which the period you are on covers. Choose{" "}
+                <b>All time</b>, or one of those rounds, to see it.
+              </>
+            ) : null}
           </div>
         </div>
       </>

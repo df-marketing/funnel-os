@@ -251,6 +251,7 @@ export default async function Page({
                 sub={`ad spend against ${vsOption(opts.vs).label.toLowerCase()}`}
                 cuts={data.columns}
                 vs={opts.vs}
+                elsewhere={data.elsewhere}
                 notice={
                   <>
                     <b>The Total column is not plotted.</b> A total is not a point on this
