@@ -240,6 +240,24 @@ export default async function Page({
             </div>
           ) : null}
 
+          {/*
+            The same answer the chart gives, for the table — which otherwise
+            draws an empty pane and says nothing at all, which is worse. A tab
+            emptied by the period looks exactly like a broken one unless it says
+            where the rows actually are.
+          */}
+          {!showGraph && !data.columns.length && data.elsewhere ? (
+            <div className="notice info" style={{ marginBottom: 12 }}>
+              <span className="ico">?</span>
+              <div>
+                <b>Nothing here, but not nothing.</b> This comparison has rows
+                {data.elsewhere.length ? <> in {data.elsewhere.join(", ")}</> : null} — and the
+                period you are on covers none of them. Choose <b>All time</b>, or one of those
+                rounds, to see it.
+              </div>
+            </div>
+          ) : null}
+
           {showGraph ? (
             <>
               <div className="pane-head">
