@@ -15138,6 +15138,24 @@ create or replace function fo_filter_people_ok(
   from f;
 $$;
 
+-- EVERY view that calls a filter function must move to the new signature before
+-- the old one can be dropped. There are three, and the first attempt missed one:
+--
+--     2BP01: cannot drop function fo_filter_people_ok(text,date,date)
+--            because other objects depend on it
+--     DETAIL: view v_rounds depends on it
+--
+-- with fourteen views depending on v_rounds in turn. Caught by the transaction,
+-- so nothing was half-applied.
+--
+-- `select *` re-expands, and rounds gained `country` above, so v_rounds picks it
+-- up as its last column — an append, which is legal.
+create or replace view v_rounds as
+select * from rounds
+where fo_filter_people_ok(product_id, country, start_date, end_date);
+
+grant select on v_rounds to anon, authenticated;
+
 -- country is APPENDED. create or replace may add a column, never insert or
 -- reorder one — and `variant` (0056) already holds the last slot on v_events,
 -- so country goes after it, not where the original branch put it.
