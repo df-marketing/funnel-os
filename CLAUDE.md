@@ -139,3 +139,4 @@
 - project still has no objective set — milestones lack a guiding north star.
 - dash before suffix matching was repaired in a recent commit
 - Recent commit message is meaningless ('Draw the count an efficiency is an efficiency of') — no substantive change captured.
+- commit: 'An asset moves between rounds' — indicates a data model change where an asset (likely a financial or inventory item) is transferred or reallocated between rounds (e.g., import rounds, commitment rounds).
