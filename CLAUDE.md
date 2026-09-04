@@ -47,6 +47,7 @@
 - a lead list can now be 'believed' (imported/committed as truth)
 - country filtering was added to rounds
 - A round is in a country if it ran there, not if it declared one — this is a data-model semantic fix.
+- Stripe dependency was dropped from the project.
 
 ## Architecture
 
@@ -63,6 +64,7 @@
 - Filter by product, channel and period — before anything is added up
 - A native data integration API was added to the project, providing a programmatic interface for ingesting data.
 - The app offers clients the stages they actually count (not a superset), and the country filter is preserved as a working constraint.
+- The by-source tab has a two-level column header structure.
 
 ## Gotchas
 
@@ -111,6 +113,7 @@
 - Stripe integration was fully dropped from the project.
 - Accepting an unmatched item previously lost money — fixed by making the unmatched queue two-way.
 - The journey strip is leaving the tab too — likely a UI layout bug where the journey strip overflows or detaches from its intended container when navigating tabs.
+- Unmatched queue is now two-way; accepting an unmatched item no longer discards funds.
 
 ## Notes
 
