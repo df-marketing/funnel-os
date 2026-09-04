@@ -161,6 +161,33 @@ function normChannel(raw: string | null): string {
  * every other rule here errs in. Measured on Shely's nine rosters: 188
  * name-only rows, zero collisions.
  */
+/**
+ * AN AUDIENCE OR CREATIVE NAME, WITH META'S DUPLICATE SUFFIX TAKEN OFF.
+ *
+ * Duplicating an ad set in Ads Manager names the copy "X - Copy". The name is
+ * usually corrected there and the tracking link is not, so GoHighLevel keeps
+ * writing the old one — and the audience arrives under a name no ads row has.
+ *
+ * The cost is not cosmetic. An asset is bridged to spend by matching
+ * events.ad_set to ads_performance.ad_set, so a lead under "X - Copy" lands in
+ * a column of its own with a dash for every unit cost, while the real audience
+ * shows the spend that produced it and not the leads. Both figures are wrong
+ * and neither looks it. On Shely's data: 23 leads and 78 creative rows split
+ * away this way, and the September export has 105 more.
+ *
+ * Applied to leads AND to ads, so the two can never disagree about a name.
+ * Every suffix seen so far is stripped — hyphen, en dash and em dash, any case,
+ * a trailing copy number, and repeats — but nothing else is touched: a name is
+ * otherwise written exactly as the export gave it.
+ */
+const COPY_SUFFIX = /(?:\s*[-–—]\s*copy(?:\s*\d+)?)+\s*$/i;
+const normAsset = (raw: string | null): string | null => {
+  const s = String(raw ?? "").trim();
+  if (!s) return raw === null || raw === undefined ? null : raw;
+  const cleaned = s.replace(COPY_SUFFIX, "").trim();
+  return cleaned || s;
+};
+
 const anonKey = (rawName: string | null): string | null => {
   const name = String(rawName ?? "").toLowerCase()
     .replace(/\(.*?\)/g, " ")          // "Jay (Jael Tan)" is one person
@@ -532,8 +559,8 @@ export async function planImport(
       // batch's coverage should say so
       track(toDate(val(r, "date_end")));
 
-      const adSet = val(r, "ad_set");
-      const ad = val(r, "ad");
+      const adSet = normAsset(val(r, "ad_set"));
+      const ad = normAsset(val(r, "ad"));
       const campaign = val(r, "campaign");
 
       /**
@@ -833,7 +860,7 @@ export async function planImport(
           park(outcome.kind === "park" ? outcome.reason : "name_only", r, null, null, "none");
           continue;
         }
-        const anonSet = val(r, "ad_set");
+        const anonSet = normAsset(val(r, "ad_set"));
         const anonAttr = attributeLead(when, anonSet, rounds, adRuns);
         if (!anonAttr.roundId) {
           park("no_matching_round", r, null, "no round covers this opt-in date", "none");
@@ -850,7 +877,7 @@ export async function planImport(
           event_id: uuid(), contact_id: null, round_id: anonAttr.roundId, event_type: "lead", anon_key: anon,
           event_date: when, lead_round_id: anonAttr.roundId, attribution_method: anonAttr.method,
           utm_campaign: val(r, "utm_campaign") || null,
-          ad_set: anonSet, ad: val(r, "ad"),
+          ad_set: anonSet, ad: normAsset(val(r, "ad")),
           // Never "Paid Ads" by inference. A row the ads could have produced
           // would also have carried an address; this one didn't, so the file's
           // own answer stands or it is organic.
@@ -866,8 +893,8 @@ export async function planImport(
 
       // The audience is what bridges a person to spend, so it is what decides
       // the round. utm_campaign names the round's campaign, not an ad set.
-      const adSet = val(r, "ad_set");
-      const adName = val(r, "ad");
+      const adSet = normAsset(val(r, "ad_set"));
+      const adName = normAsset(val(r, "ad"));
       const utm = val(r, "utm_campaign");
       /**
        * A named round is not a hint, it is the file saying which of its lists

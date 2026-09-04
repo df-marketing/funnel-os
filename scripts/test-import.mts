@@ -648,6 +648,38 @@ console.log("\nPipeline — sales");
   eq("and no ad credit", ghost.is_lead, false);
 }
 
+console.log("\nPipeline — Meta's duplicate suffix is not a different audience");
+{
+  const db = fakeDb({
+    rounds: ROUNDS, contacts: [], events: [], v_column_map: [],
+    ads_performance: [{ round_id: "0526-02", date: "2026-05-14", ad_set: "Cold_Broad", ad: "Static_LetAISell", spend: "10", impressions: 100, reach: 90, clicks: 5 }],
+  });
+  const plan = await planImport(db, {
+    source: "leads", clientId: "shely", fileName: "leads.csv",
+    text: [
+      "Email,Created,Source,utm_term,utm_content",
+      // Duplicating an ad set in Ads Manager names it "X - Copy"; the tracking
+      // link keeps the old name after the ad set is renamed back. 23 leads and
+      // 78 creative rows split away from their own spend this way.
+      "a@example.sg,2026-05-14,Paid Ads,Cold_Broad – Copy,Static_LetAISell – Copy",
+      "b@example.sg,2026-05-14,Paid Ads,Cold_Broad - Copy 2,Static_LetAISell - copy",
+      "c@example.sg,2026-05-14,Paid Ads,Cold_Broad,Static_LetAISell",
+    ].join("\n"),
+  });
+  const sets = plan.ops.events.map((e) => e.ad_set);
+  const ads = plan.ops.events.map((e) => e.ad);
+  eq("every dash and case lands on one audience", new Set(sets).size, 1);
+  eq("which is the one that has the spend", sets[0], "Cold_Broad");
+  eq("and one creative", new Set(ads).size, 1);
+  eq("named as the ads file names it", ads[0], "Static_LetAISell");
+  // A name that merely contains the word must survive untouched.
+  const keep = await planImport(db, {
+    source: "leads", clientId: "shely", fileName: "l2.csv",
+    text: "Email,Created,Source,utm_term\nd@example.sg,2026-05-14,Paid Ads,Copywriting_Coaches",
+  });
+  eq("a name that is not a suffix is left alone", keep.ops.events[0].ad_set, "Copywriting_Coaches");
+}
+
 console.log("\nPipeline — a headcount survives being counted twice");
 {
   const ROSTER = ["Session,Email,Name", "0526-02,,Katherine", "0526-02,,Marcus"].join("\n");
