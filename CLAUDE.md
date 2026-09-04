@@ -46,6 +46,7 @@
 - A stage with a cut is a wired stage.
 - a lead list can now be 'believed' (imported/committed as truth)
 - country filtering was added to rounds
+- A round is in a country if it ran there, not if it declared one — this is a data-model semantic fix.
 
 ## Architecture
 
