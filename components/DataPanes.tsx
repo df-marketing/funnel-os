@@ -380,9 +380,17 @@ export function UnmatchedPane({
       <div className="notice info">
         <span className="ico">?</span>
         <div>
-          <b>The &ldquo;bought with no lead&rdquo; rows are the interesting ones.</b> Real revenue with
-          no ad spend attached — referrals, repeat buyers, or tracking that failed. Crediting them to a
-          round would flatter its ROAS, so they stay out of ROAS and appear in revenue totals, labelled.
+          {/*
+            This note used to promise that a buyer with no lead appears in
+            revenue totals. They did not: every per-round view dropped them, and
+            a payments file could not introduce the buyer in the first place, so
+            they sat here with Assign pointing at a contact that did not exist.
+            Both halves are fixed — the note now says what happens.
+          */}
+          <b>A buyer with no lead does not wait here.</b> Real revenue with no ad spend behind it —
+          referrals, repeat buyers, tracking that failed — is counted in the round the money arrived
+          in and kept out of ROAS, because crediting it to a round would flatter what the ads did.
+          What waits here is a row this app cannot name at all: no address, no number, nobody to be.
         </div>
       </div>
     </>

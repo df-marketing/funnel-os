@@ -182,6 +182,21 @@ export const SOURCES: Record<SourceKey, SourceSpec> = {
       f("email", true, "email address", "customer email"),
       f("phone", false, "phone number", "mobile", "contact number"),
       f("product", true, "plan", "item", "offer"),
+      /**
+       * WHERE THE BUYER CAME FROM — read only when they came from nowhere.
+       *
+       * A buyer who opted in has a lead, and the lead already carries the
+       * source; this column is ignored for them, because the payments file is
+       * the last place that should get to restate an acquisition. It is read
+       * for the one case the lead cannot cover: someone who never opted in at
+       * all. Without it their money lands under "Unattributed", which reads as
+       * a failure to attribute rather than what it is — a sale no ad produced.
+       *
+       * It can never move a paid figure. attribution_bucket only reaches
+       * 'Paid Ads' through a lead event (0020), so a value written here adds
+       * revenue and contributes nothing to ROAS or CPA.
+       */
+      f("source", false, "lead source", "acquisition source"),
       f("amount", true, "total", "gross", "amount (sgd)"),
       f("refund_amount", false, "refunded", "refund", "amount refunded"),
       f("refund_date", false, "refunded at", "refund date"),

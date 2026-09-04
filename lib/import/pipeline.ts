@@ -706,9 +706,27 @@ export async function planImport(
   for (const r of rows) {
     const email = normEmail(val(r, "email"));
     const phone = normPhone(val(r, "phone"));
+    /**
+     * WHICH FILES MAY INTRODUCE A PERSON: the ones that carry a first contact.
+     *
+     * Leads, obviously. Sales for a reason the queue made unarguable — a buyer
+     * who never opted in parked as `bought_without_lead`, and the only control
+     * the screen offered was Assign, which needs an EXISTING contact to assign
+     * to. There isn't one. So the single working button was Dismiss, and
+     * Dismiss discards the money. A queue that can only be emptied by losing
+     * revenue is not review, it is attrition.
+     *
+     * Attendance stays out. Someone in a webinar room we cannot name is a
+     * headcount, not a person, and 0051 already counts them without inventing
+     * one. A payment is different: it names a buyer and hands over money.
+     *
+     * A row with neither address nor phone still parks — matchRow returns
+     * name_only before it reads this flag. Nothing is invented from nothing.
+     */
+    const mayIntroduce = source === "leads" || source === "sales";
     const outcome = asContactId
       ? ({ kind: "exact", contactId: asContactId } as const)
-      : matchRow(index, val(r, "email"), val(r, "phone"), source === "leads");
+      : matchRow(index, val(r, "email"), val(r, "phone"), mayIntroduce);
 
     let contactId: string | null = null;
     if (outcome.kind === "exact") { contactId = outcome.contactId; plan.counts.matchedExact++; }
@@ -991,14 +1009,22 @@ export async function planImport(
         // the class actually attended. Both true, both reconcile to one total.
         lead_round_id: leadRound,
         close_round_id: closeRound,
-        source: leadSourceByContact.get(contactId) ?? null,
+        // The lead wins wherever there is one — a payments export does not get
+        // to restate how somebody was acquired. The column is the fallback for
+        // a buyer who never opted in, and for nobody else. See sources.ts.
+        source: leadSourceByContact.get(contactId) ?? val(r, "source") ?? null,
         is_lead: Boolean(leadRound),
         match_status: outcome.kind === "auto" ? "auto_resolved" : "matched",
       });
       supersede(r, contactId);
       plan.diff.newRows++;
       if (!leadRound) {
-        warnings.push("At least one sale has no lead event — counted in revenue, excluded from ROAS.");
+        // Says which round, because "counted in revenue" was the half of this
+        // sentence that used to be false — every per-round view dropped the
+        // row. 0052 made it true; naming the round is how the screen proves it.
+        warnings.push(
+          `At least one sale has no lead behind it — counted in ${purchaseRound} revenue, excluded from ROAS.`,
+        );
       }
     }
   }

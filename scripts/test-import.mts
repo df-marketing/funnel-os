@@ -635,8 +635,58 @@ console.log("\nPipeline — sales");
   eq("known buyer with no lead is still revenue", noLead.product, "preview");
   eq("but excluded from ROAS", noLead.is_lead, false);
 
-  eq("unknown buyer parked", plan.counts.parked, 1);
-  eq("their revenue is held, not credited", plan.ops.unmatched[0].revenue_held, 297);
+  // A stranger who pays is introduced by the payment, not parked. Parking them
+  // was indefensible once you looked at the queue: Assign wants an existing
+  // contact and there is none, so the only working control was Dismiss, which
+  // discards the money. See mayIntroduce in pipeline.ts.
+  const ghost = plan.ops.events[2];
+  eq("unknown buyer is introduced by the sale", plan.counts.parked, 0);
+  eq("a contact is created for them", plan.ops.contacts.length, 1);
+  eq("their money is counted", ghost.amount, 297);
+  eq("in the round it arrived in", ghost.round_id, "0526-03");
+  eq("with no acquisition round to claim", ghost.lead_round_id, null);
+  eq("and no ad credit", ghost.is_lead, false);
+}
+
+console.log("\nPipeline — a payment names a buyer, or it parks");
+{
+  const db = fakeDb({
+    rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [],
+  });
+  // Neither address nor number: matchRow returns name_only before it ever reads
+  // the introduce flag, so nothing is invented from nothing.
+  const plan = await planImport(db, {
+    source: "sales", clientId: "shely", fileName: "sales.csv",
+    text: ["Date,Email,Phone,Product,Amount", "2026-05-27,,,2-hour preview workshop,297"].join("\n"),
+  });
+  eq("a payment naming nobody still parks", plan.counts.parked, 1);
+  eq("no contact is invented for it", plan.ops.contacts.length, 0);
+  eq("its revenue is held", plan.ops.unmatched[0].revenue_held, 297);
+}
+
+console.log("\nPipeline — the sales file names a source only when the lead cannot");
+{
+  const db = fakeDb({
+    rounds: ROUNDS,
+    contacts: [{ contact_id: "c1", email: "buyer@example.sg", phone: null, client_id: "shely" }],
+    events: [
+      { event_id: "e1", contact_id: "c1", round_id: "0526-02", event_type: "lead", event_date: "2026-05-14T09:00:00Z", lead_round_id: "0526-02", source: "Paid Ads", product: null, amount: null, refund_amount: null },
+    ],
+    ads_performance: [], v_column_map: [],
+  });
+  const plan = await planImport(db, {
+    source: "sales", clientId: "shely", fileName: "sales.csv",
+    text: [
+      "Date,Email,Phone,Product,Amount,Source",
+      // has a lead: the lead's source wins, the file's column is ignored
+      "2026-05-27,buyer@example.sg,,2-hour preview workshop,297,Organic",
+      // no lead: the file is the only thing that knows
+      "2026-05-27,,+6591155040,2-hour preview workshop,297,Organic",
+    ].join("\n"),
+  });
+  eq("a payments file cannot restate an acquisition", plan.ops.events[0].source, "Paid Ads");
+  eq("but it can name one nobody else knows", plan.ops.events[1].source, "Organic");
+  eq("which still earns no ad credit", plan.ops.events[1].is_lead, false);
 }
 
 console.log("\nPipeline — refunds restate");
@@ -1007,7 +1057,10 @@ console.log("\nCommit — re-importing a source retires the batch it replaces");
   // A later period says nothing about an earlier one, so it must not retire it.
   const t2: Tables = { rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [], unmatched_rows: [], import_batches: [] };
   await run(t2, "c1", SALES);
-  await run(t2, "c2", "event_date,email,phone,product,amount\n2026-05-27,,+6599999999,preview,297\n");
+  // Dated outside every round, like SALES above, so it parks for the reason
+  // this test is about rather than for want of a buyer — a payment carrying a
+  // number now introduces one (see mayIntroduce) and would not queue at all.
+  await run(t2, "c2", "event_date,email,phone,product,amount\n2026-05-30,,+6599999999,preview,297\n");
   eq("a different period leaves the earlier queue alone", waiting(t2), 2);
   eq("and both amounts are still held", held(t2), 594);
 }
