@@ -6,7 +6,7 @@ import {
 } from "@/lib/funnel/chart";
 
 /**
- * One plot, two lines, an axis each.
+ * One plot, an axis each, and up to three series.
  *
  * Ad spend on the left, and on the right whatever you are reading it against —
  * the objective's own level, or what a unit of it cost. Two axes rather than
@@ -14,8 +14,16 @@ import {
  * scale would press the second line flat along the floor, where it would read
  * as a collapse instead of as a different unit.
  *
- * Two series, not three. A third would need a third axis, and three axes on one
- * plot is a puzzle rather than a chart.
+ * A third series appears only for an efficiency, and only because it is the
+ * number already inside it: "cost per attendance" is spend over attendance, so
+ * attendance is drawn as bars beside spend on the SAME axis. Still two axes —
+ * three would be a puzzle rather than a chart. A count of 74 beside a spend of
+ * 1,005 draws short, and that is the ratio being shown rather than a fault;
+ * every bar prints its own value.
+ *
+ * Left-axis series are bars and the right-hand one is a line, because they are
+ * different kinds of claim: bars are amounts you could add up, the line is a
+ * rate you could not.
  *
  * Server-rendered SVG. No chart library and no client JavaScript: the numbers
  * are already on the server and the drawing is arithmetic.
@@ -76,6 +84,42 @@ export function SpineChart({
     return wanted;
   };
 
+  /**
+   * A left-axis amount, as bars. Column width is shared between however many
+   * bar series there are, so adding the count narrows both rather than drawing
+   * one on top of the other.
+   */
+  const bars = (s: Series, slot: number, slots: number) => {
+    if (s.empty) return null;
+    const span = Math.min(GEO.minCol * 0.52, (chartWidth(n) - GEO.padL - GEO.padR) / n * 0.52);
+    const w = span / slots;
+    return (
+      <g className={`s-${s.axis} bar-${slot}`}>
+        {s.points.map((p, i) =>
+          p.value === null ? null : (
+            <g key={p.key}>
+              <rect
+                className={`chart-bar chart-bar-${slot}`}
+                x={colX(i, s.points.length) - span / 2 + slot * w}
+                y={valueY(p.value, s.max)}
+                width={Math.max(w - 2, 2)}
+                height={Math.max(floor - valueY(p.value, s.max), 0)}
+              />
+              <text
+                className="chart-value"
+                x={colX(i, s.points.length) - span / 2 + slot * w + Math.max(w - 2, 2) / 2}
+                y={Math.max(valueY(p.value, s.max) - 5, GEO.padT + 9)}
+                textAnchor="middle"
+              >
+                {cell(p.value, s.fmt)}
+              </text>
+            </g>
+          ),
+        )}
+      </g>
+    );
+  };
+
   /** One series' line, its points, and its value labels. */
   const draw = (s: Series, labelAbove: boolean) =>
     s.empty ? null : (
@@ -122,6 +166,13 @@ export function SpineChart({
             {model.left.label}
             <em>left axis</em>
           </i>
+          {model.amount ? (
+            <i className="s-left amount">
+              <span className="rule" />
+              {model.amount.label}
+              <em>left axis</em>
+            </i>
+          ) : null}
           <i className="s-right">
             <span className="rule" />
             {model.right.label}
@@ -139,7 +190,7 @@ export function SpineChart({
             // width its own labels need
             style={{ minWidth: W }}
             role="img"
-            aria-label={`${model.left.label} against ${model.right.label}, across ${cuts.length} columns.`}
+            aria-label={`${model.left.label}${model.amount ? ` and ${model.amount.label}` : ""} against ${model.right.label}, across ${cuts.length} columns.`}
           >
             {/* Gridlines come off the LEFT axis only. Two sets of horizontal
                 rules at different intervals would look like a printing fault. */}
@@ -172,7 +223,9 @@ export function SpineChart({
               </text>
             ))}
 
-            {draw(model.left, true)}
+            {model.amount
+              ? [bars(model.left, 0, 2), bars(model.amount, 1, 2)]
+              : bars(model.left, 0, 1)}
             {draw(model.right, false)}
 
             {/* A column where neither line has a value still gets its place on

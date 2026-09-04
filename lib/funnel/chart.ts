@@ -118,6 +118,27 @@ export const VS_OPTIONS: VsOption[] = [
   { key: "roas",    metric: "roas",    short: "ROAS",                label: "Overall ROAS",              fmt: "d1", kind: "efficiency", betterWhen: "higher" },
 ];
 
+/**
+ * THE AMOUNT AN EFFICIENCY IS AN EFFICIENCY OF.
+ *
+ * "Cost per attendance" is spend divided by attendance, so attendance is not a
+ * second thing you might also want to see — it is the number already inside the
+ * one on screen. Reading a cost per without its count is how a rising cost gets
+ * mistaken for a failure when the count doubled, and how a falling one gets
+ * praised when the count collapsed.
+ *
+ * Naming it here rather than adding a control: the pairing is already true in
+ * the arithmetic, so the chart can simply draw it.
+ */
+export const AMOUNT_OF: Partial<Record<VsKey, { metric: MetricKey; label: string; fmt: Fmt }>> = {
+  cpl:   { metric: "leads",   label: "Leads",                   fmt: "i" },
+  cpAtt: { metric: "att",     label: "Overall Attendance",      fmt: "i" },
+  cpa:   { metric: "prevBuy", label: "Preview Offer Purchases", fmt: "i" },
+  // ROAS is revenue over spend, and revenue is money — so it shares the left
+  // axis honestly rather than by convention.
+  roas:  { metric: "rev",     label: "Total Revenue (SGD)",     fmt: "m" },
+};
+
 export const vsOption = (k: VsKey) => VS_OPTIONS.find((o) => o.key === k) ?? VS_OPTIONS[5];
 export const isVs = (v: string | null | undefined): v is VsKey =>
   !!v && VS_OPTIONS.some((o) => o.key === v);
@@ -203,6 +224,15 @@ export type Series = {
 };
 
 export type ChartModel = {
+  /**
+   * The count behind an efficiency, on the LEFT axis beside spend.
+   *
+   * Deliberately sharing spend's scale rather than taking a third axis: three
+   * axes on one plot is a puzzle. A count of 74 against a spend of 1,005 draws
+   * short, and that is not a flaw — it is the ratio the chart exists to show,
+   * and every bar carries its own printed value.
+   */
+  amount: Series | null;
   left: Series;
   right: Series;
   columns: { key: string; label: string; sub: string | null }[];
@@ -245,13 +275,25 @@ export function chartModel(cuts: Cut[], vs: VsKey): ChartModel {
   const left = seriesFor("input", "left", "Ads Spent (SGD)", "spend", "m", cuts);
   const right = seriesFor("against", "right", opt.label, opt.metric, opt.fmt, cuts);
 
+  const of = opt.kind === "efficiency" ? AMOUNT_OF[vs] : undefined;
+  const amount = of
+    ? seriesFor("input", "left", of.label, of.metric, of.fmt, cuts)
+    : null;
+  // One scale for everything on the left, or the two would be drawn against
+  // different rulers and compared anyway.
+  if (amount) {
+    const shared = Math.max(left.max, amount.max);
+    left.max = shared;
+    amount.max = shared;
+  }
+
   const blanks = cuts
     .filter((c) =>
       [left, right].every((s) => s.points.find((q) => q.key === c.cut_key)?.value === null))
     .map((c) => c.cut_label ?? c.cut_key);
 
   return {
-    left, right,
+    left, right, amount,
     columns: cuts.map((c) => ({ key: c.cut_key, label: c.cut_label ?? c.cut_key, sub: c.cut_sub ?? null })),
     vs: opt,
     blanks,
