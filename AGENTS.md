@@ -109,6 +109,7 @@
 - Callers must be moved before dropping what they call — indicates a dependency ordering constraint.
 - Stripe integration was fully dropped from the project.
 - Accepting an unmatched item previously lost money — fixed by making the unmatched queue two-way.
+- The journey strip is leaving the tab too — likely a UI layout bug where the journey strip overflows or detaches from its intended container when navigating tabs.
 
 ## Notes
 
