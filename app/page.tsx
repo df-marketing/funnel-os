@@ -213,6 +213,28 @@ export default async function Page({
         <main className="main">
           <PaneControls client={current.client_id} view={view} filter={data.filter} opts={opts} />
 
+          {/*
+            Every tab that can be drilled into gets this, not just the two it was
+            written for. The variant tab was left out and there was then no way
+            back to both arms except editing the URL — a filter you cannot see is
+            a filter you cannot undo, and one you can see but not clear is worse.
+
+            First in the pane, above the plot and the table both. It was
+            written after them and rendered after them too, so the only way
+            out of a drilled-in tab sat below a screenful of numbers.
+          */}
+          {DRILLABLE.has(view) && filter.asset ? (
+            <div className="notice info" style={{ marginBottom: 12 }}>
+              <span className="ico">→</span>
+              <div>
+                <b>{filter.asset}</b>, round by round — the columns are its rounds, oldest first.
+                Every figure is the same arithmetic as the combined view, so these columns sum to
+                that tab&rsquo;s column.{" "}
+                <a href={withAsset(null)}>Back to all {DRILL_NOUN[view] ?? "columns"}</a>.
+              </div>
+            </div>
+          ) : null}
+
           {showGraph ? (
             <>
               <div className="pane-head">
@@ -464,23 +486,6 @@ export default async function Page({
             the way back, because a filter you cannot see is a filter you cannot
             undo.
           */}
-          {/*
-            Every tab that can be drilled into gets this, not just the two it was
-            written for. The variant tab was left out and there was then no way
-            back to both arms except editing the URL — a filter you cannot see is
-            a filter you cannot undo, and one you can see but not clear is worse.
-          */}
-          {DRILLABLE.has(view) && filter.asset ? (
-            <div className="notice info" style={{ marginBottom: 12 }}>
-              <span className="ico">→</span>
-              <div>
-                <b>{filter.asset}</b>, round by round — the columns are its rounds, oldest first.
-                Every figure is the same arithmetic as the combined view, so these columns sum to
-                that tab&rsquo;s column.{" "}
-                <a href={withAsset(null)}>Back to all {DRILL_NOUN[view] ?? "columns"}</a>.
-              </div>
-            </div>
-          ) : null}
 
           {view === "targeting" && !showGraph ? (
             <>
