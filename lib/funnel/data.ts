@@ -4,7 +4,8 @@ import { cadencesFor, resolveSpine, type Cadence } from "./cadence";
 import {
   cutFor, NEEDS_MONTHS, NEEDS_WEEKS, NEEDS_ROUNDS, NEEDS_ADSETS, NEEDS_SOURCES,
   NEEDS_ROUND_SOURCE, NEEDS_ADS, NEEDS_SESSION, NEEDS_OFFER, NEEDS_THIS_ROUND,
-  NEEDS_UNMATCHED_DETAIL, NEEDS_VARIANT, NEEDS_LANDING, narrowToAsset, type Cut2,
+  NEEDS_UNMATCHED_DETAIL, NEEDS_VARIANT, NEEDS_LANDING, narrowToAsset, monthOf,
+  type Cut2,
 } from "./cuts";
 import type { Metrics } from "./spine";
 import type { ScrollRun } from "./scroll";
@@ -462,8 +463,11 @@ const loadFilterOptions = unstable_cache(
       db.from("v_products").select("*").eq("client_id", id).order("ord"),
       db.from("v_client_channels").select("*").eq("client_id", id).order("ord"),
       db.from("rounds").select("round_id, start_date, end_date, country").eq("client_id", id).order("start_date"),
-      // the country a campaign names, which is the level a mixed round has one at
-      db.from("v_ads").select("round_id, country").eq("client_id", id).not("country", "is", null),
+      // Counted in SQL (0063). Folding rows here missed MY entirely: PostgREST
+      // caps a response at 1000 rows, v_ads has 1,832, and every MY row is in
+      // the last round. A distinct that has to be complete cannot be built from
+      // a page of rows.
+      db.from("v_client_countries").select("country, round_count").eq("client_id", id).order("country"),
     ]);
     const rs = (ok(rounds, "rounds") as { round_id: string; start_date: string; end_date: string; country: string | null }[] | null) ?? [];
     /**
@@ -475,13 +479,29 @@ const loadFilterOptions = unstable_cache(
      * it deleted that round, and September with it, from every screen. The ad
      * rows knew: DF_SG_ and DF_MY_ campaigns, side by side in the same round.
      */
-    const countryCounts = new Map<string, Set<string>>();
-    for (const r of rs) if (r.country) {
-      (countryCounts.get(r.country) ?? countryCounts.set(r.country, new Set()).get(r.country)!).add(r.round_id);
-    }
-    for (const a of (ok(adCountries, "v_ads") as { round_id: string; country: string | null }[] | null) ?? []) {
-      if (!a.country) continue;
-      (countryCounts.get(a.country) ?? countryCounts.set(a.country, new Set()).get(a.country)!).add(a.round_id);
+    let countries = (adCountries.error ? null : (adCountries.data as CountryOption[] | null)) ?? [];
+    if (adCountries.error) {
+      /*
+       * The view is from 0063 and this build may be in front of it. Page the ad
+       * rows instead — slower, two or three round trips, but it cannot silently
+       * return a short answer, which is the whole failure being fixed here.
+       */
+      const seen = new Map<string, Set<string>>();
+      for (let from = 0; ; from += 1000) {
+        const page = await db.from("v_ads").select("round_id, campaign")
+          .eq("client_id", id).range(from, from + 999);
+        const rows = (page.data as { round_id: string; campaign: string | null }[] | null) ?? [];
+        for (const a of rows) {
+          const c = /^DF_([A-Z]{2})_/.exec(String(a.campaign ?? "").toUpperCase())?.[1];
+          if (c) (seen.get(c) ?? seen.set(c, new Set()).get(c)!).add(a.round_id);
+        }
+        if (rows.length < 1000) break;
+      }
+      for (const r of rs) if (r.country) {
+        (seen.get(r.country) ?? seen.set(r.country, new Set()).get(r.country)!).add(r.round_id);
+      }
+      countries = [...seen].sort(([a], [b]) => a.localeCompare(b))
+        .map(([country, rounds]) => ({ country, round_count: rounds.size }));
     }
 
     /**
@@ -491,7 +511,7 @@ const loadFilterOptions = unstable_cache(
      */
     const months = new Map<string, { from: string; to: string }>();
     for (const r of rs) {
-      const k = r.start_date.slice(0, 7);
+      const k = monthOf(r);
       const m = months.get(k);
       months.set(k, {
         from: m && m.from < r.start_date ? m.from : r.start_date,
@@ -520,8 +540,7 @@ const loadFilterOptions = unstable_cache(
     return {
       products: (ok(products, "v_products") as Product[] | null) ?? [],
       channels: (ok(channels, "v_client_channels") as ChannelOption[] | null) ?? [],
-      countries: [...countryCounts].sort(([a], [b]) => a.localeCompare(b))
-        .map(([country, rounds]) => ({ country, round_count: rounds.size })),
+      countries,
       periods,
     };
   },

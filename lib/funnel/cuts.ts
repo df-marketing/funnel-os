@@ -99,3 +99,28 @@ export const narrowToAsset = <T extends { group_key?: string | null }>(
   const isAssetTab = flat === "adset" || flat === "ad" || flat === "variant" || flat === "landing";
   return isAssetTab && asset ? cuts.filter((c) => c.group_key === asset) : cuts;
 };
+
+/**
+ * The month a round belongs to is the one its NAME declares, not the one it
+ * happened to open in. Rounds are MMYY-NN and run about a week, so two of
+ * Shely's twelve start in the month before the one they are called after:
+ *
+ *     0826-01   31 Jul → 6 Aug     called August, opened in July
+ *     0926-01   28 Aug → 3 Sept    called September, opened in August
+ *
+ * Bucketing on start_date filed both a month early. September then had no
+ * round at all, so it was never offered — the September round was sitting
+ * under August, and the only way to reach it was to know that.
+ *
+ * The name is only trusted when it overlaps the round's actual dates; a
+ * round named something that does not is filed by when it ran.
+ */
+export const monthOf = (r: { round_id: string; start_date: string; end_date: string }) => {
+  const m = /^(\d{2})(\d{2})-/.exec(r.round_id);
+  if (!m) return r.start_date.slice(0, 7);
+  const named = `20${m[2]}-${m[1]}`;
+  if (m[1] < "01" || m[1] > "12") return r.start_date.slice(0, 7);
+  return named >= r.start_date.slice(0, 7) && named <= r.end_date.slice(0, 7)
+    ? named
+    : r.start_date.slice(0, 7);
+};

@@ -26,7 +26,7 @@ import {
   curveOf, biggestDrop, ceilingOf, coverageOf, runsFor, type ScrollRun,
 } from "../lib/funnel/scroll";
 import { cadencesFor, resolveSpine } from "../lib/funnel/cadence";
-import { cutFor, narrowToAsset } from "../lib/funnel/cuts";
+import { cutFor, narrowToAsset, monthOf } from "../lib/funnel/cuts";
 import { NO_FILTER } from "../lib/funnel/data";
 import { WIRED } from "../components/Shell";
 import {
@@ -2007,6 +2007,47 @@ console.log("\nUnidentified — counted as a headcount, attached to nobody");
   eq("the export's own source is kept", leads.ops.events[1].source, "AOAI");
   eq("a bare ad set does not make someone paid", leads.ops.events[2].source, "Organic");
   ok("no contact is invented for any of them", leads.ops.contacts.length === 0);
+}
+
+{
+  // ── A ROUND IS FILED UNDER THE MONTH IT IS NAMED FOR ──────────────────────
+  // Rounds are MMYY-NN and run about a week, so two of Shely's twelve open in
+  // the month before the one they are called after. Filing them by start_date
+  // put 0826-01 in July and 0926-01 in August — and September, having no round
+  // that started in it, was never offered as a period at all.
+  const r = (round_id: string, start_date: string, end_date: string) =>
+    ({ round_id, start_date, end_date });
+
+  eq("a round inside its month is filed there",
+     monthOf(r("0726-02", "2026-07-09", "2026-07-14")), "2026-07");
+  eq("a round opening the month before is filed by its name",
+     monthOf(r("0826-01", "2026-07-31", "2026-08-06")), "2026-08");
+  eq("and so is the September round that opens in August",
+     monthOf(r("0926-01", "2026-08-28", "2026-09-03")), "2026-09");
+  eq("a name that misses the round's dates is not believed",
+     monthOf(r("0126-01", "2026-08-28", "2026-09-03")), "2026-08");
+  eq("nor is a month that is not a month",
+     monthOf(r("9926-01", "2026-08-28", "2026-09-03")), "2026-08");
+  eq("a round_id in no known shape falls back to when it ran",
+     monthOf(r("demo-w1", "2026-08-28", "2026-09-03")), "2026-08");
+
+  // Every round lands in exactly one month, and all five months exist.
+  const shely = [
+    r("0526-02", "2026-05-13", "2026-05-19"), r("0526-03", "2026-05-23", "2026-05-28"),
+    r("0626-01", "2026-06-05", "2026-06-09"), r("0626-02", "2026-06-19", "2026-06-23"),
+    r("0726-01", "2026-07-01", "2026-07-07"), r("0726-02", "2026-07-09", "2026-07-14"),
+    r("0726-03", "2026-07-15", "2026-07-21"), r("0726-04", "2026-07-22", "2026-07-30"),
+    r("0826-01", "2026-07-31", "2026-08-06"), r("0826-02", "2026-08-07", "2026-08-20"),
+    r("0826-03", "2026-08-21", "2026-08-27"), r("0926-01", "2026-08-28", "2026-09-03"),
+  ];
+  const by = new Map<string, number>();
+  for (const x of shely) by.set(monthOf(x), (by.get(monthOf(x)) ?? 0) + 1);
+  eq("five months are offered, not four", by.size, 5);
+  eq("September has the round it is named for", by.get("2026-09"), 1);
+  eq("August has three, including the one that opened in July", by.get("2026-08"), 3);
+  eq("July keeps its four", by.get("2026-07"), 4);
+  eq("every round is filed exactly once",
+     [...by.values()].reduce((a, b) => a + b, 0), shely.length);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

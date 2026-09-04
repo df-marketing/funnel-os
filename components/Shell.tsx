@@ -362,8 +362,10 @@ function FilterBar({
       ) : null}
       {filter.country ? (
         <p className="filter-note">
-          Country keeps whole {filter.country} rounds. A mixed or unstated round is not assigned to a
-          country and appears only under All.
+          Country is read per row, from the <code>DF_{filter.country}_</code> prefix its campaign
+          carries, so a round that ran both countries is split rather than dropped. Spend and people
+          named by no campaign — organic, and anyone who arrived without one — are counted under All
+          and under neither country.
           {countryBlanked ? (
             <> <b>ROAS, CPA, CPL and Lead gen % are blank</b> because this country selection removed spend.</>
           ) : null}
