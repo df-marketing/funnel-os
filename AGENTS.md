@@ -88,6 +88,7 @@
 - Audience and ad fields are now read from the actual tags GoHighLevel writes, not from assumed/arbitrary tag keys.
 - Send the round's dates as dates, not as a sentence — likely a fix to import/export date formatting.
 - absent (null/missing) is treated as distinct from zero for sales and for spend that has no named audience.
+- The commit 'Count the room we cannot name' was merged — likely a reference to a Voldemort/unnamed metric (e.g., 'we do not speak its name').
 
 ## Notes
 
@@ -130,3 +131,4 @@
 - A demo round was added whose assets can actually be ranked — the demo is no longer a placeholder.
 - A declared metric gets a file to drop — likely means the import pipeline assigns each metric its own dedicated file for dropping data.
 - Appointments tab/feature has been declared and is now shown working (functionally wired, not just described).
+- project still has no objective set — milestones lack a guiding north star.
