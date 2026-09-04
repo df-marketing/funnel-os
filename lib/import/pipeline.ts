@@ -633,7 +633,8 @@ export async function planImport(
   }
 
   const attendancesByContact = new Map<string, Array<{ round_id: string | null; event_date: string }>>();
-  const leadRoundByContact = new Map<string, string>();
+  /** Every opt-in this person has, oldest first. */
+  const leadsByContact = new Map<string, { round: string; date: string; source: string | null }[]>();
   const leadSourceByContact = new Map<string, string>();
   for (const e of events) {
     if (!e.contact_id) continue;
@@ -643,10 +644,61 @@ export async function planImport(
       attendancesByContact.set(e.contact_id, list);
     }
     if (e.event_type === "lead" && e.lead_round_id) {
-      leadRoundByContact.set(e.contact_id, e.lead_round_id);
+      const list = leadsByContact.get(e.contact_id) ?? [];
+      list.push({ round: e.lead_round_id, date: e.event_date, source: e.source ?? null });
+      leadsByContact.set(e.contact_id, list);
       if (e.source) leadSourceByContact.set(e.contact_id, e.source);
     }
   }
+  for (const list of leadsByContact.values()) {
+    list.sort((a, b) => (sgDayOf(a.date) ?? "").localeCompare(sgDayOf(b.date) ?? ""));
+  }
+
+  /**
+   * THE ROUND THAT ACQUIRED THIS PERSON BY THE TIME OF `when`.
+   *
+   * Two rules, and the app used to have neither.
+   *
+   * EARLIEST, not latest. "Whose spend produced this?" is answered by the first
+   * opt-in, not the most recent one. Somebody who registered in May and again in
+   * June was acquired in May; June inherited them. That is exactly what the
+   * Previous Paid Ads bucket exists to express, and taking the later lead would
+   * erase the distinction it was built to draw.
+   *
+   * NOTHING, if every opt-in came afterwards. Five buyers in the May–August load
+   * bought at one class and then registered for the NEXT round days later, and
+   * their money followed the opt-in forward — $2,094 filed under rounds that had
+   * not yet met them, and $397 of August revenue sitting in September. A lead
+   * dated after the sale did not produce the sale. Returning null sends the row
+   * to the round the money actually arrived in (0052) and keeps it out of ROAS,
+   * which is the honest reading of a purchase nothing acquired.
+   */
+  const leadAsOf = (contactId: string, when: string | null) => {
+    const first = leadsByContact.get(contactId)?.[0];
+    if (!first) return null;
+    if (when && sgDayOf(first.date)! > sgDayOf(when)!) return null;
+    return first;
+  };
+  const leadRoundAsOf = (contactId: string, when: string | null): string | null =>
+    leadAsOf(contactId, when)?.round ?? null;
+
+  /**
+   * The source travels with the round that acquired them, not with whichever
+   * opt-in happened to be read last — a test caught these two disagreeing, and
+   * a row saying "acquired by May, source June" is not a fact about anybody.
+   *
+   * A later opt-in still NAMES someone when nothing acquired them in time. It
+   * just cannot claim their purchase, and it must never claim it for the ads:
+   * Paid Ads is dropped rather than inherited, because a sale made before the
+   * opt-in was not bought by the advertising that followed it.
+   */
+  const sourceFor = (contactId: string, when: string | null, fileSource: string | null) => {
+    const acquiring = leadAsOf(contactId, when);
+    if (acquiring) return acquiring.source;
+    if (fileSource) return fileSource;
+    const known = leadSourceByContact.get(contactId) ?? null;
+    return known === "Paid Ads" ? null : known;
+  };
 
   // dedupe key per event type
   const eventKey = (t: string, contactId: string, roundId: string | null, date: string, product?: string | null) =>
@@ -706,9 +758,27 @@ export async function planImport(
   for (const r of rows) {
     const email = normEmail(val(r, "email"));
     const phone = normPhone(val(r, "phone"));
+    /**
+     * WHICH FILES MAY INTRODUCE A PERSON: the ones that carry a first contact.
+     *
+     * Leads, obviously. Sales for a reason the queue made unarguable — a buyer
+     * who never opted in parked as `bought_without_lead`, and the only control
+     * the screen offered was Assign, which needs an EXISTING contact to assign
+     * to. There isn't one. So the single working button was Dismiss, and
+     * Dismiss discards the money. A queue that can only be emptied by losing
+     * revenue is not review, it is attrition.
+     *
+     * Attendance stays out. Someone in a webinar room we cannot name is a
+     * headcount, not a person, and 0051 already counts them without inventing
+     * one. A payment is different: it names a buyer and hands over money.
+     *
+     * A row with neither address nor phone still parks — matchRow returns
+     * name_only before it reads this flag. Nothing is invented from nothing.
+     */
+    const mayIntroduce = source === "leads" || source === "sales";
     const outcome = asContactId
       ? ({ kind: "exact", contactId: asContactId } as const)
-      : matchRow(index, val(r, "email"), val(r, "phone"), source === "leads");
+      : matchRow(index, val(r, "email"), val(r, "phone"), mayIntroduce);
 
     let contactId: string | null = null;
     if (outcome.kind === "exact") { contactId = outcome.contactId; plan.counts.matchedExact++; }
@@ -896,8 +966,11 @@ export async function planImport(
       plan.ops.events.push({
         event_id: uuid(), contact_id: contactId, round_id: roundId, event_type: eventType,
         event_date: when,
-        lead_round_id: leadRoundByContact.get(contactId) ?? null,
-        source: leadSourceByContact.get(contactId) ?? null,
+        // Same rule as sales: the opt-in that came first, and only if it came
+        // before the room did. Someone who attends and registers for the next
+        // round afterwards was not acquired by the round they have not met.
+        lead_round_id: leadRoundAsOf(contactId, when),
+        source: sourceFor(contactId, when, val(r, "source")),
         minutes_watched: Math.round(toNumber(val(r, "minutes_watched")) ?? 0) || null,
         match_status: outcome.kind === "auto" ? "auto_resolved" : "matched",
       });
@@ -950,7 +1023,7 @@ export async function planImport(
 
       // A lead event is what makes revenue attributable. Without one the sale is
       // real but has no spend behind it — counted in revenue, excluded from ROAS.
-      const leadRound = leadRoundByContact.get(contactId) ?? null;
+      const leadRound = leadRoundAsOf(contactId, when);
       const closeRound = closeRoundFor(when, attendancesByContact.get(contactId) ?? []);
       const purchaseRound =
         closeRound ??
@@ -991,14 +1064,22 @@ export async function planImport(
         // the class actually attended. Both true, both reconcile to one total.
         lead_round_id: leadRound,
         close_round_id: closeRound,
-        source: leadSourceByContact.get(contactId) ?? null,
+        // The acquiring lead wins wherever there is one — a payments export does
+        // not get to restate how somebody was acquired. The column answers only
+        // where no lead can. See sourceFor above and the note in sources.ts.
+        source: sourceFor(contactId, when, val(r, "source")),
         is_lead: Boolean(leadRound),
         match_status: outcome.kind === "auto" ? "auto_resolved" : "matched",
       });
       supersede(r, contactId);
       plan.diff.newRows++;
       if (!leadRound) {
-        warnings.push("At least one sale has no lead event — counted in revenue, excluded from ROAS.");
+        // Says which round, because "counted in revenue" was the half of this
+        // sentence that used to be false — every per-round view dropped the
+        // row. 0052 made it true; naming the round is how the screen proves it.
+        warnings.push(
+          `At least one sale has no lead behind it — counted in ${purchaseRound} revenue, excluded from ROAS.`,
+        );
       }
     }
   }
