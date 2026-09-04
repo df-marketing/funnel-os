@@ -94,6 +94,7 @@
 - A sale can exist without a lead, and a lead dated after a sale did not create that sale — the join between leads and sales is not one-to-one.
 - Client stages shown to the user must reflect only the stages the client actually counts, not all possible stages.
 - A headcount survives being counted twice — duplicates in attendance are handled safely.
+- Drill-into pattern: instead of adding a new tab, the app drills into one asset at a time.
 
 ## Notes
 
