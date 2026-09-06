@@ -48,6 +48,8 @@
 - country filtering was added to rounds
 - A round is in a country if it ran there, not if it declared one — this is a data-model semantic fix.
 - Stripe dependency was dropped from the project.
+- Phone is now an identity field in sales and attendance (not just membership).
+- A source is a filter, and a campaign with no page is a lead form.
 
 ## Architecture
 
@@ -115,6 +117,7 @@
 - The journey strip is leaving the tab too — likely a UI layout bug where the journey strip overflows or detaches from its intended container when navigating tabs.
 - Unmatched queue is now two-way; accepting an unmatched item no longer discards funds.
 - absent (null/missing values) is distinct from zero for sales and for spend without a named audience
+- The reconciliation workspace cannot reach the remote.
 
 ## Notes
 
