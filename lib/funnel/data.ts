@@ -141,6 +141,15 @@ export type FilterKey = {
   product: string | null;
   channel: string | null;
   country: string | null;
+  /**
+   * One attribution bucket — Paid Ads, Organic, AOAI… — or all of them.
+   *
+   * A fact about the PERSON, so it narrows leads, attendance and sales and
+   * leaves spend alone: spend has no source, it is all paid. Under anything
+   * but Paid Ads the database blanks spend and every rate built on it (0067),
+   * because organic leads divided by paid spend is not a cost per lead.
+   */
+  source: string | null;
   from: string | null;
   to: string | null;
   /**
@@ -159,7 +168,7 @@ export type FilterKey = {
   asset: string | null;
 };
 
-export const NO_FILTER: FilterKey = { product: null, channel: null, country: null, from: null, to: null, asset: null };
+export const NO_FILTER: FilterKey = { product: null, channel: null, country: null, source: null, from: null, to: null, asset: null };
 
 export type Product = {
   product_id: string;
@@ -183,6 +192,9 @@ export type ChannelOption = {
 
 /** Countries stated on this client's rounds. A null country is deliberately not an option. */
 export type CountryOption = { country: string; round_count: number };
+
+/** Attribution buckets this client has people in, in the source view's order. */
+export type SourceOption = { bucket: string; ord: number; note: string | null; leads: number };
 
 /**
  * Everything the dashboard needs for one client, in one round-trip set.
@@ -231,6 +243,7 @@ export type Dashboard = {
   products: Product[];
   channels: ChannelOption[];
   countries: CountryOption[];
+  sources: SourceOption[];
   periods: Period[];
   filter: FilterKey;
   /**
@@ -248,7 +261,7 @@ export type Dashboard = {
 
 const EMPTY: Omit<Dashboard, "error" | "errorHint" | "view"> = {
   clients: [], stages: [], strip: [], total: null, baseline: null,
-  products: [], channels: [], countries: [], periods: [], filter: NO_FILTER, cadences: ["round"],
+  products: [], channels: [], countries: [], sources: [], periods: [], filter: NO_FILTER, cadences: ["round"],
   byMonth: [], byWeek: [], byRound: [], byAdset: [], bySource: [], byRoundSource: [], byVariant: [], byLanding: [],
   byAd: [], bySession: [], byOffer: [], thisRound: [],
   columns: [], elsewhere: null, roundContext: null,
@@ -383,6 +396,7 @@ const loadStrip = unstable_cache(
     const strip = await db.rpc("fo_cut", {
       p_view: "v_journey_strip",
       p_client: id, p_product: f.product, p_channel: f.channel, p_from: f.from, p_to: f.to, p_country: f.country,
+      p_source: f.source,
     });
     return (ok(strip, "v_journey_strip") as StripCard[] | null) ?? [];
   },
@@ -443,7 +457,10 @@ const VIEW_FOR: Record<Cut2, string> = {
 const loadMetrics = unstable_cache(
   async (id: string, cut: Cut2, f: FilterKey) => {
     const db = createReadClient();
-    const scope = { p_client: id, p_product: f.product, p_channel: f.channel, p_from: f.from, p_to: f.to, p_country: f.country };
+    const scope = {
+      p_client: id, p_product: f.product, p_channel: f.channel, p_from: f.from, p_to: f.to, p_country: f.country,
+      p_source: f.source,
+    };
 
     const [total, baseline, columns] = await Promise.all([
       db.rpc("fo_cut", { p_view: "v_metrics_total", ...scope }),
@@ -512,10 +529,13 @@ const loadMetrics = unstable_cache(
 const loadFilterOptions = unstable_cache(
   async (id: string) => {
     const db = createReadClient();
-    const [products, channels, rounds, adCountries] = await Promise.all([
+    const [products, channels, rounds, buckets, adCountries] = await Promise.all([
       db.from("v_products").select("*").eq("client_id", id).order("ord"),
       db.from("v_client_channels").select("*").eq("client_id", id).order("ord"),
       db.from("rounds").select("round_id, start_date, end_date, country").eq("client_id", id).order("start_date"),
+      // The buckets this client has people in (0067). Tolerated when absent —
+      // a database in front of that migration simply offers no source filter.
+      db.from("v_client_sources").select("bucket, ord, note, leads").eq("client_id", id).order("ord"),
       // Counted in SQL (0063). Folding rows here missed MY entirely: PostgREST
       // caps a response at 1000 rows, v_ads has 1,832, and every MY row is in
       // the last round. A distinct that has to be complete cannot be built from
@@ -594,6 +614,7 @@ const loadFilterOptions = unstable_cache(
       products: (ok(products, "v_products") as Product[] | null) ?? [],
       channels: (ok(channels, "v_client_channels") as ChannelOption[] | null) ?? [],
       countries,
+      sources: (buckets.error ? null : (buckets.data as SourceOption[] | null)) ?? [],
       periods,
     };
   },
@@ -613,7 +634,10 @@ const loadFilterOptions = unstable_cache(
 const loadRoundContext = unstable_cache(
   async (id: string, f: FilterKey): Promise<RoundContext> => {
     const db = createReadClient();
-    const scope = { p_client: id, p_product: f.product, p_channel: f.channel, p_from: f.from, p_to: f.to, p_country: f.country };
+    const scope = {
+      p_client: id, p_product: f.product, p_channel: f.channel, p_from: f.from, p_to: f.to, p_country: f.country,
+      p_source: f.source,
+    };
 
     const [rounds, months, targets] = await Promise.all([
       db.rpc("fo_cut", { p_view: "v_metrics_this_round", ...scope }),
@@ -785,6 +809,7 @@ async function build(
     products: options.products,
     channels: options.channels,
     countries: options.countries,
+    sources: options.sources,
     periods: options.periods,
     filter,
     cadences,

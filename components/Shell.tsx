@@ -3,7 +3,7 @@ import { fmtCount, type MetricKey, type Metrics } from "@/lib/funnel/spine";
 import { RefreshButton } from "./RefreshButton";
 import { SOURCES, type SourceKey } from "@/lib/import/sources";
 import type {
-  Client, Stage, StripCard, ImportStatus, Product, ChannelOption, CountryOption, FilterKey, Cadence,
+  Client, Stage, StripCard, ImportStatus, Product, ChannelOption, CountryOption, SourceOption, FilterKey, Cadence,
 } from "@/lib/funnel/data";
 import {
   DEFAULT_OPTS, defaultVsFor, OBJECTIVE_KEYS, OBJECTIVES, GRAPHABLE, VS_OPTIONS, type ViewOpts,
@@ -20,6 +20,7 @@ const href = (client: string, view: string, f?: FilterKey, o?: ViewOpts, from?: 
   if (f?.product) q.set("product", f.product);
   if (f?.channel) q.set("channel", f.channel);
   if (f?.country) q.set("country", f.country);
+  if (f?.source) q.set("source", f.source);
   if (f?.from) q.set("from", f.from);
   if (f?.to) q.set("to", f.to);
   /*
@@ -227,7 +228,7 @@ export function JourneyStrip({
 }
 
 /**
- * Product · Channel · Country · Period, above everything else in the nav.
+ * Product · Channel · Country · Source · Period, above everything else in the nav.
  *
  * Rendered as links rather than a form so a filtered screen has a real address:
  * it survives a reload, a click to another tab, and being pasted to someone
@@ -237,12 +238,15 @@ export function JourneyStrip({
  * the client has no products; showing one says they have exactly one.
  */
 function FilterBar({
-  client, view, filter, products, channels, countries, periods, opts, channelBlanked, countryBlanked,
+  client, view, filter, products, channels, countries, sources, periods, opts,
+  channelBlanked, countryBlanked, sourceBlanked,
 }: {
   /** True only when choosing this channel actually blanked some rates. */
   channelBlanked: boolean;
   /** True only when choosing this country actually blanked some rates. */
   countryBlanked: boolean;
+  /** True whenever a source other than Paid Ads is chosen — spend is never theirs. */
+  sourceBlanked: boolean;
   client: string;
   view: string;
   filter: FilterKey;
@@ -250,6 +254,7 @@ function FilterBar({
   products: Product[];
   channels: ChannelOption[];
   countries: CountryOption[];
+  sources: SourceOption[];
   periods: { key: string; label: string; from: string | null; to: string | null }[];
 }) {
   const row = (
@@ -321,6 +326,31 @@ function FilterBar({
         filter.country,
         (country) => ({ ...filter, country }),
       )}
+      {/*
+        Only rendered when the database offers buckets (0067 applied). A
+        client whose events carry no source has nothing to choose between,
+        and an empty "Source: All" row would claim otherwise.
+      */}
+      {sources.length
+        ? row(
+            "Source",
+            [
+              { key: null, label: "All" },
+              ...sources.map((s) => ({
+                key: s.bucket,
+                label: s.bucket,
+                // Previous Paid Ads is a bucket of SALES — a lead can never be
+                // one — so "0 leads" on it is true and useless. Say what it
+                // does hold instead.
+                sub: s.leads > 0
+                  ? `${fmtCount(s.leads)} lead${s.leads === 1 ? "" : "s"}${s.note ? ` · ${s.note}` : ""}`
+                  : `${s.note ?? "no leads"}`,
+              })),
+            ],
+            filter.source,
+            (source) => ({ ...filter, source }),
+          )
+        : null}
       {row(
         "Period",
         [
@@ -371,13 +401,34 @@ function FilterBar({
           ) : null}
         </p>
       ) : null}
+      {filter.source ? (
+        <p className="filter-note">
+          Leads, attendance and sales narrow to people who came through {filter.source}.
+          {sourceBlanked ? (
+            <>
+              {" "}
+              <b>Spend, delivery and every rate on them are blank</b> — the ad spend bought
+              {filter.source === "Previous Paid Ads"
+                ? " these people in an earlier round, so this round's money has nothing to do with them"
+                : " nobody in this source, and dividing its leads by paid spend would not be a cost per lead"}
+              .
+            </>
+          ) : (
+            <>
+              {" "}
+              Spend stays whole — it is exactly the money that bought these people — so CPL, CPA and
+              ROAS here are the paid-only figures.
+            </>
+          )}
+        </p>
+      ) : null}
     </div>
   );
 }
 
 export function SideNav({
-  stages, client, view, unmatchedCount, filter, products, channels, countries, periods, cadences, opts,
-  channelBlanked, countryBlanked,
+  stages, client, view, unmatchedCount, filter, products, channels, countries, sources, periods, cadences, opts,
+  channelBlanked, countryBlanked, sourceBlanked,
 }: {
   stages: Stage[];
   client: string;
@@ -387,12 +438,14 @@ export function SideNav({
   products: Product[];
   channels: ChannelOption[];
   countries: CountryOption[];
+  sources: SourceOption[];
   periods: { key: string; label: string; from: string | null; to: string | null }[];
   /** Which of By week and By round this selection has something to put in. */
   cadences: Cadence[];
   opts: ViewOpts;
   channelBlanked: boolean;
   countryBlanked: boolean;
+  sourceBlanked: boolean;
 }) {
   const item = (slug: string, label: React.ReactNode) => (
     <Link key={slug} href={href(client, slug, filter, opts, view)} aria-current={view === slug ? "page" : undefined}>
@@ -411,8 +464,10 @@ export function SideNav({
         products={products}
         channels={channels}
         countries={countries}
+        sources={sources}
         periods={periods}
         countryBlanked={countryBlanked}
+        sourceBlanked={sourceBlanked}
       />
 
       <div className="nav-group">Data</div>
@@ -440,7 +495,12 @@ export function SideNav({
       */}
       {cadences.includes("week") ? item("week", "By week") : null}
       {cadences.includes("round") ? item("round", "By round") : null}
-      {item("source", "By source")}
+      {/*
+        By source left the sidebar when source became a filter (0067): every
+        tab can now be read paid-only, which is what the tab was for. The view
+        still answers at ?view=source so an old link lands somewhere, and Round
+        × source stays — the cross-tab is a different question.
+      */}
       {item("roundsource", "Round × source")}
 
       <div className="nav-group">

@@ -122,9 +122,12 @@ membership.
 **Journey strip** — Impressions → Landing page clicks → Leads → Attendance → Purchase → Upsell.
 Every stage is a tab.
 
-**Filters** — Product · Channel · **Country** · Period (months and rounds) · Asset
+**Filters** — Product · Channel · **Country** · **Source** (paid only, organic only…) · Period (months and rounds) · Asset
 
-**Comparison tabs** — By round · By month · By source · Round × source · Targeting (audience) ·
+Source narrows people, never spend — spend has no source, it is all paid. Under anything but
+Paid Ads the spend rows and every rate on them read `—` (`0067`).
+
+**Comparison tabs** — By round · By month · Round × source · Targeting (audience) ·
 Creatives (ad) · **Class variant (A/B)** · **Landing pages** · Offers · Sessions
 
 **Every asset tab drills down.** Click an audience, creative, variant or landing page and you get

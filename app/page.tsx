@@ -58,7 +58,7 @@ export default async function Page({
 }: {
   searchParams: Promise<{
     client?: string; view?: string;
-    product?: string; channel?: string; country?: string; from?: string; to?: string;
+    product?: string; channel?: string; country?: string; source?: string; from?: string; to?: string;
     asset?: string;
     mode?: string; objective?: string; vs?: string;
   }>;
@@ -74,6 +74,7 @@ export default async function Page({
     product: params.product || null,
     channel: params.channel || null,
     country: params.country || null,
+    source: params.source || null,
     from: params.from || null,
     to: params.to || null,
     // Which single asset the ads and targeting tabs are drilled into. Absent
@@ -92,7 +93,7 @@ export default async function Page({
     const q = new URLSearchParams();
     q.set("client", params.client ?? "");
     if (params.view) q.set("view", params.view);
-    for (const k of ["product", "channel", "from", "to", "mode", "objective", "vs"] as const) {
+    for (const k of ["product", "channel", "country", "source", "from", "to", "mode", "objective", "vs"] as const) {
       const v = params[k];
       if (v) q.set(k, v);
     }
@@ -185,6 +186,12 @@ export default async function Page({
     !!data.filter.channel && m.roas == null && Number(m.spend ?? 0) > 0 && m.rev != null;
   const countryBlanked =
     !!data.filter.country && m.roas == null && Number(m.spend ?? 0) > 0 && m.rev != null;
+  /**
+   * Not read off the result like the two above: a source blanks by rule, not
+   * by probe. Spend belongs to Paid Ads and to nobody else, so any other
+   * selection has blanked it before the first row comes back (0067).
+   */
+  const sourceBlanked = !!data.filter.source && data.filter.source !== "Paid Ads";
 
   return (
     <>
@@ -207,11 +214,13 @@ export default async function Page({
           products={data.products}
           channels={data.channels}
           countries={data.countries}
+          sources={data.sources}
           periods={data.periods}
           cadences={data.cadences}
           opts={opts}
           channelBlanked={channelBlanked}
           countryBlanked={countryBlanked}
+          sourceBlanked={sourceBlanked}
         />
 
         <main className="main">
@@ -466,9 +475,11 @@ export default async function Page({
                     <span className="num">LP1GHLHenry</span>,{" "}
                     <span className="num">LP1GHL(0826_02)</span> — and the{" "}
                     <span className="num">LP1</span> / <span className="num">LP2</span> token is the
-                    only thing they agree on. Two campaigns say <span className="num">LP</span> with
-                    no number and are left out rather than guessed into a column; the rounds before
-                    the test carry no page at all, which is not a third page and not a zero.
+                    only thing they agree on. A campaign saying <span className="num">LP</span> with
+                    no number is LP1, and a campaign naming no page at all is{" "}
+                    <span className="num">Lead Form</span> — people converted on a direct form, so it
+                    is an arm of the test rather than an absence. Campaigns that arrive as a bare
+                    Meta ID, or with no campaign at all, name nothing and stay Not stated.
                   </>
                 }
               />

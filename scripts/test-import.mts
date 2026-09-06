@@ -813,6 +813,15 @@ console.log("\nCuts — a tab drills only when something is drilled into");
   */
   eq("country is off by default", NO_FILTER.country, null);
   eq("and travels in the URL like the rest", "country" in NO_FILTER, true);
+  /*
+    SOURCE. Same definition of done as country: with nothing selected the
+    figures must be exactly what they were before the filter existed. And the
+    tab it replaces still resolves to a cut, so an old ?view=source link lands
+    on a table rather than a 404.
+  */
+  eq("source is off by default", NO_FILTER.source, null);
+  eq("and travels in the URL like the rest", "source" in NO_FILTER, true);
+  eq("the retired By source view still reads its cut", cutFor("source"), "source");
   // A stage that reads a cut must be listed as wired, or the tab renders its
   // table AND the "not wired yet" panel underneath it.
   eq("every tab with a cut is wired",
