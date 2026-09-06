@@ -122,10 +122,16 @@ membership.
 **Journey strip** — Impressions → Landing page clicks → Leads → Attendance → Purchase → Upsell.
 Every stage is a tab.
 
-**Filters** — Product · Channel · **Country** · **Source** (paid only, organic only…) · Period (months and rounds) · Asset
+**Filters** — Product · Channel · **Country** · **Source** · Period (months and rounds) · Asset
 
-Source narrows people, never spend — spend has no source, it is all paid. Under anything but
-Paid Ads the spend rows and every rate on them read `—` (`0067`).
+**Every filter is multi-select** (`0068`). Click buttons to add members, click again to remove;
+nothing pressed means everything; "All" clears. The selection is one comma-separated string in
+the URL and all the way into the database, so a filtered screen is still a link you can send.
+
+Source narrows people, never spend — spend has no source, it is all paid. Spend stays when
+**Paid Ads** is selected and nothing outside Paid Ads / Previous Paid Ads is; that pair is
+exactly what ROAS counts (`0020`). Any other selection reads `—` on the spend rows and every
+rate built on them.
 
 **Comparison tabs** — By round · By month · Round × source · Targeting (audience) ·
 Creatives (ad) · **Class variant (A/B)** · **Landing pages** · Offers · Sessions

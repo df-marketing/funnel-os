@@ -28,6 +28,7 @@ import {
 import { cadencesFor, resolveSpine } from "../lib/funnel/cadence";
 import { cutFor, narrowToAsset, monthOf } from "../lib/funnel/cuts";
 import { NO_FILTER } from "../lib/funnel/data";
+import { listOf, has, toggle, keepsSpend, windowKey, joinOr } from "../lib/funnel/filters";
 import { WIRED } from "../components/Shell";
 import {
   niceMax, axisMax, num, chartModel, lineRuns, colX, valueY, floorY, ticksFor, TICKS, GEO,
@@ -822,6 +823,34 @@ console.log("\nCuts — a tab drills only when something is drilled into");
   eq("source is off by default", NO_FILTER.source, null);
   eq("and travels in the URL like the rest", "source" in NO_FILTER, true);
   eq("the retired By source view still reads its cut", cutFor("source"), "source");
+  /*
+    EVERY FILTER IS A SET. Pressed buttons are the selection, nothing pressed
+    is everything, and the set is one comma-separated string end to end. The
+    helpers are pure so the mechanism is tested here rather than by clicking.
+  */
+  eq("period is a set too, off by default", NO_FILTER.periods, null);
+  eq("an empty set is everything", listOf(null).length, 0);
+  eq("and so is an empty string", listOf("").length, 0);
+  eq("one value is a one-member set", listOf("Paid Ads").join("|"), "Paid Ads");
+  eq("toggling in adds a member", toggle("Paid Ads", "Organic"), "Paid Ads,Organic");
+  eq("toggling out removes it", toggle("Paid Ads,Organic", "Paid Ads"), "Organic");
+  eq("removing the last member is null, not empty string", toggle("Organic", "Organic"), null);
+  eq("membership reads the set", has("Paid Ads,Organic", "Organic"), true);
+  eq("and not its substrings", has("Previous Paid Ads", "Paid Ads"), false);
+  eq("a window is its own dates", windowKey("2026-05-13", "2026-05-28"), "2026-05-13..2026-05-28");
+  eq("a note joins with 'or'", joinOr("Paid Ads,AOAI,Organic"), "Paid Ads, AOAI or Organic");
+  /*
+    WHICH SOURCE SETS KEEP THE SPEND — the client's #3. Paid Ads with Previous
+    Paid Ads is exactly what 0020's ROAS counts, so together they keep it.
+    Previous Paid Ads alone is an earlier round's money. Anything else blanks.
+    Must match fo_source_keeps_spend() in 0068 case for case.
+  */
+  eq("no source selected keeps spend", keepsSpend(null), true);
+  eq("Paid Ads keeps spend", keepsSpend("Paid Ads"), true);
+  eq("Paid Ads + Previous Paid Ads keeps spend", keepsSpend("Paid Ads,Previous Paid Ads"), true);
+  eq("Previous Paid Ads alone blanks", keepsSpend("Previous Paid Ads"), false);
+  eq("Paid Ads + Organic blanks", keepsSpend("Paid Ads,Organic"), false);
+  eq("Organic blanks", keepsSpend("Organic"), false);
   // A stage that reads a cut must be listed as wired, or the tab renders its
   // table AND the "not wired yet" panel underneath it.
   eq("every tab with a cut is wired",

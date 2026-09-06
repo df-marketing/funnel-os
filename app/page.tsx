@@ -10,6 +10,7 @@ import { loadDeclaredMetrics } from "@/lib/funnel/metrics";
 import {
   DEFAULT_OPTS, defaultVsFor, GRAPHABLE, isObjective, isVs, vsOption, type ViewOpts,
 } from "@/lib/funnel/chart";
+import { keepsSpend } from "@/lib/funnel/filters";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +59,7 @@ export default async function Page({
 }: {
   searchParams: Promise<{
     client?: string; view?: string;
-    product?: string; channel?: string; country?: string; source?: string; from?: string; to?: string;
+    product?: string; channel?: string; country?: string; source?: string; periods?: string;
     asset?: string;
     mode?: string; objective?: string; vs?: string;
   }>;
@@ -75,8 +76,7 @@ export default async function Page({
     channel: params.channel || null,
     country: params.country || null,
     source: params.source || null,
-    from: params.from || null,
-    to: params.to || null,
+    periods: params.periods || null,
     // Which single asset the ads and targeting tabs are drilled into. Absent
     // means all of them, which is what those tabs have always shown.
     asset: params.asset || null,
@@ -93,7 +93,7 @@ export default async function Page({
     const q = new URLSearchParams();
     q.set("client", params.client ?? "");
     if (params.view) q.set("view", params.view);
-    for (const k of ["product", "channel", "country", "source", "from", "to", "mode", "objective", "vs"] as const) {
+    for (const k of ["product", "channel", "country", "source", "periods", "mode", "objective", "vs"] as const) {
       const v = params[k];
       if (v) q.set(k, v);
     }
@@ -188,10 +188,10 @@ export default async function Page({
     !!data.filter.country && m.roas == null && Number(m.spend ?? 0) > 0 && m.rev != null;
   /**
    * Not read off the result like the two above: a source blanks by rule, not
-   * by probe. Spend belongs to Paid Ads and to nobody else, so any other
-   * selection has blanked it before the first row comes back (0067).
+   * by probe. The set keeps the spend only when it is Paid Ads, or Paid Ads
+   * with Previous Paid Ads (0068); keepsSpend mirrors the database's own rule.
    */
-  const sourceBlanked = !!data.filter.source && data.filter.source !== "Paid Ads";
+  const sourceBlanked = !!data.filter.source && !keepsSpend(data.filter.source);
 
   return (
     <>

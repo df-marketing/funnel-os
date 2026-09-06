@@ -138,6 +138,11 @@ export type UnmatchedRow = {
  * so there is one idea of "off" rather than two.
  */
 export type FilterKey = {
+  /**
+   * EVERY FIELD IS A SET, carried as one comma-separated string — the same
+   * string the URL holds and fo_cut receives. See lib/funnel/filters.ts for
+   * the toggle/has/listOf helpers. A single value is a one-element set.
+   */
   product: string | null;
   channel: string | null;
   country: string | null;
@@ -150,8 +155,12 @@ export type FilterKey = {
    * because organic leads divided by paid spend is not a cost per lead.
    */
   source: string | null;
-  from: string | null;
-  to: string | null;
+  /**
+   * The chosen periods, as their own dates: "2026-05-13..2026-05-28,2026-07-01..2026-07-30".
+   * A set like the four above, so May and July can be read without June. The
+   * database tests each round for overlap with ANY member. Null is all time.
+   */
+  periods: string | null;
   /**
    * ONE ASSET, AND THEN THE ROUNDS ARE THE COLUMNS.
    *
@@ -168,7 +177,7 @@ export type FilterKey = {
   asset: string | null;
 };
 
-export const NO_FILTER: FilterKey = { product: null, channel: null, country: null, source: null, from: null, to: null, asset: null };
+export const NO_FILTER: FilterKey = { product: null, channel: null, country: null, source: null, periods: null, asset: null };
 
 export type Product = {
   product_id: string;
@@ -395,8 +404,8 @@ const loadStrip = unstable_cache(
     const db = createReadClient();
     const strip = await db.rpc("fo_cut", {
       p_view: "v_journey_strip",
-      p_client: id, p_product: f.product, p_channel: f.channel, p_from: f.from, p_to: f.to, p_country: f.country,
-      p_source: f.source,
+      p_client: id, p_product: f.product, p_channel: f.channel, p_country: f.country,
+      p_source: f.source, p_periods: f.periods,
     });
     return (ok(strip, "v_journey_strip") as StripCard[] | null) ?? [];
   },
@@ -458,8 +467,8 @@ const loadMetrics = unstable_cache(
   async (id: string, cut: Cut2, f: FilterKey) => {
     const db = createReadClient();
     const scope = {
-      p_client: id, p_product: f.product, p_channel: f.channel, p_from: f.from, p_to: f.to, p_country: f.country,
-      p_source: f.source,
+      p_client: id, p_product: f.product, p_channel: f.channel, p_country: f.country,
+      p_source: f.source, p_periods: f.periods,
     };
 
     const [total, baseline, columns] = await Promise.all([
@@ -491,8 +500,8 @@ const loadMetrics = unstable_cache(
      * Only on an empty cut, so the common path costs nothing.
      */
     let elsewhere: string[] | null = null;
-    if (!cols.length && (f.from || f.to)) {
-      const wide = { ...scope, p_from: null, p_to: null };
+    if (!cols.length && f.periods) {
+      const wide = { ...scope, p_periods: null };
       const companion = ROUND_COMPANION[cut];
       const probe = await db.rpc("fo_cut", {
         p_view: companion ?? VIEW_FOR[cut],
@@ -635,8 +644,8 @@ const loadRoundContext = unstable_cache(
   async (id: string, f: FilterKey): Promise<RoundContext> => {
     const db = createReadClient();
     const scope = {
-      p_client: id, p_product: f.product, p_channel: f.channel, p_from: f.from, p_to: f.to, p_country: f.country,
-      p_source: f.source,
+      p_client: id, p_product: f.product, p_channel: f.channel, p_country: f.country,
+      p_source: f.source, p_periods: f.periods,
     };
 
     const [rounds, months, targets] = await Promise.all([

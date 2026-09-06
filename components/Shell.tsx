@@ -8,6 +8,7 @@ import type {
 import {
   DEFAULT_OPTS, defaultVsFor, OBJECTIVE_KEYS, OBJECTIVES, GRAPHABLE, VS_OPTIONS, type ViewOpts,
 } from "@/lib/funnel/chart";
+import { listOf, has, toggle, windowKey, joinOr } from "@/lib/funnel/filters";
 
 /**
  * Every link carries the whole filter, so a filtered screen survives clicking
@@ -21,8 +22,7 @@ const href = (client: string, view: string, f?: FilterKey, o?: ViewOpts, from?: 
   if (f?.channel) q.set("channel", f.channel);
   if (f?.country) q.set("country", f.country);
   if (f?.source) q.set("source", f.source);
-  if (f?.from) q.set("from", f.from);
-  if (f?.to) q.set("to", f.to);
+  if (f?.periods) q.set("periods", f.periods);
   /*
     The asset does NOT follow you to another tab.
     Product, channel, country and period mean the same thing everywhere, so they
@@ -230,9 +230,13 @@ export function JourneyStrip({
 /**
  * Product · Channel · Country · Source · Period, above everything else in the nav.
  *
- * Rendered as links rather than a form so a filtered screen has a real address:
- * it survives a reload, a click to another tab, and being pasted to someone
- * else. No client-side state, nothing to get out of step with the URL.
+ * EVERY ROW IS MULTI-SELECT. Each button toggles its member in or out; the
+ * pressed buttons are the selection; nothing pressed means everything, and
+ * "All" is the button that clears. Still rendered as links rather than a form,
+ * so a filtered screen has a real address: it survives a reload, a click to
+ * another tab, and being pasted to someone else. No client-side state, nothing
+ * to get out of step with the URL — each link simply carries the selection
+ * with one member flipped.
  *
  * A dimension with only one option still renders, greyed. Hiding it would say
  * the client has no products; showing one says they have exactly one.
@@ -266,23 +270,26 @@ function FilterBar({
     <div className="filter-row">
       <span className="filter-label">{label}</span>
       <div className="filter-opts">
-        {options.map((o) => (
-          <Link
-            key={o.key ?? "all"}
-            href={href(client, view, build(o.key), opts)}
-            className={`filter-opt${o.dim ? " dim" : ""}`}
-            aria-pressed={active === o.key}
-            title={o.sub}
-          >
-            {o.label}
-          </Link>
-        ))}
+        {options.map((o) => {
+          // "All" (key null) is pressed when the set is empty and clears it;
+          // any other button is pressed when it is a member and toggles itself.
+          const pressed = o.key === null ? listOf(active).length === 0 : has(active, o.key);
+          const next = o.key === null ? null : toggle(active, o.key);
+          return (
+            <Link
+              key={o.key ?? "all"}
+              href={href(client, view, build(next), opts)}
+              className={`filter-opt${o.dim ? " dim" : ""}`}
+              aria-pressed={pressed}
+              title={o.sub}
+            >
+              {o.label}
+            </Link>
+          );
+        })}
       </div>
     </div>
   );
-
-  const periodKey =
-    periods.find((p) => p.from === filter.from && p.to === filter.to)?.key ?? null;
 
   return (
     <div className="filters">
@@ -355,13 +362,14 @@ function FilterBar({
         "Period",
         [
           { key: null, label: "All time" },
-          ...periods.map((p) => ({ key: p.key, label: p.label })),
+          // A period's identity is its own dates, so the selection reaches the
+          // database as windows it can test directly, with no lookup.
+          ...periods
+            .filter((p) => p.from && p.to)
+            .map((p) => ({ key: windowKey(p.from ?? "", p.to ?? ""), label: p.label })),
         ],
-        periodKey,
-        (key) => {
-          const p = periods.find((x) => x.key === key);
-          return { ...filter, from: p?.from ?? null, to: p?.to ?? null };
-        },
+        filter.periods,
+        (periods) => ({ ...filter, periods }),
       )}
       {/*
         Said only while a channel is chosen, and the second half only when
@@ -372,20 +380,20 @@ function FilterBar({
       */}
       {filter.channel ? (
         <p className="filter-note">
-          Spend and delivery narrow to {filter.channel}. Leads, attendance and sales
+          Spend and delivery narrow to {joinOr(filter.channel)}. Leads, attendance and sales
           don&rsquo;t carry a platform, so they stay whole.
           {channelBlanked ? (
             <>
               {" "}
-              <b>ROAS, CPA, CPL and Lead gen % are blank</b> because more than one channel ran
-              here — dividing all the revenue by one channel&rsquo;s spend would credit it with
-              the other&rsquo;s results.
+              <b>ROAS, CPA, CPL and Lead gen % are blank</b> because a channel that spent here
+              is not selected — dividing all the revenue by part of the spend would credit it
+              with the rest&rsquo;s results.
             </>
           ) : (
             <>
               {" "}
-              Only {filter.channel} ran here, so this filter took nothing away and every rate
-              still stands.
+              Every channel that spent here is selected, so this filter took nothing away and
+              every rate still stands.
             </>
           )}
         </p>
@@ -403,21 +411,23 @@ function FilterBar({
       ) : null}
       {filter.source ? (
         <p className="filter-note">
-          Leads, attendance and sales narrow to people who came through {filter.source}.
+          Leads, attendance and sales narrow to people who came through {joinOr(filter.source)}.
           {sourceBlanked ? (
             <>
               {" "}
-              <b>Spend, delivery and every rate on them are blank</b> — the ad spend bought
-              {filter.source === "Previous Paid Ads"
-                ? " these people in an earlier round, so this round's money has nothing to do with them"
-                : " nobody in this source, and dividing its leads by paid spend would not be a cost per lead"}
-              .
+              <b>Spend, delivery and every rate on them are blank.</b> Spend stays only when
+              Paid Ads is selected and nothing outside Paid Ads / Previous Paid Ads is — that pair
+              is exactly what the advertising produced. Anything else in the selection was not
+              bought by this money, and dividing its leads by paid spend is not a cost per lead.
             </>
           ) : (
             <>
               {" "}
               Spend stays whole — it is exactly the money that bought these people — so CPL, CPA and
-              ROAS here are the paid-only figures.
+              ROAS here are the paid figures.
+              {has(filter.source, "Previous Paid Ads")
+                ? " With Previous Paid Ads included, ROAS matches the All figure: everything the ads produced, whichever class closed it."
+                : " Add Previous Paid Ads to also count people the ads bought in an earlier round who closed here."}
             </>
           )}
         </p>
