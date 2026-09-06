@@ -50,6 +50,7 @@
 - Stripe dependency was dropped from the project.
 - Phone is now an identity field in sales and attendance (not just membership).
 - A source is a filter, and a campaign with no page is a lead form.
+- A filter is a set, not a value — filtering logic compares against a set, not a single scalar.
 
 ## Architecture
 
@@ -118,6 +119,7 @@
 - Unmatched queue is now two-way; accepting an unmatched item no longer discards funds.
 - absent (null/missing values) is distinct from zero for sales and for spend without a named audience
 - The reconciliation workspace cannot reach the remote.
+- Re-upload fixed alongside phone-as-identity changes.
 
 ## Notes
 
