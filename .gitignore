@@ -11,3 +11,7 @@ npm-debug.log*
 *.tsbuildinfo
 next-env.d.ts
 .env*
+
+# Real client contact data - reconciliation workspace. This repo is PUBLIC.
+# The handover says it must never reach a remote; this makes git refuse it.
+ground-truth-testing/
