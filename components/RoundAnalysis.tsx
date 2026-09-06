@@ -258,8 +258,8 @@ export function RoundAnalysis({
             <p className="cro-lead">
               <b>{thisMonth.cut_label}</b> so far, against{" "}
               {lastMonth ? <b>{lastMonth.cut_label}</b> : "no earlier month"}. A round belongs to
-              the month it started in, so this round is inside these figures rather than beside
-              them.
+              the month it is named for, whole — 0926-01 is September even though its ads started
+              on 28 August — so this round is inside these figures rather than beside them.
             </p>
             <MoveTable
               moves={monthMoves}
