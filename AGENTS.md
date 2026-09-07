@@ -54,6 +54,7 @@
 - A round hands back the country that matched, not the whole selection.
 - Reach is the one number a pull must not merge — possibly a branch protection or policy rule.
 - The round is referenced by the day's date, not the campaign name.
+- Count what Meta sent, not what survived us — the import pipeline records the data as received from the source, not after our transformations/filters.
 
 ## Architecture
 
@@ -188,3 +189,4 @@
 - the unmatched queue was made two-way; accepting an unmatched item no longer loses money.
 - Two different nothings were displayed — the screen was showing the wrong 'nothing' (empty/null state).
 - a dry run of the import pipeline runs against real exports without committing changes.
+- Two-way unmatched queue: accept no longer loses money (unmatched items preserve funds).
