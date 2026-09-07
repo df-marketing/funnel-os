@@ -187,6 +187,16 @@ export function MetaPullButton({ client }: { client: string }) {
                 Meta reported nothing for {plan.window?.since} to {plan.window?.until} — no ad
                 spent anything on those days. That is an answer, not a failure.
               </p>
+            ) : (plan.skipped?.length ?? 0) > 0 && (plan.alreadyHad ?? 0) === 0 ? (
+              /*
+                Meta sent rows and every one was refused. Saying "already in"
+                here would be false and saying "Meta reported nothing" would send
+                the reader to the ad account to look for spend that is there.
+              */
+              <p className="dim">
+                Meta sent {(plan.fetched?.ad ?? 0) + (plan.fetched?.reach ?? 0)} rows and none of
+                them could be used — see the reason above. Nothing was imported.
+              </p>
             ) : (
               <p className="dim">Nothing to write — this window is already in.</p>
             )

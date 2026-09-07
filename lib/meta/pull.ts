@@ -63,16 +63,25 @@ export async function runPull(
   let ads: AdRow[] = [];
   let reach: AdRow[] = [];
   const failures: string[] = [];
+  // What Meta actually returned, before anything of ours refused any of it.
+  // Counting the survivors here reported "Meta returned nothing" for a window
+  // where it returned 27 rows and we declined all 27 — which reads as an empty
+  // ad account rather than as a refusal, and sends the reader to the wrong place.
+  const raw = { ad: 0, reach: 0 };
 
   // Isolated: reach failing must not lose the spend, and the other way round.
   try {
-    const t = toAdRows(await fetchAdRows(account, token, opts.since, opts.until), rounds, clicks);
+    const got = await fetchAdRows(account, token, opts.since, opts.until);
+    raw.ad = got.length;
+    const t = toAdRows(got, rounds, clicks);
     ads = t.rows; skipped.push(...t.skipped);
   } catch (e) {
     failures.push(e instanceof MetaError ? e.code : "ad_fetch_failed");
   }
   try {
-    const t = toReachRows(await fetchReachRows(account, token, opts.since, opts.until), rounds);
+    const got = await fetchReachRows(account, token, opts.since, opts.until);
+    raw.reach = got.length;
+    const t = toReachRows(got, rounds);
     reach = t.rows; skipped.push(...t.skipped);
   } catch (e) {
     failures.push(e instanceof MetaError ? e.code : "reach_fetch_failed");
@@ -104,7 +113,7 @@ export async function runPull(
     committed: false,
     window: { since: opts.since, until: opts.until },
     account, clicks,
-    fetched: { ad: ads.length, reach: reach.length },
+    fetched: raw,
     wouldWrite: fresh.length,
     alreadyHad: ads.length + reach.length - fresh.length,
     rounds: [...new Set(fresh.map((r) => r.round_id))].sort(),
