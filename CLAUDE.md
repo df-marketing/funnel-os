@@ -57,6 +57,8 @@
 - Count what Meta sent, not what survived us — the import pipeline records the data as received from the source, not after our transformations/filters.
 - A date picker that greys out the month is worse than the range it prevents — i.e., it's better to block the disallowed range than to visually dim the month label.
 - the dry-run stub supports .is() filtering, matching the real pipeline's filtering capability.
+- Absent (null/missing) values are treated as distinct from zero for sales and for spend that has no named audience.
+- Rows held back during import are rows that failed validation/merge, not rows we already had in the database.
 
 ## Architecture
 
@@ -74,6 +76,7 @@
 - A native data integration API was added to the project, providing a programmatic interface for ingesting data.
 - The app offers clients the stages they actually count (not a superset), and the country filter is preserved as a working constraint.
 - The by-source tab has a two-level column header structure.
+- The import pipeline includes a dry-run mode that runs against real exports without committing changes, and supports the .is() filter to match the real pipeline's filtering capability.
 
 ## Gotchas
 
