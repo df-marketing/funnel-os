@@ -94,6 +94,8 @@ export async function runPull(
   const roundIds = [...new Set([...ads, ...reach].map((r) => r.round_id))];
   const fresh: AdRow[] = [];
   let reachWithheld: Skipped[] = [];
+  // What this pull would have written if nothing were already there.
+  let intended = 0;
   if (roundIds.length) {
     const existing = await fetchAll<{
       round_id: string; date: string; campaign: string | null;
@@ -108,7 +110,9 @@ export async function runPull(
       .map((r) => coarseKey(r.round_id));
     const split = splitReach(reach, measured);
     reachWithheld = split.withheld;
-    fresh.push(...newRows([...ads, ...split.write], existing.map(adKey)));
+    const wanted = [...ads, ...split.write];
+    intended = wanted.length;
+    fresh.push(...newRows(wanted, existing.map(adKey)));
   }
 
   const base: PullResult = {
@@ -118,7 +122,15 @@ export async function runPull(
     account, clicks,
     fetched: raw,
     wouldWrite: fresh.length,
-    alreadyHad: ads.length + reach.length - fresh.length,
+    /*
+     * Rows we MEANT to write and did not have to, because the same key was
+     * already there. Not "everything fetched minus everything written" — that
+     * counted the withheld reach rows a second time, under a label saying we
+     * already had them. On a brand-new empty round it read "3 already had,
+     * unchanged" beside "3 reach rows held back", which are the same three rows
+     * described two different ways, one of them untrue.
+     */
+    alreadyHad: intended - fresh.length,
     rounds: [...new Set(fresh.map((r) => r.round_id))].sort(),
     skipped,
     reachWithheld: reachWithheld.length,
