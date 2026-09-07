@@ -68,7 +68,24 @@ export async function POST(request: Request) {
   if (key === "unconfigured") {
     return NextResponse.json({ ok: false, error: MISSING_INTEGRATION_KEY_MESSAGE }, { status: 503 });
   }
-  if (key !== "ok") return new NextResponse(null, { status: 401 });
+  if (key !== "ok") {
+    /*
+     * A body, where the other integration routes answer 401 with nothing at all.
+     * Those are called by AcqOS, which knows what it sent. This one gets typed
+     * into a terminal by a person, and an empty 401 piped through a JSON parser
+     * reports "Expecting value: line 1 column 1" — which names neither the
+     * status nor the header, and reads like the request never arrived.
+     *
+     * Naming the header gives away nothing: whether it is required is not the
+     * secret, its value is.
+     */
+    return NextResponse.json(
+      { ok: false, error: "unauthorized",
+        note: "Send the shared secret in the x-integration-key header. It is stored " +
+              "as INTEGRATION_SHARED_KEY on this deployment and on the AcqOS side." },
+      { status: 401 },
+    );
+  }
 
   let body: Body;
   try {
