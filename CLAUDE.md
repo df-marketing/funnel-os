@@ -53,6 +53,7 @@
 - A filter is a set, not a value — filtering logic compares against a set, not a single scalar.
 - A round hands back the country that matched, not the whole selection.
 - Reach is the one number a pull must not merge — possibly a branch protection or policy rule.
+- The round is referenced by the day's date, not the campaign name.
 
 ## Architecture
 
