@@ -51,6 +51,7 @@
 - Phone is now an identity field in sales and attendance (not just membership).
 - A source is a filter, and a campaign with no page is a lead form.
 - A filter is a set, not a value — filtering logic compares against a set, not a single scalar.
+- A round hands back the country that matched, not the whole selection.
 
 ## Architecture
 
