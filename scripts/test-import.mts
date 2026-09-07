@@ -31,6 +31,7 @@ import {
   toAdRows, toReachRows, adKey, newRows, clicksFrom, num, dayOf, roundOf, scrub,
   splitReach, coarseKey,
 } from "../lib/meta/insights";
+import { sliceWindow } from "../lib/meta/graph";
 import { NO_FILTER } from "../lib/funnel/data";
 import { listOf, has, toggle, keepsSpend, windowKey, joinOr } from "../lib/funnel/filters";
 import { WIRED } from "../components/Shell";
@@ -2293,6 +2294,35 @@ console.log("\nUnidentified — counted as a headcount, attached to nobody");
   eq("with its own reason", withEmpties.skipped[0].reason, "measured_nothing");
   ok("a row with impressions but no spend is kept",
      withEmpties.rows.some((r) => r.ad === "Seen"));
+}
+
+{
+  // ── A LONG WINDOW IS ASKED FOR IN PIECES ──────────────────────────────────
+  // 25 Feb to 27 Apr at ad level fails on this account — "An unknown error
+  // occurred" — while the same range as monthly requests works every time. A
+  // person asking for February to April is asking something reasonable, so the
+  // splitting happens here rather than in their head.
+  const slices = sliceWindow("2026-02-25", "2026-04-27");
+  ok("a 62-day window is split", slices.length > 1);
+  eq("the first slice starts where asked", slices[0][0], "2026-02-25");
+  eq("the last slice ends where asked", slices[slices.length - 1][1], "2026-04-27");
+  ok("no slice is longer than 28 days", slices.every(([a, b]) =>
+    (Date.parse(b) - Date.parse(a)) / 86_400_000 <= 27));
+
+  // Contiguous and non-overlapping: a gap loses a day of spend, an overlap
+  // fetches one twice — harmless thanks to the dedupe key, but it would make
+  // the row counts lie.
+  for (let i = 1; i < slices.length; i++) {
+    const prevEnd = Date.parse(slices[i - 1][1]);
+    const thisStart = Date.parse(slices[i][0]);
+    eq(`slice ${i} starts the day after slice ${i - 1} ends`,
+       (thisStart - prevEnd) / 86_400_000, 1);
+  }
+
+  eq("a short window is left alone", sliceWindow("2026-07-09", "2026-07-13").length, 1);
+  eq("and keeps its dates",
+     sliceWindow("2026-07-09", "2026-07-13")[0].join(".."), "2026-07-09..2026-07-13");
+  eq("a single day is one slice", sliceWindow("2026-09-08", "2026-09-08").length, 1);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

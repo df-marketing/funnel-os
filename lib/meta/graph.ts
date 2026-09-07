@@ -49,6 +49,42 @@ type Page<T> = { data?: T[]; paging?: { next?: string }; error?: { message?: str
  * interval, so callers should overlap deliberately — the dedupe key makes an
  * overlapping pull free.
  */
+/**
+ * SLICE A LONG WINDOW, AND TRY AGAIN ONCE.
+ *
+ * A 62-day ad-level range with daily granularity fails on this account —
+ * "An unknown error occurred", which is Meta's way of saying it would rather
+ * not. The same range as three monthly requests works every time.
+ *
+ * So the caller asks for whatever window it likes and this splits it. The user
+ * should not have to know where Meta's patience runs out, and a person picking
+ * "February to April" is asking a perfectly reasonable question.
+ *
+ * One retry, because the failures are transient — a busy account rate-limits
+ * and then does not. Two would be pretending harder than the evidence supports.
+ */
+const SLICE_DAYS = 28;
+
+const addDays = (day: string, n: number) => {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+
+export const sliceWindow = (since: string, until: string): Array<[string, string]> => {
+  const out: Array<[string, string]> = [];
+  let from = since;
+  while (from <= until) {
+    const to = addDays(from, SLICE_DAYS - 1);
+    out.push([from, to < until ? to : until]);
+    from = addDays(to, 1);
+  }
+  return out.length ? out : [[since, until]];
+};
+
+const once = <T>(fn: () => Promise<T>): Promise<T> =>
+  fn().catch(() => fn());
+
 async function insights<T>(
   account: string, token: string, level: "ad" | "campaign",
   since: string, until: string, fields: string,
@@ -86,11 +122,26 @@ async function insights<T>(
   return out;
 }
 
+/**
+ * Slices run one after another rather than at once: a request that failed
+ * because the account was busy is not helped by three more arriving together.
+ */
+async function inSlices<T>(
+  account: string, token: string, level: "ad" | "campaign",
+  since: string, until: string, fields: string,
+): Promise<T[]> {
+  const out: T[] = [];
+  for (const [from, to] of sliceWindow(since, until)) {
+    out.push(...(await once(() => insights<T>(account, token, level, from, to, fields))));
+  }
+  return out;
+}
+
 export const fetchAdRows = (account: string, token: string, since: string, until: string) =>
-  insights<MetaAdRow>(account, token, "ad", since, until, AD_FIELDS);
+  inSlices<MetaAdRow>(account, token, "ad", since, until, AD_FIELDS);
 
 export const fetchReachRows = (account: string, token: string, since: string, until: string) =>
-  insights<MetaCampaignRow>(account, token, "campaign", since, until, CAMPAIGN_FIELDS);
+  inSlices<MetaCampaignRow>(account, token, "campaign", since, until, CAMPAIGN_FIELDS);
 
 /**
  * The token, from the environment only.
