@@ -31,6 +31,9 @@ import {
   toAdRows, toReachRows, adKey, newRows, clicksFrom, num, dayOf, roundOf, scrub,
   splitReach, coarseKey,
 } from "../lib/meta/insights";
+import {
+  validateRound, namedMonth, defaultSessionLabel, suggestRoundId,
+} from "../lib/rounds/validate";
 import { NO_FILTER } from "../lib/funnel/data";
 import { listOf, has, toggle, keepsSpend, windowKey, joinOr } from "../lib/funnel/filters";
 import { WIRED } from "../components/Shell";
@@ -2293,6 +2296,72 @@ console.log("\nUnidentified — counted as a headcount, attached to nobody");
   eq("with its own reason", withEmpties.skipped[0].reason, "measured_nothing");
   ok("a row with impressions but no spend is kept",
      withEmpties.rows.some((r) => r.ad === "Seen"));
+}
+
+{
+  // ── MAKING A ROUND ────────────────────────────────────────────────────────
+  // Every rule here is a fault the hand-written SQL had to fix while creating
+  // Shely's twelve rounds. A screen that lets you make them again is the same
+  // trap with a nicer surface.
+  const shely = [
+    { round_id: "0826-01", start_date: "2026-07-31", end_date: "2026-08-06" },
+    { round_id: "0826-02", start_date: "2026-08-07", end_date: "2026-08-20" },
+    { round_id: "0926-01", start_date: "2026-08-28", end_date: "2026-09-03" },
+  ];
+  const good = {
+    round_id: "1026-01", client_id: "shely", product_id: "shely-webinar",
+    start_date: "2026-09-08", end_date: "2026-10-06",
+    session_date: "2026-10-06", session_label: "Class 6 Oct 2026",
+  };
+  const of = (f: string, ps: ReturnType<typeof validateRound>) => ps.filter((x) => x.field === f).length;
+
+  eq("a well-formed round has nothing wrong with it", validateRound(good, shely).length, 0);
+
+  // The name
+  eq("a round must be named MMYY-NN",
+     of("round_id", validateRound({ ...good, round_id: "october-1" }, shely)), 1);
+  eq("13 is not a month",
+     of("round_id", validateRound({ ...good, round_id: "1326-01" }, shely)), 1);
+  eq("the name must agree with the dates",
+     of("round_id", validateRound({ ...good, round_id: "0126-01" }, shely)), 1);
+  eq("a round opening the month before its name is fine",
+     validateRound({ ...good, round_id: "1026-01", start_date: "2026-09-30",
+                     end_date: "2026-10-06", session_date: "2026-10-06" }, shely).length, 0);
+
+  // Fault 1 — 0526-03's class was the day after its round ended, so a 28 May
+  // opt-in fell into no window and was counted nowhere.
+  eq("a class outside its own round is refused",
+     of("session_date", validateRound({ ...good, session_date: "2026-10-07" }, shely)), 1);
+  eq("and so is one before it starts",
+     of("session_date", validateRound({ ...good, session_date: "2026-09-07" }, shely)), 1);
+
+  // Fault 2 — 0826-02 and 0826-03 had no product and vanished under the filter.
+  eq("a round without a product is refused",
+     of("product_id", validateRound({ ...good, product_id: null }, shely)), 1);
+
+  // Overlap — the Meta pull assigns a day of spend to the round whose window
+  // holds it, so two rounds covering one day makes that arbitrary.
+  eq("overlapping an existing round is refused",
+     of("start_date", validateRound({ ...good, round_id: "0926-02",
+        start_date: "2026-09-01", end_date: "2026-09-20", session_date: "2026-09-20" }, shely)), 1);
+  eq("butting up against one is fine",
+     validateRound({ ...good, start_date: "2026-09-04", end_date: "2026-09-10",
+                     round_id: "0926-02", session_date: "2026-09-10" }, shely).length, 0);
+  eq("a round ending before it starts is refused",
+     of("end_date", validateRound({ ...good, start_date: "2026-10-06",
+        end_date: "2026-09-08", session_date: "2026-09-08" }, shely)), 1);
+
+  // Fault 3 — both May rounds were labelled "Class A — Wed 8pm", which cannot
+  // tell two sessions apart in a comparison. A date can.
+  eq("the label defaults to the class date",
+     defaultSessionLabel("2026-10-06"), "Class 6 Oct 2026");
+  eq("and to nothing when there is no class", defaultSessionLabel(null), "");
+
+  eq("the named month is read off the id", namedMonth("0926-01"), "2026-09");
+  eq("a nonsense id names no month", namedMonth("nope"), null);
+
+  eq("the next id in a month follows the last", suggestRoundId("2026-08", shely), "0826-03");
+  eq("a month with no rounds starts at 01", suggestRoundId("2026-12", shely), "1226-01");
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

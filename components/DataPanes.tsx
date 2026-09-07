@@ -1,6 +1,8 @@
 import type { ImportStatus, UnmatchedSummary, UnmatchedReason, UnmatchedRow } from "@/lib/funnel/data";
 import { ImportUploader } from "./ImportUploader";
 import { MetaPullButton } from "./MetaPullButton";
+import { RoundForm } from "./RoundForm";
+import type { ExistingRound } from "@/lib/rounds/validate";
 import { STAGE_PREFIX, stageSpec } from "@/lib/import/sources";
 import type { DeclaredMetric } from "@/lib/funnel/metrics";
 import { UnmatchedActions } from "./UnmatchedActions";
@@ -76,11 +78,14 @@ const when = (iso: string) => {
   return days === 1 ? "yesterday" : `${days} days ago`;
 };
 
-export function ImportPane({ imports, client, declared = [] }: {
+export function ImportPane({ imports, client, declared = [], rounds = [], products = [] }: {
   imports: ImportStatus[];
   client: string;
   /** Metrics somebody declared beyond the six built in — 0048's table. */
   declared?: DeclaredMetric[];
+  /** Step 0's own data: what exists, and what a new round can belong to. */
+  rounds?: ExistingRound[];
+  products?: { product_id: string; product_name: string }[];
 }) {
   const stale = imports.filter((i) => i.is_stale);
   // The next file to drop is the first in dependency order that has never landed;
@@ -113,14 +118,19 @@ export function ImportPane({ imports, client, declared = [] }: {
         })}
       </ol>
 
-      <div className="notice">
-        <span className="ico">!</span>
+      {/*
+        This used to be a notice apologising that step 0 had no screen. It has
+        one now, so the apology is the form.
+      */}
+      <div className="notice info">
+        <span className="ico">0</span>
         <div>
-          <b>Step 0 has no screen yet.</b> An import is refused outright if the round it belongs to
-          doesn&rsquo;t exist — attendance names a <span className="num">round_id</span> like{" "}
-          <span className="num">0826-01</span>, and there has to be a row to attach it to. Rounds are
-          currently created by SQL insert, not in the app. That&rsquo;s the one gap left in the straight
-          line.
+          <b>A round has to exist before anything can go into it.</b> An import is refused outright
+          if the round it names is missing — attendance carries a{" "}
+          <span className="num">round_id</span> like <span className="num">0826-01</span> and there
+          has to be a row to attach it to. The Meta pull refuses for the same reason, which bites
+          hardest on a brand-new round.
+          <RoundForm client={client} rounds={rounds} products={products} />
         </div>
       </div>
 
