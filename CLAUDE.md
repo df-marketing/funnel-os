@@ -56,6 +56,7 @@
 - The round is referenced by the day's date, not the campaign name.
 - Count what Meta sent, not what survived us — the import pipeline records the data as received from the source, not after our transformations/filters.
 - A date picker that greys out the month is worse than the range it prevents — i.e., it's better to block the disallowed range than to visually dim the month label.
+- the dry-run stub supports .is() filtering, matching the real pipeline's filtering capability.
 
 ## Architecture
 
@@ -127,6 +128,8 @@
 - Re-upload fixed alongside phone-as-identity changes.
 - Accepting an unmatched item no longer loses money; unmatched queue was made two-way.
 - An empty 401 response was improved to include a message so the user/developer knows why they were rejected.
+- accepting an unmatched item previously discarded funds; fixed by making the unmatched queue two-way so accepting no longer loses money.
+- five import bugs were found and fixed by testing against real exports, confirming the value of dry-run/real-export testing.
 
 ## Notes
 
