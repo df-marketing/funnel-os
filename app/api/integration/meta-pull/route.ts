@@ -141,8 +141,8 @@ export async function POST(request: Request) {
 
   // Rounds are still created by hand. A campaign whose round does not exist is
   // refused below rather than guessed into one.
-  const rounds = await fetchAll<{ round_id: string }>(
-    db, "rounds", "round_id", (q) => q.eq("client_id", clientId));
+  const rounds = await fetchAll<{ round_id: string; start_date: string; end_date: string }>(
+    db, "rounds", "round_id, start_date, end_date", (q) => q.eq("client_id", clientId));
 
   const clicks: ClickKind = body.clicks ?? "link";
   const skipped: Skipped[] = [];
@@ -188,7 +188,7 @@ export async function POST(request: Request) {
     // double the reach and halve the frequency, beside a spend still correct.
     const measured = existing
       .filter((r) => !r.ad_set && r.reach !== null)
-      .map((r) => coarseKey(r.round_id, r.date));
+      .map((r) => coarseKey(r.round_id));
     const split = splitReach(reach, measured);
     reachWithheld = split.withheld;
 

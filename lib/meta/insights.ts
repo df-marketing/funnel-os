@@ -112,14 +112,41 @@ const text = (v: string | null | undefined): string | null => {
   return s ? s : null;
 };
 
-export type Round = { round_id: string };
+export type Round = { round_id: string; start_date?: string | null; end_date?: string | null };
 
 /**
- * The round a campaign names, by the same rule the CSV import uses — one
- * function, so a pulled row and a dropped file can never disagree about which
- * round a campaign belongs to.
+ * WHICH ROUND A DAY OF SPEND BELONGS TO.
+ *
+ * The date first, and the campaign name only when no round's window contains
+ * it. Exactly the rule lib/import/pipeline.ts applies to a dropped ads file —
+ * copied deliberately, because a pulled row and a dropped file disagreeing about
+ * this is a number counted twice.
+ *
+ * Getting it the other way round is not academic. DF_SG_Preview_Sprint1_0726_01_AI_LP
+ * kept spending after round 0726-01 closed, so $596.99 of it falls inside
+ * 0726-02's window and the CSV filed it there — under 0726-02, with a campaign
+ * naming 0726-01. Matching on the name instead would have moved that money into
+ * 0726-01, where $1,148.99 of the same campaign already sits, and counted the
+ * same spend twice across two rounds. The account total would have risen and
+ * both rounds would have been wrong.
+ *
+ * The spend belongs to the round it was spent during. What the campaign is
+ * called is what somebody typed when they made it.
  */
-export const roundOf = (campaign: string | null, rounds: Round[]): string | null => {
+export const roundOf = (
+  campaign: string | null,
+  rounds: Round[],
+  date?: string | null,
+): string | null => {
+  if (date) {
+    const inWindow = rounds.find(
+      (r) => r.start_date && r.end_date && r.start_date <= date && date <= r.end_date,
+    );
+    if (inWindow) return inWindow.round_id;
+  }
+  // No round's window holds this day — what a period-level export looks like.
+  // The campaign name then carries the round, and using it is not a fallback so
+  // much as the only thing left that knows.
   if (!campaign) return null;
   const hay = campaign.toLowerCase().replace(/_/g, "-");
   return (
@@ -128,6 +155,27 @@ export const roundOf = (campaign: string | null, rounds: Round[]): string | null
       .find((r) => hay.includes(r.round_id.toLowerCase().replace(/_/g, "-")))?.round_id ?? null
   );
 };
+
+/**
+ * A ROW THAT MEASURED NOTHING IS NOT A MEASUREMENT.
+ *
+ * The API returns a row for every ad on every day it was live, including the
+ * days it spent nothing and was shown to nobody. Meta's own UI export drops
+ * those, so the reconciled history does not have them — 9-13 July returns 147
+ * rows from the API against the CSV's 144, and the three extra are all zeroes.
+ *
+ * Writing them moves no number: nought spend, nought impressions, nought clicks.
+ * What it does move is the SHAPE of the tabs. A creative or an audience that did
+ * nothing that day would appear as a column of zeroes on the Creatives and
+ * Targeting tabs, where the loaded data has no column at all — and a zero there
+ * reads as "we ran this and it failed" rather than "this did not run".
+ *
+ * So they are skipped and counted, never silently dropped. A row with no spend
+ * but some impressions is a real measurement and is kept: only all-nothing rows
+ * go.
+ */
+const measuredNothing = (r: AdRow): boolean =>
+  !r.spend && !r.impressions && !r.clicks;
 
 export type Translation = { rows: AdRow[]; skipped: Skipped[] };
 
@@ -162,12 +210,12 @@ export function toAdRows(
       skipped.push({ campaign, date: null, reason: "no_date_on_row" });
       continue;
     }
-    const round_id = roundOf(campaign, rounds);
+    const round_id = roundOf(campaign, rounds, date);
     if (!round_id) {
       skipped.push({ campaign, date, reason: "no_round_for_campaign" });
       continue;
     }
-    out.push({
+    const row: AdRow = {
       round_id,
       date,
       campaign,
@@ -178,7 +226,12 @@ export function toAdRows(
       reach: null, // 0016 — never per ad
       clicks: clicksFrom(r, clicks),
       channel: "meta",
-    });
+    };
+    if (measuredNothing(row)) {
+      skipped.push({ campaign, date, reason: "measured_nothing" });
+      continue;
+    }
+    out.push(row);
   }
   return { rows: out, skipped };
 }
@@ -209,7 +262,7 @@ export function toReachRows(rows: MetaCampaignRow[], rounds: Round[]): Translati
       skipped.push({ campaign, date: null, reason: "no_date_on_row" });
       continue;
     }
-    const round_id = roundOf(campaign, rounds);
+    const round_id = roundOf(campaign, rounds, date);
     if (!round_id) {
       skipped.push({ campaign, date, reason: "no_round_for_campaign" });
       continue;
@@ -275,7 +328,18 @@ export function newRows(rows: AdRow[], existing: Iterable<string>): AdRow[] {
  * already measured" is a fact about the pull, and silence about it is how a
  * pull that quietly did nothing reads as one that worked.
  */
-export const coarseKey = (round_id: string, date: string) => `${round_id}|${date}`;
+/**
+ * Keyed on the ROUND, not the round-day.
+ *
+ * The first version of this keyed on both, and the dry run showed why that is
+ * wrong: 0726-02 carries ONE coarse row, dated 2026-07-09, holding 48,287 for
+ * the whole round. Guarding per day left 10, 11, 12 and 13 July unguarded, and
+ * 0016 sums every ad_set-null row in the round — so four more would have been
+ * added to a figure that already covered them.
+ *
+ * A round is measured or it is not.
+ */
+export const coarseKey = (round_id: string, _date?: string) => round_id;
 
 export function splitReach(
   rows: AdRow[],
@@ -285,14 +349,15 @@ export function splitReach(
   const write: AdRow[] = [];
   const withheld: Skipped[] = [];
   for (const r of rows) {
-    if (measured.has(coarseKey(r.round_id, r.date))) {
+    if (measured.has(coarseKey(r.round_id))) {
       withheld.push({ campaign: r.campaign, date: r.date, reason: "reach_already_measured" });
       continue;
     }
     // A round-day gets ONE reach row even when several campaigns ran in it:
     // adding two campaigns' reach over-counts the people in both. The first is
     // taken and the rest are named, which is the same refusal 0016 documents.
-    measured.add(coarseKey(r.round_id, r.date));
+    // One reach row per ROUND: a second, on any day, would be summed into it.
+    measured.add(coarseKey(r.round_id));
     write.push(r);
   }
   return { write, withheld };

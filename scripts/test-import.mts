@@ -2202,10 +2202,10 @@ console.log("\nUnidentified — counted as a headcount, attached to nobody");
   ], rounds2).rows;
 
   // 0726-02 is already measured by the CSV; 0926-01 is not.
-  const already = [coarseKey("0726-02", "2026-07-09")];
+  const already = [coarseKey("0726-02")];
   const split = splitReach(reachRows, already);
 
-  eq("a round-day the CSV already measured is left alone", split.write.length, 1);
+  eq("a round the CSV already measured is left alone", split.write.length, 1);
   eq("and the withheld row is named, not dropped", split.withheld.length, 1);
   eq("with the reason on it", split.withheld[0].reason, "reach_already_measured");
   eq("the unmeasured round still gets its reach", split.write[0].round_id, "0926-01");
@@ -2218,7 +2218,7 @@ console.log("\nUnidentified — counted as a headcount, attached to nobody");
     { date_start: "2026-08-28", campaign_name: "DF_MY_Preview_Sprint1_0926_01_LP1", reach: "4863" },
   ], rounds2).rows;
   const two = splitReach(twoCampaigns, []);
-  eq("a round-day gets one reach row even from two campaigns", two.write.length, 1);
+  eq("a round gets one reach row even from two campaigns", two.write.length, 1);
   eq("and the second is named rather than added", two.withheld.length, 1);
 
   // The whole point, stated as the acceptance test: pulling over loaded history
@@ -2227,8 +2227,72 @@ console.log("\nUnidentified — counted as a headcount, attached to nobody");
     toReachRows([{ date_start: "2026-07-09",
                    campaign_name: "DF_SG_Preview_Sprint1_0726_02_LP1", reach: "31000" }],
                 rounds2).rows,
-    [coarseKey("0726-02", "2026-07-09")]);
+    [coarseKey("0726-02")]);
   eq("a pull over 0726-02 writes no reach at all", nothingNew.write.length, 0);
+
+  // The case the live dry run exposed: the coarse row is dated 9 July and covers
+  // the whole round, so the OTHER days must be withheld too. Keyed per day, four
+  // of these got through and would have been summed into the 48,287.
+  const wholeWindow = splitReach(
+    toReachRows(
+      ["2026-07-09", "2026-07-10", "2026-07-11", "2026-07-12", "2026-07-13"].map((d) => ({
+        date_start: d, campaign_name: "DF_SG_Preview_Sprint1_0726_02_LP1", reach: "9000",
+      })), rounds2).rows,
+    [coarseKey("0726-02")]);
+  eq("no day of a measured round writes reach", wholeWindow.write.length, 0);
+  eq("and all five are named", wholeWindow.withheld.length, 5);
+}
+
+{
+  // ── THE ROUND IS THE DAY'S, NOT THE CAMPAIGN NAME'S ───────────────────────
+  // DF_SG_Preview_Sprint1_0726_01_AI_LP kept spending after 0726-01 closed, so
+  // $596.99 of it falls inside 0726-02's window and the CSV filed it there.
+  // Matching on the name instead moves that money into 0726-01, where $1,148.99
+  // of the same campaign already sits, and counts the same spend twice.
+  const dated = [
+    { round_id: "0726-01", start_date: "2026-07-01", end_date: "2026-07-07" },
+    { round_id: "0726-02", start_date: "2026-07-09", end_date: "2026-07-14" },
+  ];
+
+  eq("a day inside a round belongs to that round, whatever the campaign is called",
+     roundOf("DF_SG_Preview_Sprint1_0726_01_AI_LP", dated, "2026-07-12"), "0726-02");
+  eq("and the same campaign inside its own window stays there",
+     roundOf("DF_SG_Preview_Sprint1_0726_01_AI_LP", dated, "2026-07-03"), "0726-01");
+  eq("a day in no round falls back to the name",
+     roundOf("DF_SG_Preview_Sprint1_0726_01_AI_LP", dated, "2026-07-08"), "0726-01");
+  eq("a day in no round with a nameless campaign is refused",
+     roundOf(null, dated, "2026-07-08"), null);
+
+  // End to end: the whole 9-13 July window, exactly as Meta returns it.
+  const july = toAdRows([
+    { date_start: "2026-07-12", campaign_name: "DF_SG_Preview_Sprint1_0726_01_AI_LP",
+      ad_name: "A", spend: "596.99" },
+    { date_start: "2026-07-10", campaign_name: "DF_SG_Preview_Sprint1_0726_02_LP1",
+      ad_name: "B", spend: "1380.63" },
+  ], dated);
+  eq("both land in 0726-02, which is when the money was spent",
+     new Set(july.rows.map((r) => r.round_id)).size, 1);
+  eq("and that round is 0726-02", july.rows[0].round_id, "0726-02");
+  eq("nothing is refused", july.skipped.length, 0);
+
+  // The API returns a row for every live ad every day, including days it did
+  // nothing. Meta's UI export drops those, so the CSV has 144 where the API has
+  // 147. Writing them moves no number and adds columns of zeroes to tabs that
+  // had no column at all.
+  const withEmpties = toAdRows([
+    { date_start: "2026-07-11", campaign_name: "DF_SG_Preview_Sprint1_0726_02_LP1",
+      adset_name: "Cold_Broad", ad_name: "Dormant", spend: "0", impressions: "0" },
+    { date_start: "2026-07-11", campaign_name: "DF_SG_Preview_Sprint1_0726_02_LP1",
+      adset_name: "Cold_Broad", ad_name: "Live", spend: "12.50", impressions: "300" },
+    // no spend, but it WAS shown — a real measurement, kept
+    { date_start: "2026-07-11", campaign_name: "DF_SG_Preview_Sprint1_0726_02_LP1",
+      adset_name: "Cold_Broad", ad_name: "Seen", spend: "0", impressions: "44" },
+  ], dated);
+  eq("an all-nothing row is not written", withEmpties.rows.length, 2);
+  eq("and it is counted, not dropped in silence", withEmpties.skipped.length, 1);
+  eq("with its own reason", withEmpties.skipped[0].reason, "measured_nothing");
+  ok("a row with impressions but no spend is kept",
+     withEmpties.rows.some((r) => r.ad === "Seen"));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
