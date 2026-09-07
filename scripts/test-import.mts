@@ -27,6 +27,9 @@ import {
 } from "../lib/funnel/scroll";
 import { cadencesFor, resolveSpine } from "../lib/funnel/cadence";
 import { cutFor, narrowToAsset, monthOf } from "../lib/funnel/cuts";
+import {
+  toAdRows, toReachRows, adKey, newRows, clicksFrom, num, dayOf, roundOf, scrub,
+} from "../lib/meta/insights";
 import { NO_FILTER } from "../lib/funnel/data";
 import { listOf, has, toggle, keepsSpend, windowKey, joinOr } from "../lib/funnel/filters";
 import { WIRED } from "../components/Shell";
@@ -2086,6 +2089,103 @@ console.log("\nUnidentified — counted as a headcount, attached to nobody");
   eq("July keeps its four", by.get("2026-07"), 4);
   eq("every round is filed exactly once",
      [...by.values()].reduce((a, b) => a + b, 0), shely.length);
+}
+
+{
+  // ── META "PULL NOW": THE TRANSLATION ──────────────────────────────────────
+  // Every one of these is a trap the AcqOS brief paid for live, or a rule this
+  // app already enforces that a pull could quietly break.
+  const rounds = [{ round_id: "0926-01" }, { round_id: "0826-01" }, { round_id: "0526-02" }];
+
+  // A number Meta did not send is not a zero. ads_performance columns default
+  // to 0, so an absent field would arrive looking measured.
+  eq("an absent field is null, not zero", num(undefined), null);
+  eq("an empty string is null too", num(""), null);
+  eq("a real zero survives as zero", num("0"), 0);
+  eq("a number is a number", num("123.45"), 123.45);
+
+  // Trap 5.7 — three click metrics, none interchangeable.
+  const clicky = {
+    clicks: "500", inline_link_clicks: "120",
+    actions: [{ action_type: "outbound_click", value: "90" },
+              { action_type: "post_engagement", value: "400" }],
+  };
+  eq("link clicks are the default reading", clicksFrom(clicky, "link"), 120);
+  eq("outbound clicks come out of actions, not the top level", clicksFrom(clicky, "outbound"), 90);
+  eq("all-clicks includes likes and profile taps", clicksFrom(clicky, "all"), 500);
+  eq("no outbound action is null, not zero", clicksFrom({ actions: [] }, "outbound"), null);
+
+  // The account's local day. Appending Z shifts a Singapore account eight hours.
+  eq("a date_start is the account's own day", dayOf({ date_start: "2026-08-28" }), "2026-08-28");
+  eq("an instant is not a day", dayOf({ date_start: "2026-08-28T00:00:00Z" }), null);
+
+  // The round comes from the campaign, by the same rule the CSV import uses.
+  eq("a campaign names its round through underscores",
+     roundOf("DF_SG_Preview_Sprint1_0926_01_LP1GHL", rounds), "0926-01");
+  eq("a campaign naming no round is not guessed into one",
+     roundOf("DF_MY_Preview_Sprint1_1026_01", rounds), null);
+
+  const pulled = toAdRows([
+    { date_start: "2026-08-28", campaign_name: "DF_SG_Preview_Sprint1_0926_01_LP1GHL",
+      adset_name: "Cold_Broad", ad_name: "Static_A",
+      spend: "163.11", impressions: "9001", clicks: "77", inline_link_clicks: "41" },
+    // a campaign for a round nobody has created — the main use case, refused
+    { date_start: "2026-08-28", campaign_name: "DF_MY_Preview_Sprint1_1026_01_LP1",
+      adset_name: "Cold_Broad", ad_name: "Static_A", spend: "20.00", impressions: "500" },
+    // Meta sent no spend for this one. Absent, not zero.
+    { date_start: "2026-08-29", campaign_name: "DF_MY_Preview_Sprint1_0926_01_LP1",
+      adset_name: "Cold_Broad", ad_name: "Static_B", impressions: "700", inline_link_clicks: "3" },
+  ], rounds);
+
+  eq("rows whose round exists are written", pulled.rows.length, 2);
+  eq("a campaign with no round is refused", pulled.skipped.length, 1);
+  eq("and it is named, not silently dropped", pulled.skipped[0].reason, "no_round_for_campaign");
+  eq("the refused campaign is reported back",
+     pulled.skipped[0].campaign, "DF_MY_Preview_Sprint1_1026_01_LP1");
+  eq("clicks default to link clicks", pulled.rows[0].clicks, 41);
+  eq("unsent spend stays absent", pulled.rows[1].spend, null);
+  ok("reach is never written per ad (0016)", pulled.rows.every((r) => r.reach === null));
+  ok("every row is marked as meta", pulled.rows.every((r) => r.channel === "meta"));
+
+  // 0016 — reach only at campaign level, with ad_set null, which is what the
+  // views key on. Six ad sets of 0526-02 summed to 20,665 against a true 11,380.
+  const reach = toReachRows([
+    { date_start: "2026-05-13", campaign_name: "DF_SG_Preview_Sprint1_0526_02", reach: "11380" },
+  ], rounds);
+  eq("campaign reach is written", reach.rows[0].reach, 11380);
+  eq("with no ad set, which is what 0016's rule reads", reach.rows[0].ad_set, null);
+  eq("and no ad", reach.rows[0].ad, null);
+  eq("spend is not written twice", reach.rows[0].spend, null);
+  eq("nor are impressions", reach.rows[0].impressions, null);
+
+  // Trap 5.1 — the window overlaps on purpose, so the second write must be a
+  // no-op. Pressing the button five times equals pressing it once.
+  const already = pulled.rows.map(adKey);
+  eq("a pull that repeats loaded history writes nothing",
+     newRows(pulled.rows, already).length, 0);
+  eq("a genuinely new row is still written",
+     newRows([...pulled.rows, { ...pulled.rows[0], date: "2026-08-30" }], already).length, 1);
+  eq("a row repeated inside one pull is written once",
+     newRows([pulled.rows[0], pulled.rows[0]], []).length, 1);
+  eq("the key is the pipeline's own",
+     adKey({ round_id: "0926-01", date: "2026-08-28", campaign: "C", ad_set: "A", ad: "X" }),
+     "0926-01|2026-08-28|C|A|X");
+
+  // Trap 5.2 — a multi-day range without time_increment returns ONE date stamped
+  // on every row. It looked present and was worthless, twice, in production.
+  const fiveDays = toAdRows(
+    ["2026-08-28", "2026-08-29", "2026-08-30", "2026-08-31", "2026-09-01"].map((d) => ({
+      date_start: d, campaign_name: "DF_SG_Preview_Sprint1_0926_01", ad_name: "A", spend: "10",
+    })), rounds);
+  eq("a five-day pull carries five distinct dates",
+     new Set(fiveDays.rows.map((r) => r.date)).size, 5);
+
+  // The token rides in paging.next. AcqOS leaked a live one this way.
+  eq("a token never survives into anything printable",
+     scrub("https://graph.facebook.com/x?access_token=EAABs3cret&after=abc"),
+     "https://graph.facebook.com/x?access_token=REDACTED&after=abc");
+  ok("and not in an error message either",
+     !scrub("failed: access_token=EAABs3cret").includes("EAABs3cret"));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
