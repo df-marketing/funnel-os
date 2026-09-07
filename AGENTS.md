@@ -52,6 +52,7 @@
 - A source is a filter, and a campaign with no page is a lead form.
 - A filter is a set, not a value — filtering logic compares against a set, not a single scalar.
 - A round hands back the country that matched, not the whole selection.
+- Reach is the one number a pull must not merge — possibly a branch protection or policy rule.
 
 ## Architecture
 
@@ -121,6 +122,7 @@
 - absent (null/missing values) is distinct from zero for sales and for spend without a named audience
 - The reconciliation workspace cannot reach the remote.
 - Re-upload fixed alongside phone-as-identity changes.
+- Accepting an unmatched item no longer loses money; unmatched queue was made two-way.
 
 ## Notes
 
