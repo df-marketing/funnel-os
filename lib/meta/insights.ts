@@ -56,7 +56,18 @@ export type AdRow = {
   channel: string;
 };
 
-export type Skipped = { campaign: string | null; date: string | null; reason: string };
+export type Skipped = {
+  campaign: string | null;
+  date: string | null;
+  reason: string;
+  /**
+   * What the refused row was worth. A count says how many rows were declined;
+   * only the money says whether declining them mattered. 27 rows is a shrug;
+   * 27 rows carrying real spend that is counted nowhere is a decision for
+   * somebody.
+   */
+  spend?: number | null;
+};
 
 /**
  * A NUMBER META DID NOT SEND IS NOT A ZERO.
@@ -212,7 +223,7 @@ export function toAdRows(
     }
     const round_id = roundOf(campaign, rounds, date);
     if (!round_id) {
-      skipped.push({ campaign, date, reason: "no_round_for_campaign" });
+      skipped.push({ campaign, date, reason: "no_round_for_campaign", spend: num(r.spend) });
       continue;
     }
     const row: AdRow = {
@@ -264,6 +275,8 @@ export function toReachRows(rows: MetaCampaignRow[], rounds: Round[]): Translati
     }
     const round_id = roundOf(campaign, rounds, date);
     if (!round_id) {
+      // A campaign-level row carries reach, not spend; the money for these days
+      // is counted on the ad rows, which are refused separately and carry it.
       skipped.push({ campaign, date, reason: "no_round_for_campaign" });
       continue;
     }

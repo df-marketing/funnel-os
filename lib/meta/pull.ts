@@ -28,6 +28,7 @@ export type PullResult = {
   rounds: string[];
   skipped: Skipped[];
   reachWithheld: number;
+  skippedSpend: number;
   anyFailed: boolean;
   failures: string[];
 };
@@ -119,6 +120,9 @@ export async function runPull(
     rounds: [...new Set(fresh.map((r) => r.round_id))].sort(),
     skipped,
     reachWithheld: reachWithheld.length,
+    // The money behind the refusals, so "27 rows refused" can be weighed.
+    skippedSpend: Math.round(
+      skipped.reduce((t, x) => t + (x.spend ?? 0), 0) * 100) / 100,
     anyFailed: failures.length > 0,
     failures,
   };

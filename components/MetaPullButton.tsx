@@ -31,6 +31,7 @@ type Result = {
   rounds?: string[];
   skipped?: Array<{ campaign: string | null; date: string | null; reason: string }>;
   reachWithheld?: number;
+  skippedSpend?: number;
   anyFailed?: boolean;
 };
 
@@ -181,6 +182,9 @@ export function MetaPullButton({ client }: { client: string }) {
                 {[...new Set(plan.skipped.map((s) => s.reason))]
                   .map((r) => REASONS[r] ?? r)
                   .join("; ")}
+                {(plan.skippedSpend ?? 0) > 0 ? (
+                  <> — <b>${plan.skippedSpend?.toFixed(2)}</b> of spend, counted nowhere</>
+                ) : null}
               </span>
             </div>
           ) : null}
