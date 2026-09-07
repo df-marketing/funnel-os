@@ -178,3 +178,5 @@
 - the unmatched queue is two-way; accepting an unmatched item no longer discards/loses money
 - this is a project that reads attendance & sales exports and imports them into a supabase-backed analytics app
 - The table says it too, instead of drawing an empty pane — likely a UI fix where an empty state was replaced by the table content being displayed directly.
+- The country a round ran in is tracked as a set (like audience, identity, etc.).
+- The Meta brief (likely the Meta advertising recap/export) now catches up to handle rounds with set-based countries.
