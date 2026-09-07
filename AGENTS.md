@@ -55,6 +55,7 @@
 - Reach is the one number a pull must not merge — possibly a branch protection or policy rule.
 - The round is referenced by the day's date, not the campaign name.
 - Count what Meta sent, not what survived us — the import pipeline records the data as received from the source, not after our transformations/filters.
+- A date picker that greys out the month is worse than the range it prevents — i.e., it's better to block the disallowed range than to visually dim the month label.
 
 ## Architecture
 
@@ -190,3 +191,4 @@
 - Two different nothings were displayed — the screen was showing the wrong 'nothing' (empty/null state).
 - a dry run of the import pipeline runs against real exports without committing changes.
 - Two-way unmatched queue: accept no longer loses money (unmatched items preserve funds).
+- a fixed re-upload was also included in the same commit (bug fix beyond the phone-as-identity change).
