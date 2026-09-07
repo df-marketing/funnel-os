@@ -3,7 +3,10 @@ import { checkIntegrationKey, MISSING_INTEGRATION_KEY_MESSAGE } from "@/lib/inte
 import { isIsoDay } from "@/lib/integration/schema";
 import { createAdminClient, fetchAll, MISSING_KEY_MESSAGE } from "@/lib/supabase/admin";
 import { fetchAdRows, fetchReachRows, metaToken, MetaError, MISSING_TOKEN_MESSAGE } from "@/lib/meta/graph";
-import { toAdRows, toReachRows, adKey, newRows, type AdRow, type ClickKind, type Skipped } from "@/lib/meta/insights";
+import {
+  toAdRows, toReachRows, adKey, newRows, splitReach, coarseKey,
+  type AdRow, type ClickKind, type Skipped,
+} from "@/lib/meta/insights";
 
 export const runtime = "nodejs";
 
@@ -155,11 +158,24 @@ export async function POST(request: Request) {
   // the deliberately overlapping window costs nothing.
   const roundIds = [...new Set([...ads, ...reach].map((r) => r.round_id))];
   const fresh: AdRow[] = [];
+  let reachWithheld: Skipped[] = [];
   if (roundIds.length) {
     const existing = await fetchAll<{
       round_id: string; date: string; campaign: string | null; ad_set: string | null; ad: string | null;
-    }>(db, "ads_performance", "round_id, date, campaign, ad_set, ad", (q) => q.in("round_id", roundIds));
-    fresh.push(...newRows([...ads, ...reach], existing.map(adKey)));
+      reach: number | null;
+    }>(db, "ads_performance", "round_id, date, campaign, ad_set, ad, reach",
+       (q) => q.in("round_id", roundIds));
+
+    // Round-days that already carry a coarse reach — the CSV's ALL CAMPAIGNS
+    // rows. 0016 SUMS every ad_set-null row, so adding a second one there would
+    // double the reach and halve the frequency, beside a spend still correct.
+    const measured = existing
+      .filter((r) => !r.ad_set && r.reach !== null)
+      .map((r) => coarseKey(r.round_id, r.date));
+    const split = splitReach(reach, measured);
+    reachWithheld = split.withheld;
+
+    fresh.push(...newRows([...ads, ...split.write], existing.map(adKey)));
   }
 
   const summary = {
@@ -173,6 +189,7 @@ export async function POST(request: Request) {
     alreadyHad: ads.length + reach.length - fresh.length,
     rounds: [...new Set(fresh.map((r) => r.round_id))].sort(),
     skipped,
+    reachWithheld: reachWithheld.length,
     anyFailed: failures.length > 0,
     failures,
   };

@@ -250,6 +250,55 @@ export function newRows(rows: AdRow[], existing: Iterable<string>): AdRow[] {
 }
 
 /**
+ * REACH IS THE ONE NUMBER A PULL MUST NOT MERGE.
+ *
+ * 0016's rule reads the coarsest measurement available:
+ *
+ *     coalesce(sum(reach) filter (where ad_set is null), sum(reach))
+ *
+ * It SUMS every ad_set-null row for the round. That is right when there is one
+ * of them and wrong when there are two, because reach counts distinct people and
+ * two rows covering the same people cannot be added.
+ *
+ * The loaded history already carries exactly one such row per round — the CSV's
+ * `ALL CAMPAIGNS 0726-02`, holding 48,287. A campaign-level pull would add a
+ * SECOND, under the campaign's real name, and 0726-02's reach would go from
+ * 48,287 to roughly double it. Frequency, which is impressions over reach, would
+ * halve at the same time. Both numbers are reported and both would be wrong,
+ * with the spend beside them still perfectly correct.
+ *
+ * So a reach row is written only where the round-day has no coarse row yet. A
+ * round the CSV has already measured keeps the measurement it has; a round
+ * nobody has measured gets one. Nothing is ever added to an existing reach.
+ *
+ * The withheld rows are returned rather than dropped — "12 reach rows withheld,
+ * already measured" is a fact about the pull, and silence about it is how a
+ * pull that quietly did nothing reads as one that worked.
+ */
+export const coarseKey = (round_id: string, date: string) => `${round_id}|${date}`;
+
+export function splitReach(
+  rows: AdRow[],
+  existingCoarse: Iterable<string>,
+): { write: AdRow[]; withheld: Skipped[] } {
+  const measured = new Set(existingCoarse);
+  const write: AdRow[] = [];
+  const withheld: Skipped[] = [];
+  for (const r of rows) {
+    if (measured.has(coarseKey(r.round_id, r.date))) {
+      withheld.push({ campaign: r.campaign, date: r.date, reason: "reach_already_measured" });
+      continue;
+    }
+    // A round-day gets ONE reach row even when several campaigns ran in it:
+    // adding two campaigns' reach over-counts the people in both. The first is
+    // taken and the rest are named, which is the same refusal 0016 documents.
+    measured.add(coarseKey(r.round_id, r.date));
+    write.push(r);
+  }
+  return { write, withheld };
+}
+
+/**
  * THE TOKEN IS IN THE PAGINATION URL.
  *
  * `paging.next` carries the access token in its query string. AcqOS leaked a

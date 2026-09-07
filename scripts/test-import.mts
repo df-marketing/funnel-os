@@ -29,6 +29,7 @@ import { cadencesFor, resolveSpine } from "../lib/funnel/cadence";
 import { cutFor, narrowToAsset, monthOf } from "../lib/funnel/cuts";
 import {
   toAdRows, toReachRows, adKey, newRows, clicksFrom, num, dayOf, roundOf, scrub,
+  splitReach, coarseKey,
 } from "../lib/meta/insights";
 import { NO_FILTER } from "../lib/funnel/data";
 import { listOf, has, toggle, keepsSpend, windowKey, joinOr } from "../lib/funnel/filters";
@@ -2186,6 +2187,48 @@ console.log("\nUnidentified — counted as a headcount, attached to nobody");
      "https://graph.facebook.com/x?access_token=REDACTED&after=abc");
   ok("and not in an error message either",
      !scrub("failed: access_token=EAABs3cret").includes("EAABs3cret"));
+}
+
+{
+  // ── REACH IS THE ONE NUMBER A PULL MUST NOT MERGE ─────────────────────────
+  // 0016 sums every ad_set-null row. The CSV already leaves exactly one per
+  // round — ALL CAMPAIGNS 0726-02, holding 48,287 — so a campaign-level pull
+  // adding a second would roughly double the reach and halve the frequency,
+  // beside a spend that stayed perfectly correct.
+  const rounds2 = [{ round_id: "0726-02" }, { round_id: "0926-01" }];
+  const reachRows = toReachRows([
+    { date_start: "2026-07-09", campaign_name: "DF_SG_Preview_Sprint1_0726_02_LP1", reach: "31000" },
+    { date_start: "2026-08-28", campaign_name: "DF_SG_Preview_Sprint1_0926_01_LP1", reach: "9000" },
+  ], rounds2).rows;
+
+  // 0726-02 is already measured by the CSV; 0926-01 is not.
+  const already = [coarseKey("0726-02", "2026-07-09")];
+  const split = splitReach(reachRows, already);
+
+  eq("a round-day the CSV already measured is left alone", split.write.length, 1);
+  eq("and the withheld row is named, not dropped", split.withheld.length, 1);
+  eq("with the reason on it", split.withheld[0].reason, "reach_already_measured");
+  eq("the unmeasured round still gets its reach", split.write[0].round_id, "0926-01");
+  eq("carrying the figure", split.write[0].reach, 9000);
+
+  // Two campaigns in one round-day cannot be added either: 0526-03's two report
+  // 7,902 and 4,863 against a true 10,131.
+  const twoCampaigns = toReachRows([
+    { date_start: "2026-08-28", campaign_name: "DF_SG_Preview_Sprint1_0926_01_LP1", reach: "7902" },
+    { date_start: "2026-08-28", campaign_name: "DF_MY_Preview_Sprint1_0926_01_LP1", reach: "4863" },
+  ], rounds2).rows;
+  const two = splitReach(twoCampaigns, []);
+  eq("a round-day gets one reach row even from two campaigns", two.write.length, 1);
+  eq("and the second is named rather than added", two.withheld.length, 1);
+
+  // The whole point, stated as the acceptance test: pulling over loaded history
+  // leaves the reported reach exactly where it was.
+  const nothingNew = splitReach(
+    toReachRows([{ date_start: "2026-07-09",
+                   campaign_name: "DF_SG_Preview_Sprint1_0726_02_LP1", reach: "31000" }],
+                rounds2).rows,
+    [coarseKey("0726-02", "2026-07-09")]);
+  eq("a pull over 0726-02 writes no reach at all", nothingNew.write.length, 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
