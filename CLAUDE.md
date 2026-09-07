@@ -130,6 +130,7 @@
 - An empty 401 response was improved to include a message so the user/developer knows why they were rejected.
 - accepting an unmatched item previously discarded funds; fixed by making the unmatched queue two-way so accepting no longer loses money.
 - five import bugs were found and fixed by testing against real exports, confirming the value of dry-run/real-export testing.
+- A pull that half-failed was reporting null/empty as if it were a finding — likely a bug in how dry-run or import reporting handled missing values.
 
 ## Notes
 
