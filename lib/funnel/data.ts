@@ -254,7 +254,6 @@ export type Dashboard = {
   countries: CountryOption[];
   sources: SourceOption[];
   periods: Period[];
-  rounds: { round_id: string; start_date: string; end_date: string; product_id: string | null }[];
   filter: FilterKey;
   /**
    * The cadences in play under the current filter — which of By round and By
@@ -271,7 +270,7 @@ export type Dashboard = {
 
 const EMPTY: Omit<Dashboard, "error" | "errorHint" | "view"> = {
   clients: [], stages: [], strip: [], total: null, baseline: null,
-  products: [], channels: [], countries: [], sources: [], periods: [], rounds: [], filter: NO_FILTER, cadences: ["round"],
+  products: [], channels: [], countries: [], sources: [], periods: [], filter: NO_FILTER, cadences: ["round"],
   byMonth: [], byWeek: [], byRound: [], byAdset: [], bySource: [], byRoundSource: [], byVariant: [], byLanding: [],
   byAd: [], bySession: [], byOffer: [], thisRound: [],
   columns: [], elsewhere: null, roundContext: null,
@@ -542,7 +541,7 @@ const loadFilterOptions = unstable_cache(
     const [products, channels, rounds, buckets, adCountries] = await Promise.all([
       db.from("v_products").select("*").eq("client_id", id).order("ord"),
       db.from("v_client_channels").select("*").eq("client_id", id).order("ord"),
-      db.from("rounds").select("round_id, start_date, end_date, country, product_id").eq("client_id", id).order("start_date"),
+      db.from("rounds").select("round_id, start_date, end_date, country").eq("client_id", id).order("start_date"),
       // The buckets this client has people in (0067). Tolerated when absent —
       // a database in front of that migration simply offers no source filter.
       db.from("v_client_sources").select("bucket, ord, note, leads").eq("client_id", id).order("ord"),
@@ -552,7 +551,7 @@ const loadFilterOptions = unstable_cache(
       // a page of rows.
       db.from("v_client_countries").select("country, round_count").eq("client_id", id).order("country"),
     ]);
-    const rs = (ok(rounds, "rounds") as { round_id: string; start_date: string; end_date: string; country: string | null; product_id: string | null }[] | null) ?? [];
+    const rs = (ok(rounds, "rounds") as { round_id: string; start_date: string; end_date: string; country: string | null }[] | null) ?? [];
     /**
      * The countries this client actually ran in, counted over ROUNDS but
      * gathered from the ad rows.
@@ -626,10 +625,6 @@ const loadFilterOptions = unstable_cache(
       countries,
       sources: (buckets.error ? null : (buckets.data as SourceOption[] | null)) ?? [],
       periods,
-      // Step 0's form needs the rounds themselves, not just the periods derived
-      // from them: it has to know what a new one would overlap.
-      rounds: rs.map(({ round_id, start_date, end_date, product_id }) =>
-        ({ round_id, start_date, end_date, product_id })),
     };
   },
   ["funnel-filter-options"],
@@ -821,7 +816,6 @@ async function build(
   return {
     clients,
     products: options.products,
-    rounds: options.rounds,
     channels: options.channels,
     countries: options.countries,
     sources: options.sources,

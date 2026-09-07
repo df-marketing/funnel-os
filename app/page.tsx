@@ -298,7 +298,7 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "import" ? <ImportPane imports={data.imports} client={current.client_id} declared={declared} rounds={data.rounds} products={data.products} /> : null}
+          {view === "import" ? <ImportPane imports={data.imports} client={current.client_id} declared={declared} /> : null}
 
           {/* `now` comes from the server so "6 minutes ago" renders the same
               string on both sides of hydration, and is measured by the clock
