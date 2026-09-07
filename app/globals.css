@@ -583,3 +583,18 @@ i.goal { font: 600 9px var(--mono); letter-spacing: .07em; text-transform: upper
    the button never reads as belonging to the last row. */
 .wire-pick.keep { margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--line-soft); }
 .wire-pick.keep .wire-note { flex: 1 1 260px; }
+
+/* ── PULL NOW ─────────────────────────────────────────────────────────────
+   Sits under the ads drop zone as the other way the same numbers arrive, so
+   it reads as an alternative to the file rather than a separate feature. */
+.meta-pull { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.meta-pull-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.meta-pull-dates { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.meta-pull-dates input {
+  background: var(--bg); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 3px 6px; font: inherit; font-size: 12px;
+}
+.meta-pull-hint { font-size: 12px; margin: 8px 0 0; line-height: 1.5; }
+.meta-pull-diff { margin-top: 10px; display: grid; gap: 6px; }
+.meta-pull-row { display: flex; gap: 8px; align-items: baseline; font-size: 12px; line-height: 1.5; }
+.meta-pull-row b { min-width: 2.5em; text-align: right; font-variant-numeric: tabular-nums; }
