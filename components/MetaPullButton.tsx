@@ -100,12 +100,33 @@ export function MetaPullButton({ client }: { client: string }) {
         >
           {p === "reading" ? "Reading Meta…" : "Pull from Meta"}
         </button>
+        {/*
+          No min/max on these.
+          The obvious guard — max on the first box, min on the second — stops a
+          backwards range and also greys out every date beyond the other end.
+          Set the second box to 12 May and the first one's calendar opens on
+          September with the entire month dead and nothing saying why. The
+          picker looks broken, which is a worse fault than the one being
+          prevented.
+          So the range is kept sane by MOVING the other end instead of
+          forbidding the click. Whichever date you set is the one you get.
+        */}
         <label className="meta-pull-dates">
-          <input type="date" value={win.since} max={win.until}
-                 onChange={(e) => setWin({ ...win, since: e.target.value })} />
+          <input
+            type="date" value={win.since} aria-label="Pull from"
+            onChange={(e) => {
+              const since = e.target.value;
+              setWin((w) => ({ since, until: since > w.until ? since : w.until }));
+            }}
+          />
           <span>→</span>
-          <input type="date" value={win.until} min={win.since}
-                 onChange={(e) => setWin({ ...win, until: e.target.value })} />
+          <input
+            type="date" value={win.until} aria-label="Pull to"
+            onChange={(e) => {
+              const until = e.target.value;
+              setWin((w) => ({ until, since: until < w.since ? until : w.since }));
+            }}
+          />
         </label>
       </div>
 
