@@ -77,7 +77,9 @@ export async function runPull(
     const t = toAdRows(got, rounds, clicks);
     ads = t.rows; skipped.push(...t.skipped);
   } catch (e) {
-    failures.push(e instanceof MetaError ? e.code : "ad_fetch_failed");
+    // The code alone ("graph_error") names nothing anyone can act on. The
+    // message is already scrubbed of the access token by MetaError.
+    failures.push(e instanceof MetaError ? `ad: ${e.code} — ${e.message}` : "ad: fetch failed");
   }
   try {
     const got = await fetchReachRows(account, token, opts.since, opts.until);
@@ -85,7 +87,7 @@ export async function runPull(
     const t = toReachRows(got, rounds);
     reach = t.rows; skipped.push(...t.skipped);
   } catch (e) {
-    failures.push(e instanceof MetaError ? e.code : "reach_fetch_failed");
+    failures.push(e instanceof MetaError ? `reach: ${e.code} — ${e.message}` : "reach: fetch failed");
   }
   if (failures.length === 2) return { ok: false, error: "all_pulls_failed", status: 502 };
 

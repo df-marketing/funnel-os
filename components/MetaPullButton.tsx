@@ -33,6 +33,7 @@ type Result = {
   reachWithheld?: number;
   skippedSpend?: number;
   anyFailed?: boolean;
+  failures?: string[];
 };
 
 type State =
@@ -141,6 +142,29 @@ export function MetaPullButton({ client }: { client: string }) {
         <div className="notice warn"><span className="ico">!</span><div>{state.message}</div></div>
       )}
 
+      {/*
+        A pull that half-failed used to print "0 rows, $0" with a flag beside
+        it, and the numbers read as findings. They are not findings, they are
+        the absence of an answer — and the standing rule is that a query which
+        failed must never look like one that found nothing. So the failure goes
+        first and says what Meta actually said.
+      */}
+      {(p === "staged" || p === "done") && plan?.anyFailed && (
+        <div className="notice warn">
+          <span className="ico">!</span>
+          <div>
+            <b>Part of this pull did not come back.</b> The numbers below are
+            incomplete — treat them as unknown, not as nought. Trying again in a
+            moment usually works; Meta rate-limits a busy account.
+            {plan.failures?.length ? (
+              <ul className="round-problems">
+                {plan.failures.map((f) => <li key={f}>{f}</li>)}
+              </ul>
+            ) : null}
+          </div>
+        </div>
+      )}
+
       {(p === "staged" || p === "committing" || p === "done") && plan && (
         <div className="meta-pull-diff">
           <div className="meta-pull-row">
@@ -189,12 +213,13 @@ export function MetaPullButton({ client }: { client: string }) {
             </div>
           ) : null}
 
-          {plan.anyFailed && (
-            <div className="notice warn"><span className="ico">!</span>
-              <div>Part of this pull failed, so the figures above are incomplete.</div></div>
+          {p === "staged" && (plan.wouldWrite ?? 0) > 0 && plan.anyFailed && (
+            <p className="dim">
+              Not offering to commit an incomplete pull — run it again first.
+            </p>
           )}
 
-          {p === "staged" && (plan.wouldWrite ?? 0) > 0 && (
+          {p === "staged" && (plan.wouldWrite ?? 0) > 0 && !plan.anyFailed && (
             <button className="btn primary" onClick={() => call(true)}>
               Commit {plan.wouldWrite} row{plan.wouldWrite === 1 ? "" : "s"}
             </button>
