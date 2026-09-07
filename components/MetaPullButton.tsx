@@ -75,7 +75,8 @@ export function MetaPullButton({ client }: { client: string }) {
       });
       const body = (await res.json()) as Result;
       if (!res.ok || !body.ok) {
-        setState({ phase: "error", message: body.note ?? friendly(body.error) });
+        setState({ phase: "error",
+          message: [friendly(body.error), body.note].filter(Boolean).join(" ") });
         return;
       }
       if (commit) {
@@ -259,9 +260,21 @@ export function MetaPullButton({ client }: { client: string }) {
   );
 }
 
+/*
+ * One sentence for every fault told nobody anything. Pressing commit answered
+ * "We couldn't pull the latest numbers just now" when the pull had worked
+ * perfectly and the WRITE had failed on a foreign key — so the message pointed
+ * at Meta, and Meta was fine.
+ */
 const friendly = (code?: string) =>
   code === "no_meta_ad_account"
     ? "No Meta ad account is set for this client yet."
     : code === "cooldown"
       ? "Just pulled — give it a few seconds."
-      : "We couldn't pull the latest numbers just now — please try again in a moment.";
+      : code === "all_pulls_failed"
+        ? "Meta didn't answer. Try again in a moment — a busy account rate-limits."
+        : code === "write_failed" || code === "batch_open_failed"
+          ? "Meta answered, but saving it here failed. Nothing was written."
+          : code === "unknown_client"
+            ? "That client doesn't exist."
+            : "Something went wrong before anything was written — try again in a moment.";

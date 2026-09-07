@@ -144,10 +144,44 @@ export async function runPull(
   if (!opts.commit) return base;
   if (!fresh.length) return { ...base, committed: true, written: 0 };
 
-  const batch = crypto.randomUUID();
+  /*
+   * THE BATCH ROW COMES FIRST.
+   *
+   * ads_performance.import_batch_id is a foreign key to import_batches. Minting
+   * a UUID and writing rows against it violates that constraint and every
+   * commit fails — which is exactly what happened the first time anyone pressed
+   * the button.
+   *
+   * It is also the right thing on its own terms: a pull IS an import, and the
+   * Import tab reads coverage, row counts and staleness off this table. A pull
+   * that skipped it would be a second, invisible way for numbers to arrive, and
+   * the header above would go on reporting the last CSV as the newest thing
+   * this client has.
+   */
+  const opened = await db.from("import_batches").insert({
+    source: "ads",
+    client_id: opts.clientId,
+    coverage_start: opts.since,
+    coverage_end: opts.until,
+    row_count: fresh.length,
+  }).select("batch_id").single();
+
+  if (opened.error || !opened.data) {
+    return { ok: false, error: "batch_open_failed",
+             note: opened.error?.code ? `database said ${opened.error.code}` : undefined,
+             status: 502 };
+  }
+  const batch = (opened.data as { batch_id: string }).batch_id;
+
   const { error } = await db.from("ads_performance")
     .insert(fresh.map((r) => ({ ...r, import_batch_id: batch })));
-  if (error) return { ok: false, error: "write_failed", status: 502 };
+  if (error) {
+    // The batch is left behind deliberately: a row saying an import was
+    // attempted and wrote nothing is a truer record than no row at all.
+    // The CODE is not row data, and without it this is undiagnosable.
+    return { ok: false, error: "write_failed",
+             note: error.code ? `database said ${error.code}` : undefined, status: 502 };
+  }
 
   return { ...base, committed: true, written: fresh.length, batch };
 }
