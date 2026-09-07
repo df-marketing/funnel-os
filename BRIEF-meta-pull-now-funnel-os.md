@@ -88,6 +88,11 @@ Two options. **Pick one before writing code:**
 | **A — Refuse and say which** *(recommended)* | Rows whose campaign maps to no round are not written; the response names the campaign and the missing round | Small. Honest. Also serves as the provenance rule — a campaign nobody mapped is a campaign nobody asked us to manage |
 | **B — Let AcqOS open the round** | Extend the schema push so AcqOS can create rounds, mirroring `0036 a_push_can_open_a_client` | Bigger, but AcqOS is the planner and already knows the dates. This is where it should end up |
 
+> **Re-checked 7 September: still true.** Nothing in `app/` or `lib/` inserts into `rounds`, and
+> `app/api/integration/` holds `actuals`, `funnel-schema`, `month-insight`, `round-insight` and
+> `series` — all readers. There is also **no field anywhere for a Meta ad account id**; that has
+> to be added before a pull can address an account.
+
 **A now, B next.** A is the provenance rule the AcqOS brief asks for in §7 — its
 `system_launched_at` check has no equivalent here, because AcqOS creates campaigns and Funnel
 OS does not. "Maps to a known round" satisfies both the provenance rule and the foreign key
@@ -166,6 +171,37 @@ Follow `paging.next` until absent.
 **Nowhere yet.** `source_ref` on `client_journey_config` holds *field names* (`impressions`,
 `outbound_click`), not account identifiers. You need a per-client Meta ad account id. Add it as
 a client-level setting; do not overload `source_ref`, which already means something else.
+
+---
+
+## 4a. The campaign name now decides THREE facts — added 7 September
+
+When this brief was first written, the campaign string mattered for one reason: matching a round.
+Since then it has quietly become load-bearing for two more. **A pull writes campaign strings, so a
+pull writes all three at once**, and none of them is stored — every one is derived from the text
+each time it is read:
+
+| Read from the campaign | By | Since |
+|---|---|---|
+| **Round** — `…_0926_01` → `0926-01` | `roundFromCampaign` | always |
+| **Country** — the `DF_SG_` / `DF_MY_` prefix | `fo_country()` | `0062` |
+| **Landing page** — `LP2`, else `LP`→LP1, else **Lead Form** | `fo_landing_page()` | `0058`, `0066` |
+
+Consequences the original brief could not have known:
+
+- A campaign whose name Meta returns differently from the CSV does not just land in the wrong
+  round. It lands in **the wrong country and the wrong landing-page arm too**, and each one is a
+  separate number on a separate tab.
+- `0066` made "no LP token" mean **`Lead Form`** — a real arm of the lead-gen test, not an
+  absence. So a mangled name is no longer silently ignored; it is actively counted as a lead
+  form. **595 leads and $5,565.15 currently sit in that arm.** A pull that mis-writes names moves
+  real money into it.
+- Country is per row, so a single round can hold both. `0926-01` does — SG $2,947.15 beside MY
+  $989.53. The pull must not normalise or "tidy" a campaign name; the prefix is data.
+
+**Test this explicitly.** Pull a window that overlaps loaded history and assert the country split
+and the landing-page split are both unchanged, not only the totals. Test 9 covers the totals;
+these are the two that move underneath a correct total.
 
 ---
 
@@ -308,16 +344,24 @@ Silence about a skipped campaign is the failure mode that matters — it reads a
 
    | | |
    |---|---|
-   | Spend | $16,538.10 |
-   | Impressions | 318,409 |
-   | Clicks | 4,881 |
+   | Spend | $20,474.78 |
+   | Leads | 1,889 |
+   | Attendance | 682 |
+   | Purchases | 113 |
+   | Total revenue | $83,927 |
+   | ROAS | 1.80 · CPA $365.62 |
    | Reach (0526-02) | 11,380 — **not** 20,665 |
-   | Leads | 1,349 |
-   | Total revenue | $81,942 |
-   | ROAS | 2.11 |
+   | Unmatched queue | 0 |
 
-   **If any of these move, the pull is wrong.** They were reconciled against the client's own
-   master sheet on 4 September and are correct. Test 9 is the one that catches the most.
+   By country, which the pull must also leave alone:
+
+   | | Spend | Leads | Attendance |
+   |---|---|---|---|
+   | Singapore | $19,485.25 | 1,601 | 605 |
+   | Malaysia | $989.53 | 247 | 54 |
+
+   **If any of these move, the pull is wrong.** Verified against production on 7 September,
+   after 0066–0070. Test 9 is the one that catches the most.
 
 ---
 
@@ -330,7 +374,7 @@ Silence about a skipped campaign is the failure mode that matters — it reads a
 - Do not touch `northsea_supply` or `DEMO-W1`–`W4`.
 - Token never reaches the browser, a log, or a response body.
 - `npm run lint` is not configured. Use `npx tsc --noEmit` and `npm run test:import`
-  (currently **449 passing**).
+  (currently **535 passing**).
 - Commit messages: plain sentence, no `feat:` prefix.
 
 ---
