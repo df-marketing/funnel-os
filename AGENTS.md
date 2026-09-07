@@ -123,6 +123,7 @@
 - The reconciliation workspace cannot reach the remote.
 - Re-upload fixed alongside phone-as-identity changes.
 - Accepting an unmatched item no longer loses money; unmatched queue was made two-way.
+- An empty 401 response was improved to include a message so the user/developer knows why they were rejected.
 
 ## Notes
 
