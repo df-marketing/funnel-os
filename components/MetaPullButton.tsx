@@ -136,10 +136,12 @@ export function MetaPullButton({ client }: { client: string }) {
             pull that failed. Nothing to write IS the right answer over a window
             already imported, and without saying so the screen looks broken.
           */}
-          <div className="dim meta-pull-row">
-            <b>{plan.alreadyHad ?? 0}</b>
-            <span>already had, unchanged</span>
-          </div>
+          {((plan.fetched?.ad ?? 0) + (plan.fetched?.reach ?? 0)) > 0 && (
+            <div className="dim meta-pull-row">
+              <b>{plan.alreadyHad ?? 0}</b>
+              <span>already had, unchanged</span>
+            </div>
+          )}
 
           {(plan.reachWithheld ?? 0) > 0 && (
             <div className="dim meta-pull-row">
@@ -172,8 +174,22 @@ export function MetaPullButton({ client }: { client: string }) {
               Commit {plan.wouldWrite} row{plan.wouldWrite === 1 ? "" : "s"}
             </button>
           )}
+          {/*
+            Two different nothings, and saying the wrong one is a lie.
+            "Meta reported nothing" means no ad ran on those days; "already in"
+            means it ran and you have it. The first version said "already in"
+            for both, which told somebody looking at a window their campaigns
+            were switched off for that their data was safely imported.
+          */}
           {p === "staged" && (plan.wouldWrite ?? 0) === 0 && (
-            <p className="dim">Nothing to write — this window is already in.</p>
+            ((plan.fetched?.ad ?? 0) + (plan.fetched?.reach ?? 0)) === 0 ? (
+              <p className="dim">
+                Meta reported nothing for {plan.window?.since} to {plan.window?.until} — no ad
+                spent anything on those days. That is an answer, not a failure.
+              </p>
+            ) : (
+              <p className="dim">Nothing to write — this window is already in.</p>
+            )
           )}
           {p === "committing" && <p className="dim">Committing…</p>}
           {p === "done" && <p className="dim">Done. The figures above have been re-read.</p>}
