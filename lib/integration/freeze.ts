@@ -11,6 +11,8 @@ export type StoredInsight = {
   frozen_at: string;
   frozen_by: string | null;
   note: string | null;
+  attribution_model: string;
+  rule_version: string;
 };
 
 export function freezeMode(value: string | null): FrozenMode | null {
@@ -25,12 +27,13 @@ export function insightWithSnapshot(payload: Record<string, unknown>, insight: S
       ? {
           frozen: true, version: insight.version, frozenAt: insight.frozen_at,
           frozenBy: insight.frozen_by, note: insight.note, isCurrent: insight.is_current,
+          attributionModel: insight.attribution_model, ruleVersion: insight.rule_version,
           versionsAvailable: versions,
         }
       // Live, but the versions are still listed. A caller reading frozen=never
       // is entitled to know a stored copy exists and differs from what it just
       // got; an empty list here would say there was nothing to compare against.
-      : { frozen: false, version: null, frozenAt: null, frozenBy: null, note: null, isCurrent: null, versionsAvailable: versions },
+      : { frozen: false, version: null, frozenAt: null, frozenBy: null, note: null, isCurrent: null, attributionModel: null, ruleVersion: null, versionsAvailable: versions },
   };
 }
 
@@ -38,7 +41,7 @@ export async function snapshotsFor(
   db: SupabaseClient, clientId: string, kind: PeriodKind, key: string,
 ): Promise<StoredInsight[]> {
   const { data, error } = await db.from("period_insights")
-    .select("version, is_current, payload, frozen_at, frozen_by, note")
+    .select("version, is_current, payload, frozen_at, frozen_by, note, attribution_model, rule_version")
     .eq("client_id", clientId).eq("period_kind", kind).eq("period_key", key)
     .order("version");
   if (error) throw new Error(`period_insights: ${error.message}`);
