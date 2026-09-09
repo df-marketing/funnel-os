@@ -4,9 +4,13 @@
 **State:** 9 September 2026. Migrations **0001–0074 applied to production**. Step 1 of 6 is done
 and verified. Nothing else is started.
 
-The design is settled in the **Funnel OS Schema Plan**. That document says *what* and *why*. This
-one says *where we are*, *what to do next*, and *how to prove you have not broken anything*. Read
-the schema plan first; do not re-litigate its decisions here.
+The design is settled in **`docs/funnel-os-schema-plan.md`**, in this repository. That document
+says *what* and *why*. This one says *where we are*, *what to do next*, and *how to prove you have
+not broken anything*. Read the schema plan first; do not re-litigate its decisions here.
+
+It was mirrored in from a published artifact on 9 September because the first person to pick this up
+was blocked by a build plan pointing at a document that was not in the checkout. If you find
+yourself referring to anything that is not a path in this repo, put it in the repo.
 
 ---
 
@@ -205,7 +209,7 @@ it. Both rules together cover a stripped link.
 
 ## 4. Step 3 — attribution (`0076`), the biggest one
 
-Requirements **2** and **9**. Read schema plan §02 in full first.
+Requirements **2** and **9**. Read `docs/funnel-os-schema-plan.md`, section *Five attribution models*, in full first.
 
 **Stamp `period_insights` before anything else in this step.** A frozen report that cannot say which
 model produced it stops being able to explain its own numbers, and every report already sent to the

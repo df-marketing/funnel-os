@@ -1261,13 +1261,31 @@ console.log("\nAds — period-level export");
   eq("coverage starts at the window start", plan.coverage.start, "2026-05-01");
   eq("coverage ends at the window end", plan.coverage.end, "2026-05-31");
 
-  // Campaign wins over a date: a reporting date cannot decide between two
-  // overlapping market rounds, while Meta's campaign name can.
+  /*
+   * A DAY OF SPEND BELONGS TO THE ROUND IT WAS SPENT DURING.
+   *
+   * This assertion was the other way round for a day: campaign name first,
+   * date second. The reasoning was sound — a reporting date cannot choose
+   * between two overlapping market rounds — but the market filter above is
+   * what solves that, and putting the NAME first solves it by breaking
+   * something else.
+   *
+   * Campaigns keep running after their round closes. Measured on the live
+   * account, name-first re-files $7,500.26 across nine rounds the moment
+   * anything is re-imported, the largest single move being $2,947.15 out of
+   * 0926-01 into 0826-03. The account total stays 20,474.78 throughout, so
+   * nothing on screen would have said so and the tie to the client's own sheet
+   * would have broken silently.
+   *
+   * 14 May sits inside 0526-02's window. The money bought 0526-02's leads
+   * whatever the campaign is called.
+   */
   const dated = await planImport(fakeDb({ rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [] }), {
     source: "ads", clientId: "shely", fileName: "ads.csv",
     text: "date,campaign,ad_set,spend\n2026-05-14,DF_SG_Preview_Sprint1_0526_03,Cold_Broad,10",
   });
-  eq("campaign beats a date inside a different round", (dated.ops.ads[0] as any).round_id, "0526-03");
+  eq("a date inside a round beats the round the campaign is named for",
+     (dated.ops.ads[0] as any).round_id, "0526-02");
 }
 
 // ── a round runs however many classes it runs ───────────────────────────────
@@ -2407,6 +2425,39 @@ console.log("\nUnidentified — counted as a headcount, attached to nobody");
              { campaign: "LP" }), "B");
   eq("nothing matching resolves to nothing, not to the first value",
      resolve(MARKET, { campaign: "nothing here" }), null);
+}
+
+{
+  // ── WHICH ROUND A DAY OF SPEND BELONGS TO ─────────────────────────────────
+  // Market narrows, date decides, name is the fallback. Each of the three has
+  // a case below that fails if the order is wrong.
+  const R = (round_id: string, start_date: string, end_date: string, country: string | null = null) =>
+    ({ round_id, start_date, end_date, country });
+
+  // The real case. DF_SG_..._0726_01_AI_LP kept spending after 0726-01 closed;
+  // $596.99 of it burned inside 0726-02's week and belongs to 0726-02. Name-
+  // first sends it back to 0726-01 and re-files $7,500.26 across nine rounds.
+  const sg = [R("0726-01", "2026-07-01", "2026-07-07"), R("0726-02", "2026-07-09", "2026-07-14")];
+  const pickSG = toAdRows([{ date_start: "2026-07-12", spend: "596.99",
+    campaign_name: "DF_SG_Preview_Sprint1_0726_01_AI_LP", ad_name: "A" }], sg);
+  eq("spend belongs to the round it was spent during, not the one named",
+     pickSG.rows[0].round_id, "0726-02");
+
+  // Inside its own window it stays put.
+  eq("and the same campaign inside its own week stays there",
+     toAdRows([{ date_start: "2026-07-03", spend: "10",
+       campaign_name: "DF_SG_Preview_Sprint1_0726_01_AI_LP", ad_name: "A" }], sg).rows[0].round_id,
+     "0726-01");
+
+  // The fallback: a period-level export dates every row to the window's first
+  // day, so no round contains it and the name is all that is left.
+  eq("a day inside no round falls back to the campaign name",
+     toAdRows([{ date_start: "2026-07-08", spend: "10",
+       campaign_name: "DF_SG_Preview_Sprint1_0726_01_AI_LP", ad_name: "A" }], sg).rows[0].round_id,
+     "0726-01");
+  eq("and with no name either, it is refused rather than guessed",
+     toAdRows([{ date_start: "2026-07-08", spend: "10", campaign_name: "Shely Lead Campaign",
+       ad_name: "A" }], sg).skipped[0].reason, "no_round_for_campaign");
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

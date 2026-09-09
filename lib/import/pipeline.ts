@@ -610,11 +610,28 @@ export async function planImport(
       const campaign = val(r, "campaign");
 
       /**
-       * The round is the one whose window contains the spend date — unless the
-       * date belongs to no round, which is what a period-level export looks
-       * like: every row dated to the first day of the reporting window. The
-       * campaign name then carries the round, and using it is not a fallback so
-       * much as the better key, since it is what the ad account itself records.
+       * WHICH ROUND A DAY OF SPEND BELONGS TO.
+       *
+       * The market first, then the date, then the name. Each step exists for a
+       * reason that cost something to learn.
+       *
+       * THE MARKET, from the campaign name, narrows the candidates. Once MY and
+       * SG run their own schedules their windows overlap, and asking "which
+       * round covers this day" returns two answers with array order picking the
+       * winner. Reading DF_MY_ / DF_SG_ first makes that question unambiguous
+       * again, because one market's own rounds never overlap each other.
+       *
+       * THE DATE then decides, because spend belongs to the round it was spent
+       * during. Campaigns keep running after their round closes:
+       * DF_SG_..._0726_01_AI_LP spent $596.99 inside 0726-02's week, and that
+       * money bought 0726-02's leads whatever the campaign is called.
+       *
+       * THE NAME is the fallback for a period-level export, where every row
+       * carries the first date of the reporting window and no round contains it.
+       *
+       * Putting the name first instead reverses that ruling and re-files
+       * $7,500.26 across nine rounds the moment anything is re-imported — while
+       * the account total stays 20,474.78, so nothing on screen would say so.
        */
       const campaignRound = roundFromCampaign(campaign, rounds);
       const market = countryOf(campaign);
@@ -622,11 +639,11 @@ export async function planImport(
         (!market || !x.country || x.country.toUpperCase() === market) &&
         dayOf(x.start_date)! <= date && date <= dayOf(x.end_date)!,
       );
-      // Campaign is authoritative when it names a real round.  A reporting
-      // window date is merely the first date of that window on Meta exports;
-      // choosing it first silently misfiles overlapping MY/SG campaigns.
-      const round = campaignRound ?? (dateCandidates.length === 1 ? dateCandidates[0] : null);
-      if (!campaignRound && dateCandidates.length > 1) {
+      const round =
+        (dateCandidates.length === 1 ? dateCandidates[0] : null) ?? campaignRound;
+      // Two rounds still covering one day after the market has narrowed them is
+      // a schedule the app cannot read. Say so rather than taking the first.
+      if (dateCandidates.length > 1 && !campaignRound) {
         warnings.push(
           `More than one round covers ${date}${market ? ` in ${market}` : ""}; the campaign names no unique round, so that ads row was not imported.`,
         );
