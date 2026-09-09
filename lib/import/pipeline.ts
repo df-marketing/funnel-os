@@ -11,7 +11,7 @@ import { parseClarityScroll, ClarityError, sessionsFrom } from "./clarity";
  *
  *   1 IMPORT     parse, map columns (remembered per source, breaks loudly)
  *   2 MATCH      exact / auto-resolved / parked
- *   3 ATTRIBUTE  lead_round_id + how it was decided; close_round_id for sales
+ *   3 ATTRIBUTE  lead_round_id + how it was decided
  *   4 DIFF       new rows, changed rows, restatement warnings
  *   5 COMMIT     written only on approval
  *
@@ -708,10 +708,9 @@ export async function planImport(
     event_date: string; product: string | null; amount: string | null; refund_amount: string | null;
     lead_round_id: string | null; source: string | null;
     anon_key: string | null;
-    country: string | null;
     utm_campaign: string | null;
   }>(db, "events",
-    "event_id, contact_id, round_id, event_type, event_date, product, amount, refund_amount, lead_round_id, source, anon_key, country, utm_campaign",
+    "event_id, contact_id, round_id, event_type, event_date, product, amount, refund_amount, lead_round_id, source, anon_key, utm_campaign",
     (q) => q.in("round_id", roundIds));
 
   const adRuns = await fetchAll<AdSetRun>(db, "ads_performance", "ad_set, round_id, date",
@@ -741,8 +740,6 @@ export async function planImport(
   /** Every opt-in this person has, oldest first. */
   const leadsByContact = new Map<string, { round: string; date: string; source: string | null }[]>();
   const leadSourceByContact = new Map<string, string>();
-  /** A person's country, from the campaign that acquired them. */
-  const leadCountryByContact = new Map<string, string>();
   for (const e of events) {
     if (!e.contact_id) continue;
     if (e.event_type === "attendance") {
@@ -755,8 +752,6 @@ export async function planImport(
       list.push({ round: e.lead_round_id, date: e.event_date, source: e.source ?? null });
       leadsByContact.set(e.contact_id, list);
       if (e.source) leadSourceByContact.set(e.contact_id, e.source);
-      const c = e.country ?? countryOf(e.utm_campaign ?? null);
-      if (c) leadCountryByContact.set(e.contact_id, c);
     }
   }
   for (const list of leadsByContact.values()) {
@@ -1018,7 +1013,6 @@ export async function planImport(
         utm_campaign: utm || null, ad_set: adSet, ad: adName,
         source: src, variant: val(r, "variant"),
         answers: answersFor(r),
-        country: countryOf(utm),
         match_status: outcome.kind === "auto" ? "auto_resolved" : "matched",
       });
       supersede(r, contactId);
@@ -1052,8 +1046,8 @@ export async function planImport(
          *
          * A row naming a round is evidence somebody was in that room. That is
          * countable. Who they were is not, and nothing downstream is allowed
-         * to pretend otherwise — the event carries no contact, so it cannot
-         * reach close_round_id, cannot take revenue, and cannot be resolved
+         * to pretend otherwise — the event carries no contact, cannot take
+         * revenue, and cannot be resolved
          * later into a person.
          */
         // See the leads branch: no address at all, or it stays in the queue.
@@ -1117,19 +1111,15 @@ export async function planImport(
         source: sourceFor(contactId, when, val(r, "source")),
         minutes_watched: Math.round(toNumber(val(r, "minutes_watched")) ?? 0) || null,
         variant: val(r, "variant"),
-        // no campaign on an attendance row — nobody clicks an ad to attend
-        country: leadCountryByContact.get(contactId) ?? null,
         match_status: outcome.kind === "auto" ? "auto_resolved" : "matched",
       });
       supersede(r, contactId);
       /**
-       * Only a class closes a sale.
+       * Only a class determines the purchase round when a buyer attended.
        *
-       * close_round_id says which class a purchase closed at, and 0020 and the
-       * sale attribution both rest on it. A declared stage is not a class — an
-       * appointment is not the room somebody bought in — so it must not move
-       * that credit. This is the one thing attendance still does that a generic
-       * stage does not, and it is gated on the event type rather than on the
+       * A declared stage is not a class — an appointment is not the room
+       * somebody bought in — so it must not move that choice. This
+       * attendance-specific rule is gated on the event type rather than on the
        * source name so it stays true if attendance is ever renamed.
        */
       if (eventType === "attendance") {
@@ -1207,16 +1197,13 @@ export async function planImport(
         event_id: uuid(), contact_id: contactId, round_id: purchaseRound, event_type: "sale",
         event_date: when, product, amount,
         refund_amount: refund, refund_date: refundDate,
-        // revenue credited to the round that produced the lead; closing credit to
-        // the class actually attended. Both true, both reconcile to one total.
+        // Revenue is attributed at read time to the qualifying lead; the
+        // purchase round remains the class/date resolution above.
         lead_round_id: leadRound,
-        close_round_id: closeRound,
         // The acquiring lead wins wherever there is one — a payments export does
         // not get to restate how somebody was acquired. The column answers only
         // where no lead can. See sourceFor above and the note in sources.ts.
         source: sourceFor(contactId, when, val(r, "source")),
-        country: leadCountryByContact.get(contactId) ?? null,
-        is_lead: Boolean(leadRound),
         match_status: outcome.kind === "auto" ? "auto_resolved" : "matched",
       });
       supersede(r, contactId);

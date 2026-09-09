@@ -9,7 +9,7 @@
  *   - name-only rows park, never guess
  *   - a UTM lead is attributed by utm; a lead without one is attributed by date
  *     window and SAYS SO on the row
- *   - a sale with no lead event is is_lead=false: in revenue, out of ROAS
+ *   - a sale with no lead event has no lead round: in revenue, out of ROAS
  *   - a refund on an already-committed sale raises a restatement warning
  *
  * Run: npx tsx scripts/test-import.ts
@@ -517,8 +517,8 @@ console.log("\nUnmatched — resolving replays the real import");
   eq("the money is real now, not held", resolved.ops.events[0].amount, 297);
   // the whole reason to replay rather than just stamp the row: attribution
   eq("revenue lands on the round that produced the lead", resolved.ops.events[0].lead_round_id, "0526-02");
-  eq("closing credit goes to the class actually attended", resolved.ops.events[0].close_round_id, "0526-02");
-  eq("it counts as a lead-backed sale", resolved.ops.events[0].is_lead, true);
+  eq("purchase stays with the class actually attended", resolved.ops.events[0].round_id, "0526-02");
+  eq("it keeps the lead that produced it", resolved.ops.events[0].lead_round_id, "0526-02");
 
   // resolving the same row twice must not double-count the money
   const already = await planImport(db2(), {
@@ -638,12 +638,12 @@ console.log("\nPipeline — sales");
   const plan = await planImport(db, { source: "sales", clientId: "shely", fileName: "sales.csv", text: csv });
   const sale = plan.ops.events[0];
   eq("revenue credited to the lead round", sale.lead_round_id, "0526-02");
-  eq("closing credited to the class attended", sale.close_round_id, "0526-03");
-  eq("counted in ROAS", sale.is_lead, true);
+  eq("purchase credited to the class attended", sale.round_id, "0526-03");
+  eq("counted in ROAS through its lead round", sale.lead_round_id, "0526-02");
 
   const noLead = plan.ops.events[1];
   eq("known buyer with no lead is still revenue", noLead.product, "preview");
-  eq("but excluded from ROAS", noLead.is_lead, false);
+  eq("but excluded from ROAS", noLead.lead_round_id, null);
 
   // A stranger who pays is introduced by the payment, not parked. Parking them
   // was indefensible once you looked at the queue: Assign wants an existing
@@ -655,7 +655,7 @@ console.log("\nPipeline — sales");
   eq("their money is counted", ghost.amount, 297);
   eq("in the round it arrived in", ghost.round_id, "0526-03");
   eq("with no acquisition round to claim", ghost.lead_round_id, null);
-  eq("and no ad credit", ghost.is_lead, false);
+  eq("and no ad credit", ghost.lead_round_id, null);
 }
 
 console.log("\nPipeline — Meta's duplicate suffix is not a different audience");
@@ -699,8 +699,9 @@ console.log("\nPipeline — a round can run two countries");
   const db = fakeDb({ rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [] });
   const plan = await planImport(db, {
     source: "leads", clientId: "shely", fileName: "l.csv",
-    // 0926-01 ran both at once — DF_SG_ and DF_MY_ campaigns side by side — so
-    // a country on the ROUND has none for it, and the filter offered SG only.
+    // 0926-01 ran both at once — DF_SG_ and DF_MY_ campaigns side by side.
+    // Market is derived from campaign dimensions when the report is read; it
+    // is deliberately not copied into every imported event row.
     text: [
       "Email,Created,Source,utm_campaign",
       "sg@example.sg,2026-05-14,Paid Ads,DF_SG_Preview_Sprint1_0526_02_LP1GHL",
@@ -710,9 +711,9 @@ console.log("\nPipeline — a round can run two countries");
   });
   const by = (e: string) => plan.ops.events.find((x) =>
     plan.ops.contacts.some((c) => c.contact_id === x.contact_id && c.email === e))!;
-  eq("the campaign prefix names the country", by("sg@example.sg").country, "SG");
-  eq("both countries in one round", by("my@example.sg").country, "MY");
-  eq("no campaign is not a country", by("none@example.sg").country, null);
+  eq("the SG campaign is retained for market resolution", by("sg@example.sg").utm_campaign, "DF_SG_Preview_Sprint1_0526_02_LP1GHL");
+  eq("the MY campaign is retained for market resolution", by("my@example.sg").utm_campaign, "DF_MY_Preview_Sprint1_0526_02_LP1GHL");
+  eq("no campaign stays absent", by("none@example.sg").utm_campaign, null);
 }
 
 console.log("\nPipeline — the arm of a test is read, never inferred");
@@ -929,7 +930,7 @@ console.log("\nPipeline — a lead dated after the sale did not produce the sale
   const s = plan.ops.events[0];
   eq("the later opt-in does not claim it", s.lead_round_id, null);
   eq("so the money stays where it arrived", s.round_id, "0526-02");
-  eq("and earns no ad credit", s.is_lead, false);
+  eq("and earns no ad credit", s.lead_round_id, null);
   // The opt-in still names them. It must not sell to them: a purchase made
   // before the opt-in was not produced by the advertising that followed it.
   eq("a later Paid Ads opt-in cannot claim the sale for the ads", s.source, null);
@@ -956,7 +957,7 @@ console.log("\nPipeline — the round that acquired someone is the first one");
   const s = plan.ops.events[0];
   eq("credited to the round that acquired them, not the latest", s.lead_round_id, "0526-02");
   eq("the acquiring round's source travels with it", s.source, "Paid Ads");
-  eq("and it counts in ROAS", s.is_lead, true);
+  eq("and it counts in ROAS", s.lead_round_id, "0526-02");
 }
 
 console.log("\nPipeline — a payment names a buyer, or it parks");
@@ -997,7 +998,7 @@ console.log("\nPipeline — the sales file names a source only when the lead can
   });
   eq("a payments file cannot restate an acquisition", plan.ops.events[0].source, "Paid Ads");
   eq("but it can name one nobody else knows", plan.ops.events[1].source, "Organic");
-  eq("which still earns no ad credit", plan.ops.events[1].is_lead, false);
+  eq("which still earns no ad credit", plan.ops.events[1].lead_round_id, null);
 }
 
 console.log("\nPipeline — refunds restate");

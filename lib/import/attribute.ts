@@ -90,9 +90,9 @@ export function attributeLead(
 }
 
 /**
- * close_round_id = the MOST RECENT attendance event before the purchase, same
- * contact. v8 fix 2: if John attends class A then class B and buys after B, the
- * sale closed at B. One sale, one closing class.
+ * The most recent attendance before the purchase decides its purchase round.
+ * If John attends class A then B and buys after B, the purchase belongs to B.
+ * This is a resolver input, not a stored duplicate event field.
  */
 export function closeRoundFor(
   purchaseAt: string,
