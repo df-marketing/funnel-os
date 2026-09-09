@@ -218,3 +218,4 @@
 - A campaign lookup is built once per read (not per row).
 - ALL.sql now carries the four migrations it was missing — likely a consolidation migration file.
 - client currency and scoped round codes were built — likely a new schema/feature for multi-currency or client-specific rounding.
+- the money display now indicates which money it is (e.g. which currency/metric).
