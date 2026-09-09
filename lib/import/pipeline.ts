@@ -586,6 +586,39 @@ export async function planImport(
     }),
   );
 
+  /**
+   * A CONTACTS EXPORT IS NOT A LEADS EXPORT.
+   *
+   * The form questions live in GoHighLevel's contacts list, and that export
+   * carries none of the columns a lead is attributed by — no round, no
+   * utm_term, no utm_content, no utm_campaign, no source. Its date column is
+   * when the CONTACT was created, which is not when they opted in to anything.
+   *
+   * Fed through the normal path it looked reasonable and was not: 47 new leads
+   * on the first real file, every one placed by a date guess. Twenty-odd were
+   * people already counted, given a second lead row in a round they never
+   * registered for; the leads total would have gone 1,889 to 1,936 and stopped
+   * matching the client's own sheet, with nothing on screen saying why.
+   *
+   * BOTH conditions are needed. A thin leads file of just email and date names
+   * no campaign either, and it is still a leads file — organic people, placed
+   * by the round their opt-in date falls in, which is the right answer for
+   * them. What marks a contacts export is that it arrives carrying ANSWERS and
+   * no way to attribute anything. It came for the answers, not for the leads.
+   */
+  const ATTRIBUTION_FIELDS = ["round_id", "utm_campaign", "ad_set", "ad", "source"] as const;
+  const enrichOnly = source === "leads"
+    && answerHeaders.length > 0
+    && ATTRIBUTION_FIELDS.every((f) => !(f in map));
+  if (enrichOnly) {
+    warnings.push(
+      "This file names no round, campaign, ad set or source, so it cannot say which " +
+      "round a new lead belongs to — its date column is when the contact was created, " +
+      "not when they opted in. Existing leads will gain their form answers; no new lead " +
+      "will be created from it.",
+    );
+  }
+
   // ── reference data ───────────────────────────────────────────────────────
   const rounds = await loadRounds(db, clientId);
 
@@ -963,7 +996,13 @@ export async function planImport(
     let contactId: string | null = null;
     if (outcome.kind === "exact") { contactId = outcome.contactId; plan.counts.matchedExact++; }
     else if (outcome.kind === "auto") { contactId = outcome.contactId; plan.counts.matchedAuto++; }
-    else if (outcome.kind === "new") { contactId = addContact(email, phone); }
+    else if (outcome.kind === "new") {
+      // A contacts export brings people this app has never seen, and without a
+      // round or a campaign there is nothing to attach them to. Creating the
+      // person and no lead would leave a contact belonging to nothing.
+      if (enrichOnly) { plan.counts.duplicates++; continue; }
+      contactId = addContact(email, phone);
+    }
 
     // ── LEADS ──────────────────────────────────────────────────────────────
     if (source === "leads") {
@@ -1018,6 +1057,8 @@ export async function planImport(
           plan.counts.duplicates++;
           continue;
         }
+        // Nothing in this file can say which round an unseen lead belongs to.
+        if (enrichOnly) { plan.counts.duplicates++; continue; }
         seenEvents.add(key);
         track(sgDayOf(when));
         plan.ops.events.push({
@@ -1079,6 +1120,12 @@ export async function planImport(
         plan.counts.duplicates++;
         continue;
       }
+      /*
+       * The person is here but this round/day is not, which on a contacts
+       * export means their contact-creation date landed in a round they never
+       * registered for. Creating the lead would count them twice.
+       */
+      if (enrichOnly) { plan.counts.duplicates++; continue; }
       seenEvents.add(key);
 
       const src = val(r, "source") || (adSet ? "Paid Ads" : "Organic");

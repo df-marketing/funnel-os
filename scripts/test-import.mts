@@ -2572,5 +2572,63 @@ console.log("\nUnidentified — counted as a headcount, attached to nobody");
   eq("a duplicate carrying nothing queues nothing", bare.ops.answerUpdates.length, 0);
 }
 
+{
+  // ── A CONTACTS EXPORT ENRICHES AND CREATES NOTHING ────────────────────────
+  // GoHighLevel's contacts list is where the form answers live, and it carries
+  // no round, campaign, ad set or source. Its date is when the CONTACT was
+  // made, not when anybody opted in. Through the normal path that produced 47
+  // new leads placed by a date guess, twenty-odd of them people already
+  // counted, given a second lead row in a round they never registered for.
+  const seed = [{
+    event_id: "e1", contact_id: "c1", round_id: "0526-02", event_type: "lead",
+    event_date: "2026-05-14", product: null, amount: null, refund_amount: null,
+    lead_round_id: "0526-02", source: "Paid Ads", anon_key: null,
+    utm_campaign: null, answers: {},
+  }];
+  const withKnown = () => fakeDb({
+    rounds: ROUNDS,
+    contacts: [{ contact_id: "c1", email: "known@x.com", phone: null, client_id: "shely" }],
+    events: seed.map((e) => ({ ...e })), ads_performance: [], v_column_map: [],
+  });
+
+  const contacts = await planImport(withKnown(), {
+    source: "leads", clientId: "shely", fileName: "Export_Contacts.csv",
+    text: [
+      "Email,Created,What is your current profession?",
+      "known@x.com,2026-05-14,Business Owner",     // already here — enrich
+      "known@x.com,2026-05-24,Business Owner",     // same person, a round they never joined
+      "stranger@x.com,2026-05-14,Coach",           // never seen at all
+    ].join("\n"),
+  });
+  eq("no lead is created from a contacts export", contacts.ops.events.length, 0);
+  eq("and no contact either", contacts.ops.contacts.length, 0);
+  eq("the one it already had is enriched", contacts.ops.answerUpdates.length, 1);
+  ok("and it says why",
+     contacts.warnings.some((w) => /no new lead will be created/i.test(w)));
+
+  // The rule needs BOTH halves. A thin leads file naming no campaign is still
+  // a leads file — organic people, placed by the round their date falls in.
+  const thin = await planImport(withKnown(), {
+    source: "leads", clientId: "shely", fileName: "leads.csv",
+    text: "email,event_date\nnobody@x.com,2026-05-14",
+  });
+  eq("a thin leads file still creates its lead", thin.ops.events.length, 1);
+  ok("and says nothing about enriching",
+     !thin.warnings.some((w) => /no new lead will be created/i.test(w)));
+
+  // And a proper leads export carrying answers AND attribution creates as usual.
+  const full = await planImport(withKnown(), {
+    source: "leads", clientId: "shely", fileName: "leads.csv",
+    text: [
+      "email,event_date,utm_term,What is your current profession?",
+      "fresh@x.com,2026-05-14,Cold_Broad,Coach",
+    ].join("\n"),
+  });
+  eq("a real leads export still creates leads", full.ops.events.length, 1);
+  eq("carrying the answer with it",
+     (full.ops.events[0].answers as Record<string, string>)["What is your current profession?"],
+     "Coach");
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
