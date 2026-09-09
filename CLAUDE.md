@@ -200,3 +200,4 @@
 - a dry run of the import pipeline runs against real exports without committing changes.
 - Two-way unmatched queue: accept no longer loses money (unmatched items preserve funds).
 - a fixed re-upload was also included in the same commit (bug fix beyond the phone-as-identity change).
+- the app can read its own rules (self-referential capability)
