@@ -1,5 +1,6 @@
 import { getDashboard, type FilterKey } from "@/lib/funnel/data";
 import { SpineTable } from "@/components/SpineTable";
+import { FormAnswersPanel } from "@/components/FormAnswersPanel";
 import { SpineChart } from "@/components/SpineChart";
 import { RoundAnalysis } from "@/components/RoundAnalysis";
 import { TopBar, JourneyStrip, SideNav, NotWired, PaneControls, WIRED } from "@/components/Shell";
@@ -21,7 +22,7 @@ const TITLES: Record<string, [string, string]> = {
   month:       ["By month", "Management's first question. Metrics down, months across — the same spine as every other view."],
   week:        ["By week", "For a product that runs continuously. Weeks are always there; rounds only exist when one runs."],
   round:       ["By round", "One column per round. Adding 0826-02 adds a column, not a formula."],
-  source:      ["By source", "Paid, organic, AOAI and the derived previous-round column."],
+  source:      ["By source", "Paid, organic, AOAI and unattributed — under the active credit rule."],
   roundsource: ["Round × source", "Both dimensions at once. Any dimension can be the columns; any other can split them."],
   targeting:   ["Targeted views", "Every round's spend on each audience, summed — like for like."],
   ads:         ["Ads", "Creative, not audience. Same rounds, cut by the ad that ran."],
@@ -59,7 +60,7 @@ export default async function Page({
 }: {
   searchParams: Promise<{
     client?: string; view?: string;
-    product?: string; channel?: string; country?: string; source?: string; periods?: string;
+    product?: string; channel?: string; country?: string; source?: string; audience?: string; attribution?: string; periods?: string;
     asset?: string;
     mode?: string; objective?: string; vs?: string;
   }>;
@@ -76,6 +77,8 @@ export default async function Page({
     channel: params.channel || null,
     country: params.country || null,
     source: params.source || null,
+    audience: params.audience || null,
+    attribution: params.attribution === "entry_paid" || params.attribution === "last_touch" || params.attribution === "last_paid" || params.attribution === "even_split" ? params.attribution : "entry",
     periods: params.periods || null,
     // Which single asset the ads and targeting tabs are drilled into. Absent
     // means all of them, which is what those tabs have always shown.
@@ -93,7 +96,7 @@ export default async function Page({
     const q = new URLSearchParams();
     q.set("client", params.client ?? "");
     if (params.view) q.set("view", params.view);
-    for (const k of ["product", "channel", "country", "source", "periods", "mode", "objective", "vs"] as const) {
+    for (const k of ["product", "channel", "country", "source", "audience", "attribution", "periods", "mode", "objective", "vs"] as const) {
       const v = params[k];
       if (v) q.set(k, v);
     }
@@ -188,8 +191,8 @@ export default async function Page({
     !!data.filter.country && m.roas == null && Number(m.spend ?? 0) > 0 && m.rev != null;
   /**
    * Not read off the result like the two above: a source blanks by rule, not
-   * by probe. The set keeps the spend only when it is Paid Ads, or Paid Ads
-   * with Previous Paid Ads (0068); keepsSpend mirrors the database's own rule.
+   * by probe. The set keeps spend only when it is Paid Ads; keepsSpend mirrors
+   * the database's own rule.
    */
   const sourceBlanked = !!data.filter.source && !keepsSpend(data.filter.source);
 
@@ -215,6 +218,7 @@ export default async function Page({
           channels={data.channels}
           countries={data.countries}
           sources={data.sources}
+          audiences={data.audiences}
           periods={data.periods}
           cadences={data.cadences}
           opts={opts}
@@ -313,6 +317,13 @@ export default async function Page({
               reasons={data.unmatchedReasons}
               rows={data.unmatchedRows}
             />
+          ) : null}
+
+          {view === "forms" ? (
+            <>
+              <div className="pane-head"><h1>Form answers</h1><p>What registrants submitted on their lead form.</p></div>
+              <FormAnswersPanel rows={data.formAnswers} />
+            </>
           ) : null}
 
           {view === "month" && !showGraph ? (
@@ -436,8 +447,8 @@ export default async function Page({
                     <b>Only the paid column carries spend.</b> An AOAI member and an organic lead
                     cost nothing to acquire, so their spend isn&rsquo;t zero — it doesn&rsquo;t exist,
                     and every cost and ROAS row on those columns is blank rather than dividing by
-                    nothing. <b>Previous Paid Ads</b> is derived, not a source: a paid lead whose
-                    closing round isn&rsquo;t the round that produced them.
+                    nothing. Attribution is chosen separately in the Credit
+                    control; it does not create another acquisition source.
                   </>
                 }
                 note={
@@ -540,8 +551,8 @@ export default async function Page({
                 note={
                   <>
                     Leads and attendance count on the round whose class it was; revenue counts on
-                    the round whose spend produced the lead. Splitting by source doesn&rsquo;t change
-                    which round a sale belongs to — that&rsquo;s what <b>Previous Paid Ads</b> is for.
+                    the round whose selected credit produced the lead. Splitting by source does not
+                    change that credit; choose a model in the Credit control to compare it.
                   </>
                 }
               />

@@ -845,15 +845,11 @@ console.log("\nCuts — a tab drills only when something is drilled into");
   eq("and not its substrings", has("Previous Paid Ads", "Paid Ads"), false);
   eq("a window is its own dates", windowKey("2026-05-13", "2026-05-28"), "2026-05-13..2026-05-28");
   eq("a note joins with 'or'", joinOr("Paid Ads,AOAI,Organic"), "Paid Ads, AOAI or Organic");
-  /*
-    WHICH SOURCE SETS KEEP THE SPEND — the client's #3. Paid Ads with Previous
-    Paid Ads is exactly what 0020's ROAS counts, so together they keep it.
-    Previous Paid Ads alone is an earlier round's money. Anything else blanks.
-    Must match fo_source_keeps_spend() in 0068 case for case.
-  */
+  /* The only spend-owning source is Paid Ads. Attribution chooses where sales
+     credit lands; it does not invent a second source for earlier ad spend. */
   eq("no source selected keeps spend", keepsSpend(null), true);
   eq("Paid Ads keeps spend", keepsSpend("Paid Ads"), true);
-  eq("Paid Ads + Previous Paid Ads keeps spend", keepsSpend("Paid Ads,Previous Paid Ads"), true);
+  eq("retired Previous Paid Ads does not keep spend", keepsSpend("Paid Ads,Previous Paid Ads"), false);
   eq("Previous Paid Ads alone blanks", keepsSpend("Previous Paid Ads"), false);
   eq("Paid Ads + Organic blanks", keepsSpend("Paid Ads,Organic"), false);
   eq("Organic blanks", keepsSpend("Organic"), false);
@@ -1240,6 +1236,14 @@ console.log("\nAds — period-level export");
   // longest id first, so a shorter id can never swallow a longer one
   const both = [...ROUNDS, { round_id: "0526-0", client_id: "shely", start_date: "2026-05-01", end_date: "2026-05-02", session_dates: [] }];
   eq("longest round id wins", roundFromCampaign("camp_0526_02", both)?.round_id, "0526-02");
+  // A campaign can contain a real round code shared by two markets. The
+  // country prefix is then part of the identity; choosing the first row would
+  // quietly send MY spend to SG.
+  const twoMarkets = [
+    { ...ROUNDS[0], country: "SG" },
+    { ...ROUNDS[0], country: "MY" },
+  ];
+  eq("campaign market scopes an otherwise identical round", roundFromCampaign("DF_MY_Preview_0526_02", twoMarkets)?.country, "MY");
 
   const db = fakeDb({ rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [] });
   const plan = await planImport(db, {
@@ -1257,12 +1261,13 @@ console.log("\nAds — period-level export");
   eq("coverage starts at the window start", plan.coverage.start, "2026-05-01");
   eq("coverage ends at the window end", plan.coverage.end, "2026-05-31");
 
-  // a date that DOES fall in a round still wins — the campaign is the fallback
+  // Campaign wins over a date: a reporting date cannot decide between two
+  // overlapping market rounds, while Meta's campaign name can.
   const dated = await planImport(fakeDb({ rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [] }), {
     source: "ads", clientId: "shely", fileName: "ads.csv",
     text: "date,campaign,ad_set,spend\n2026-05-14,DF_SG_Preview_Sprint1_0526_03,Cold_Broad,10",
   });
-  eq("a date inside a round beats the campaign name", (dated.ops.ads[0] as any).round_id, "0526-02");
+  eq("campaign beats a date inside a different round", (dated.ops.ads[0] as any).round_id, "0526-03");
 }
 
 // ── a round runs however many classes it runs ───────────────────────────────

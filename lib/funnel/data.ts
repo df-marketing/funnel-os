@@ -132,6 +132,9 @@ export type UnmatchedRow = {
   raw_data: Record<string, unknown> | null;
 };
 
+/** One reported value from a lead-form field, retained at import time. */
+export type FormAnswer = { question: string; answer: string; leads: number };
+
 /**
  * What the filter bar is currently set to. Null on any field means "not
  * filtering on this" — the same thing the database means by an unset setting,
@@ -155,6 +158,10 @@ export type FilterKey = {
    * because organic leads divided by paid spend is not a cost per lead.
    */
   source: string | null;
+  /** A set of ad-set names that follows the reader across every tab. */
+  audience: string | null;
+  /** The one credit rule used by every report on this screen. */
+  attribution: "entry" | "entry_paid" | "last_touch" | "last_paid" | "even_split";
   /**
    * The chosen periods, as their own dates: "2026-05-13..2026-05-28,2026-07-01..2026-07-30".
    * A set like the four above, so May and July can be read without June. The
@@ -177,7 +184,10 @@ export type FilterKey = {
   asset: string | null;
 };
 
-export const NO_FILTER: FilterKey = { product: null, channel: null, country: null, source: null, periods: null, asset: null };
+export const NO_FILTER: FilterKey = {
+  product: null, channel: null, country: null, source: null, audience: null,
+  attribution: "entry", periods: null, asset: null,
+};
 
 export type Product = {
   product_id: string;
@@ -203,6 +213,7 @@ export type ChannelOption = {
 export type CountryOption = { country: string; round_count: number };
 
 /** Attribution buckets this client has people in, in the source view's order. */
+export type AudienceOption = { audience: string; leads: number };
 export type SourceOption = { bucket: string; ord: number; note: string | null; leads: number };
 
 /**
@@ -248,11 +259,13 @@ export type Dashboard = {
   unmatched: UnmatchedSummary | null;
   unmatchedReasons: UnmatchedReason[];
   unmatchedRows: UnmatchedRow[];
+  formAnswers: FormAnswer[];
   /** What the filter bar can offer, and what it is currently set to. */
   products: Product[];
   channels: ChannelOption[];
   countries: CountryOption[];
   sources: SourceOption[];
+  audiences: AudienceOption[];
   periods: Period[];
   filter: FilterKey;
   /**
@@ -270,12 +283,13 @@ export type Dashboard = {
 
 const EMPTY: Omit<Dashboard, "error" | "errorHint" | "view"> = {
   clients: [], stages: [], strip: [], total: null, baseline: null,
-  products: [], channels: [], countries: [], sources: [], periods: [], filter: NO_FILTER, cadences: ["round"],
+  products: [], channels: [], countries: [], sources: [], audiences: [], periods: [], filter: NO_FILTER, cadences: ["round"],
   byMonth: [], byWeek: [], byRound: [], byAdset: [], bySource: [], byRoundSource: [], byVariant: [], byLanding: [],
   byAd: [], bySession: [], byOffer: [], thisRound: [],
   columns: [], elsewhere: null, roundContext: null,
   imports: [], unmatched: null,
   unmatchedReasons: [], unmatchedRows: [],
+  formAnswers: [],
 };
 
 /** Which tabs actually read a metrics table. Everything else is chrome-only. */
@@ -405,7 +419,7 @@ const loadStrip = unstable_cache(
     const strip = await db.rpc("fo_cut", {
       p_view: "v_journey_strip",
       p_client: id, p_product: f.product, p_channel: f.channel, p_country: f.country,
-      p_source: f.source, p_periods: f.periods,
+      p_source: f.source, p_audience: f.audience, p_attribution: f.attribution, p_periods: f.periods,
     });
     return (ok(strip, "v_journey_strip") as StripCard[] | null) ?? [];
   },
@@ -468,7 +482,7 @@ const loadMetrics = unstable_cache(
     const db = createReadClient();
     const scope = {
       p_client: id, p_product: f.product, p_channel: f.channel, p_country: f.country,
-      p_source: f.source, p_periods: f.periods,
+      p_source: f.source, p_audience: f.audience, p_attribution: f.attribution, p_periods: f.periods,
     };
 
     const [total, baseline, columns] = await Promise.all([
@@ -538,13 +552,15 @@ const loadMetrics = unstable_cache(
 const loadFilterOptions = unstable_cache(
   async (id: string) => {
     const db = createReadClient();
-    const [products, channels, rounds, buckets, adCountries] = await Promise.all([
+    const [products, channels, rounds, buckets, audiences, adCountries] = await Promise.all([
       db.from("v_products").select("*").eq("client_id", id).order("ord"),
       db.from("v_client_channels").select("*").eq("client_id", id).order("ord"),
       db.from("rounds").select("round_id, start_date, end_date, country").eq("client_id", id).order("start_date"),
       // The buckets this client has people in (0067). Tolerated when absent —
       // a database in front of that migration simply offers no source filter.
       db.from("v_client_sources").select("bucket, ord, note, leads").eq("client_id", id).order("ord"),
+      db.from("v_client_audiences").select("audience, leads").eq("client_id", id)
+        .order("leads", { ascending: false }).limit(30),
       // Counted in SQL (0063). Folding rows here missed MY entirely: PostgREST
       // caps a response at 1000 rows, v_ads has 1,832, and every MY row is in
       // the last round. A distinct that has to be complete cannot be built from
@@ -624,6 +640,7 @@ const loadFilterOptions = unstable_cache(
       channels: (ok(channels, "v_client_channels") as ChannelOption[] | null) ?? [],
       countries,
       sources: (buckets.error ? null : (buckets.data as SourceOption[] | null)) ?? [],
+      audiences: (audiences.error ? null : (audiences.data as AudienceOption[] | null)) ?? [],
       periods,
     };
   },
@@ -645,7 +662,7 @@ const loadRoundContext = unstable_cache(
     const db = createReadClient();
     const scope = {
       p_client: id, p_product: f.product, p_channel: f.channel, p_country: f.country,
-      p_source: f.source, p_periods: f.periods,
+      p_source: f.source, p_audience: f.audience, p_attribution: f.attribution, p_periods: f.periods,
     };
 
     const [rounds, months, targets] = await Promise.all([
@@ -675,7 +692,7 @@ const loadRoundContext = unstable_cache(
             .eq("client_id", id)
             .in("round_id", ids),
           db.from("v_scroll_runs")
-            .select("run_id, round_id, page_label, device, sessions, page_views, captured_from, captured_to, points")
+            .select("run_id, round_id, page_key, page_label, heatmap_path, device, sessions, page_views, captured_from, captured_to, points")
             .eq("client_id", id)
             .in("round_id", ids),
         ])
@@ -715,6 +732,18 @@ const loadUnmatchedDetail = unstable_cache(
   },
   ["funnel-unmatched"],
   { tags: [FUNNEL_TAG], revalidate: 60 },
+);
+
+const loadFormAnswers = unstable_cache(
+  async (id: string) => {
+    const db = createReadClient();
+    return (ok(
+      await db.from("v_form_answer_split").select("question, answer, leads").eq("client_id", id),
+      "v_form_answer_split",
+    ) as FormAnswer[] | null) ?? [];
+  },
+  ["funnel-form-answers"],
+  { tags: [FUNNEL_TAG], revalidate: 300 },
 );
 
 /**
@@ -780,12 +809,13 @@ async function build(
   // The tab is fetched speculatively: confirming it's valid for this client needs
   // the journey stages, and waiting for those would put the waterfall back.
   const wanted = cutFor(requested, filter.asset);
-  const [chrome, strip, options, speculative, detail] = await Promise.all([
+  const [chrome, strip, options, speculative, detail, formAnswers] = await Promise.all([
     loadChrome(id),
     loadStrip(id, filter),
     loadFilterOptions(id),
     wanted ? loadMetrics(id, wanted, filter) : null,
     NEEDS_UNMATCHED_DETAIL.has(requested) ? loadUnmatchedDetail(id) : null,
+    requested === "forms" ? loadFormAnswers(id) : null,
   ]);
 
   // Only This round asks these questions, so only This round pays for them.
@@ -819,6 +849,7 @@ async function build(
     channels: options.channels,
     countries: options.countries,
     sources: options.sources,
+    audiences: options.audiences,
     periods: options.periods,
     filter,
     cadences,
@@ -853,6 +884,7 @@ async function build(
     roundContext: context,
     unmatchedReasons: detail?.reasons ?? [],
     unmatchedRows: detail?.rows ?? [],
+    formAnswers: formAnswers ?? [],
     view,
     error: null,
     errorHint: null,

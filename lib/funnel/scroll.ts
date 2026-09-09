@@ -30,7 +30,11 @@ export type ScrollPoint = { depth: number; visitors: number; drop_off_pct: numbe
 export type ScrollRun = {
   run_id: string;
   round_id: string;
+  /** Stable page identity when Clarity's export provides one. */
+  page_key?: string | null;
   page_label: string | null;
+  /** Optional Storage path to the imported Clarity heatmap screenshot. */
+  heatmap_path?: string | null;
   device: string;
   sessions: number;
   page_views: number | null;

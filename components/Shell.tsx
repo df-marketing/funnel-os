@@ -3,7 +3,7 @@ import { fmtCount, type MetricKey, type Metrics } from "@/lib/funnel/spine";
 import { RefreshButton } from "./RefreshButton";
 import { SOURCES, type SourceKey } from "@/lib/import/sources";
 import type {
-  Client, Stage, StripCard, ImportStatus, Product, ChannelOption, CountryOption, SourceOption, FilterKey, Cadence,
+  Client, Stage, StripCard, ImportStatus, Product, ChannelOption, CountryOption, SourceOption, AudienceOption, FilterKey, Cadence,
 } from "@/lib/funnel/data";
 import {
   DEFAULT_OPTS, defaultVsFor, OBJECTIVE_KEYS, OBJECTIVES, GRAPHABLE, VS_OPTIONS, type ViewOpts,
@@ -22,6 +22,8 @@ const href = (client: string, view: string, f?: FilterKey, o?: ViewOpts, from?: 
   if (f?.channel) q.set("channel", f.channel);
   if (f?.country) q.set("country", f.country);
   if (f?.source) q.set("source", f.source);
+  if (f?.audience) q.set("audience", f.audience);
+  if (f?.attribution && f.attribution !== "entry") q.set("attribution", f.attribution);
   if (f?.periods) q.set("periods", f.periods);
   /*
     The asset does NOT follow you to another tab.
@@ -242,7 +244,7 @@ export function JourneyStrip({
  * the client has no products; showing one says they have exactly one.
  */
 function FilterBar({
-  client, view, filter, products, channels, countries, sources, periods, opts,
+  client, view, filter, products, channels, countries, sources, audiences, periods, opts,
   channelBlanked, countryBlanked, sourceBlanked,
 }: {
   /** True only when choosing this channel actually blanked some rates. */
@@ -259,6 +261,7 @@ function FilterBar({
   channels: ChannelOption[];
   countries: CountryOption[];
   sources: SourceOption[];
+  audiences: AudienceOption[];
   periods: { key: string; label: string; from: string | null; to: string | null }[];
 }) {
   const row = (
@@ -346,9 +349,9 @@ function FilterBar({
               ...sources.map((s) => ({
                 key: s.bucket,
                 label: s.bucket,
-                // Previous Paid Ads is a bucket of SALES — a lead can never be
-                // one — so "0 leads" on it is true and useless. Say what it
-                // does hold instead.
+                // Sources are lead provenance. A source with no leads may still
+                // have an explicit note, but attribution history is not a
+                // separate source bucket.
                 sub: s.leads > 0
                   ? `${fmtCount(s.leads)} lead${s.leads === 1 ? "" : "s"}${s.note ? ` · ${s.note}` : ""}`
                   : `${s.note ?? "no leads"}`,
@@ -358,6 +361,27 @@ function FilterBar({
             (source) => ({ ...filter, source }),
           )
         : null}
+      {audiences.length ? row(
+        "Audience",
+        [{ key: null, label: "All" }, ...audiences.map((a) => ({
+          key: a.audience, label: a.audience,
+          sub: `${fmtCount(a.leads)} lead${a.leads === 1 ? "" : "s"}`,
+        }))],
+        filter.audience,
+        (audience) => ({ ...filter, audience }),
+      ) : null}
+      {row(
+        "Credit",
+        [
+          { key: "entry", label: "Entry", sub: "first touch" },
+          { key: "entry_paid", label: "Entry paid", sub: "first paid touch" },
+          { key: "last_touch", label: "Last touch", sub: "latest touch before sale" },
+          { key: "last_paid", label: "Last paid", sub: "latest paid touch before sale" },
+          { key: "even_split", label: "Even split", sub: "sale value divided across prior rounds" },
+        ],
+        filter.attribution,
+        (attribution) => ({ ...filter, attribution: (attribution ?? "entry") as FilterKey["attribution"] }),
+      )}
       {row(
         "Period",
         [
@@ -416,8 +440,7 @@ function FilterBar({
             <>
               {" "}
               <b>Spend, delivery and every rate on them are blank.</b> Spend stays only when
-              Paid Ads is selected and nothing outside Paid Ads / Previous Paid Ads is — that pair
-              is exactly what the advertising produced. Anything else in the selection was not
+              Paid Ads is selected. Anything else in the selection was not
               bought by this money, and dividing its leads by paid spend is not a cost per lead.
             </>
           ) : (
@@ -425,9 +448,6 @@ function FilterBar({
               {" "}
               Spend stays whole — it is exactly the money that bought these people — so CPL, CPA and
               ROAS here are the paid figures.
-              {has(filter.source, "Previous Paid Ads")
-                ? " With Previous Paid Ads included, ROAS matches the All figure: everything the ads produced, whichever class closed it."
-                : " Add Previous Paid Ads to also count people the ads bought in an earlier round who closed here."}
             </>
           )}
         </p>
@@ -437,7 +457,7 @@ function FilterBar({
 }
 
 export function SideNav({
-  stages, client, view, unmatchedCount, filter, products, channels, countries, sources, periods, cadences, opts,
+  stages, client, view, unmatchedCount, filter, products, channels, countries, sources, audiences, periods, cadences, opts,
   channelBlanked, countryBlanked, sourceBlanked,
 }: {
   stages: Stage[];
@@ -449,6 +469,7 @@ export function SideNav({
   channels: ChannelOption[];
   countries: CountryOption[];
   sources: SourceOption[];
+  audiences: AudienceOption[];
   periods: { key: string; label: string; from: string | null; to: string | null }[];
   /** Which of By week and By round this selection has something to put in. */
   cadences: Cadence[];
@@ -475,6 +496,7 @@ export function SideNav({
         channels={channels}
         countries={countries}
         sources={sources}
+        audiences={audiences}
         periods={periods}
         countryBlanked={countryBlanked}
         sourceBlanked={sourceBlanked}
@@ -494,6 +516,7 @@ export function SideNav({
         four files come from. It is one more source, and the one nobody drops.
       */}
       {item("acqos", "AcqOS")}
+      {item("forms", "Form answers")}
 
       <div className="nav-group">Overview</div>
       {item("month", "By month")}

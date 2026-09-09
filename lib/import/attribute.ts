@@ -21,6 +21,8 @@ export type Round = {
   client_id: string;
   start_date: string;
   end_date: string;
+  /** Manual fallback where a campaign itself does not name its market. */
+  country?: string | null;
   /**
    * Every class this round runs, not one. A round with classes on the 5th and
    * the 7th used to have nowhere to put the second, so a Zoom export named
@@ -122,7 +124,13 @@ export function closeRoundFor(
 export function roundFromCampaign(campaign: string | null, rounds: Round[]): Round | null {
   if (!campaign) return null;
   const hay = campaign.toLowerCase().replace(/_/g, "-");
-  const candidates = [...rounds].sort((a, b) => b.round_id.length - a.round_id.length);
+  const market = /^df-([a-z]{2})-/.exec(hay)?.[1]?.toUpperCase() ?? null;
+  // A market-bearing campaign must not pick an equally named round in another
+  // market.  Older rounds with no country remain eligible as a compatibility
+  // fallback until they are scoped; an explicit matching market wins first.
+  const sameMarket = market ? rounds.filter((r) => r.country?.toUpperCase() === market) : [];
+  const candidates = [...(sameMarket.length ? sameMarket : rounds)]
+    .sort((a, b) => b.round_id.length - a.round_id.length);
   return candidates.find((r) => hay.includes(r.round_id.toLowerCase().replace(/_/g, "-"))) ?? null;
 }
 

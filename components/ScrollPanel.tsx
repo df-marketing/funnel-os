@@ -23,6 +23,14 @@ const pct1 = (n: number | null) => (n === null ? "—" : `${n.toFixed(1)}%`);
  */
 const count = (n: number) => n.toLocaleString("en-SG");
 
+/** Storage stores a key, not a deployment-specific URL. Old imports that kept
+ * a full URL remain readable while new imports can move between environments. */
+const heatmapUrl = (path: string) =>
+  /^https?:\/\//i.test(path)
+    ? path
+    : `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/clarity-heatmaps/${path
+        .split("/").map(encodeURIComponent).join("/")}`;
+
 /** A date range as one string, or nothing if the export didn't carry one. */
 function window(from: string | null, to: string | null) {
   if (!from) return null;
@@ -88,6 +96,12 @@ function Curve({
           {count(run.sessions)} sessions{span ? ` · ${span}` : ""}
         </span>
       </div>
+
+      {run.heatmap_path ? (
+        <a className="heatmap-link" href={heatmapUrl(run.heatmap_path)} target="_blank" rel="noreferrer">
+          Open imported Clarity heatmap
+        </a>
+      ) : null}
 
       {/* THE READING — before the curve, because the curve is the evidence for
           it and almost nobody scrolls past twenty bars to find the point. */}

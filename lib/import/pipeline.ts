@@ -262,7 +262,7 @@ function refuseIfNothingUsable(unusable: number, total: number, label: string) {
 async function loadRounds(db: SupabaseClient, clientId: string): Promise<Round[]> {
   const [roundRows, sessionRows] = await Promise.all([
     fetchAll<Omit<Round, "session_dates"> & { session_date: string | null }>(
-      db, "rounds", "round_id, client_id, start_date, end_date, session_date",
+      db, "rounds", "round_id, client_id, start_date, end_date, country, session_date",
       (q) => q.eq("client_id", clientId)),
     fetchAll<{ round_id: string; session_date: string }>(
       db, "round_sessions", "round_id, session_date"),
@@ -276,6 +276,7 @@ async function loadRounds(db: SupabaseClient, clientId: string): Promise<Round[]
   const rounds: Round[] = roundRows.map((r) => ({
     round_id: r.round_id, client_id: r.client_id,
     start_date: r.start_date, end_date: r.end_date,
+    country: r.country,
     // fall back to the round's own column for a database that hasn't run 0025
     session_dates: sessionsByRound.get(r.round_id) ?? (r.session_date ? [r.session_date] : []),
   }));
@@ -537,6 +538,22 @@ export async function planImport(
     return s ? s : null;
   };
 
+  /**
+   * GoHighLevel keeps form answers as ordinary export columns.  Preserve every
+   * non-identity extra on lead rows, verbatim, rather than teaching the schema
+   * a new column every time a form changes.  The known name/contact columns
+   * are deliberately excluded: they describe the person, not an answer.
+   */
+  const answerHeaders = source === "leads"
+    ? unused.filter((h) => !/^(contact\s*id|full\s*name|first\s*name|last\s*name)$/i.test(h))
+    : [];
+  const answersFor = (r: Row) => Object.fromEntries(
+    answerHeaders.flatMap((header) => {
+      const value = r[header]?.trim();
+      return value ? [[header, value]] : [];
+    }),
+  );
+
   // ── reference data ───────────────────────────────────────────────────────
   const rounds = await loadRounds(db, clientId);
 
@@ -599,9 +616,21 @@ export async function planImport(
        * campaign name then carries the round, and using it is not a fallback so
        * much as the better key, since it is what the ad account itself records.
        */
-      const round =
-        rounds.find((x) => dayOf(x.start_date)! <= date && date <= dayOf(x.end_date)!) ??
-        roundFromCampaign(campaign, rounds);
+      const campaignRound = roundFromCampaign(campaign, rounds);
+      const market = countryOf(campaign);
+      const dateCandidates = rounds.filter((x) =>
+        (!market || !x.country || x.country.toUpperCase() === market) &&
+        dayOf(x.start_date)! <= date && date <= dayOf(x.end_date)!,
+      );
+      // Campaign is authoritative when it names a real round.  A reporting
+      // window date is merely the first date of that window on Meta exports;
+      // choosing it first silently misfiles overlapping MY/SG campaigns.
+      const round = campaignRound ?? (dateCandidates.length === 1 ? dateCandidates[0] : null);
+      if (!campaignRound && dateCandidates.length > 1) {
+        warnings.push(
+          `More than one round covers ${date}${market ? ` in ${market}` : ""}; the campaign names no unique round, so that ads row was not imported.`,
+        );
+      }
       if (!round) {
         warnings.push(
           `No round covers ${date}${campaign ? ` and no round is named in "${campaign}"` : ""} — ` +
@@ -724,9 +753,9 @@ export async function planImport(
    *
    * EARLIEST, not latest. "Whose spend produced this?" is answered by the first
    * opt-in, not the most recent one. Somebody who registered in May and again in
-   * June was acquired in May; June inherited them. That is exactly what the
-   * Previous Paid Ads bucket exists to express, and taking the later lead would
-   * erase the distinction it was built to draw.
+   * June was acquired in May; June inherited them. Attribution can later
+   * present that history under a different credit model, but it must not turn
+   * the later lead into the acquisition event.
    *
    * NOTHING, if every opt-in came afterwards. Five buyers in the May–August load
    * bought at one class and then registered for the NEXT round days later, and
@@ -917,6 +946,7 @@ export async function planImport(
           // would also have carried an address; this one didn't, so the file's
           // own answer stands or it is organic.
           source: val(r, "source") || "Organic",
+          answers: answersFor(r),
           match_status: "unidentified",
         });
         plan.counts.unidentified++;
@@ -970,6 +1000,7 @@ export async function planImport(
         event_date: when, lead_round_id: roundId, attribution_method: method,
         utm_campaign: utm || null, ad_set: adSet, ad: adName,
         source: src, variant: val(r, "variant"),
+        answers: answersFor(r),
         country: countryOf(utm),
         match_status: outcome.kind === "auto" ? "auto_resolved" : "matched",
       });

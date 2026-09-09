@@ -42,16 +42,14 @@ export const toggle = (v: string | null | undefined, key: string): string | null
  * WHICH SOURCES OWN THE SPEND.
  *
  * Spend has no source — it is all paid — so a selection keeps it only when
- * every member was bought by the ads. Paid Ads is the money for THIS round's
- * people; Previous Paid Ads is the money an EARLIER round spent on people who
- * closed here. Together they are exactly what 0020's ROAS counts, so together
- * they keep the spend. Previous Paid Ads on its own does not: this round's
- * spend did not buy those people. Anything else in the set blanks it.
+ * every member was bought by the ads. “Previous Paid Ads” was an old display
+ * workaround, not a source. Attribution decides where a sale is credited,
+ * while the only spend-owning source remains Paid Ads.
  *
- * Mirrors fo_source_keeps_spend() in 0068 exactly; the screen's note and the
- * database's blanking must never disagree.
+ * Mirrors fo_source_keeps_spend(); the screen's note and the database's
+ * blanking must never disagree.
  */
-export const SPEND_BUCKETS = ["Paid Ads", "Previous Paid Ads"] as const;
+export const SPEND_BUCKETS = ["Paid Ads"] as const;
 
 export const keepsSpend = (source: string | null | undefined): boolean => {
   const l = listOf(source);
