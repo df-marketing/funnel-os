@@ -78,6 +78,9 @@
 - The app offers clients the stages they actually count (not a superset), and the country filter is preserved as a working constraint.
 - The by-source tab has a two-level column header structure.
 - The import pipeline includes a dry-run mode that runs against real exports without committing changes, and supports the .is() filter to match the real pipeline's filtering capability.
+- The views read the rules, not the CASE (attribution logic is driven by rules configuration).
+- Offers, months, sequences, session formats, and landing pages all follow credited sales.
+- A sale is one fact with credited rows; sales credit is summed, never duplicated.
 
 ## Gotchas
 
@@ -201,3 +204,7 @@
 - Two-way unmatched queue: accept no longer loses money (unmatched items preserve funds).
 - a fixed re-upload was also included in the same commit (bug fix beyond the phone-as-identity change).
 - the app can read its own rules (self-referential capability)
+- A fractional sale stays fractional; a source is the credit it receives.
+- Attendance carries its sequence from the lead.
+- A day of spend belongs to the round it was spent during.
+- A campaign lookup is built once per read (not per row).
