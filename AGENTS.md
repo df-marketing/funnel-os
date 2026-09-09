@@ -62,6 +62,7 @@
 - A rule is a row, not a CASE statement.
 - refresh data button added to force a re-read of data.
 - Supabase secret key and service role key are both accepted as env vars for flexibility.
+- stripe dependency was fully dropped.
 
 ## Architecture
 
@@ -146,6 +147,8 @@
 - five import bugs were found and fixed by testing against real exports, confirming the value of dry-run/real-export testing.
 - A pull that half-failed was reporting null/empty as if it were a finding — likely a bug in how dry-run or import reporting handled missing values.
 - client switcher defaults to opening on 'shely', not the first alphabetically sorted client.
+- fixed re-upload bug.
+- sidebar no longer spills; ambiguous round-number code is refused.
 
 ## Notes
 
