@@ -64,6 +64,7 @@
 - Supabase secret key and service role key are both accepted as env vars for flexibility.
 - stripe dependency was fully dropped.
 - A CRM field is not a form answer — a distinction was made in the codebase, likely separating CRM data from user-submitted form answers.
+- Two landing pages are two separate measurements, not one re-exported measurement.
 
 ## Architecture
 
