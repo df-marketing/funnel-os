@@ -76,9 +76,11 @@ const when = (iso: string) => {
   return days === 1 ? "yesterday" : `${days} days ago`;
 };
 
-export function ImportPane({ imports, client, declared = [] }: {
+export function ImportPane({ imports, client, declared = [], currency }: {
   imports: ImportStatus[];
   client: string;
+  /** Meta writes the ad account's own currency into its export header. */
+  currency?: string | null;
   /** Metrics somebody declared beyond the six built in — 0048's table. */
   declared?: DeclaredMetric[];
 }) {
@@ -266,7 +268,7 @@ export function ImportPane({ imports, client, declared = [] }: {
         <div>
           <b>There is no fixed export format to match.</b> Column order doesn&rsquo;t matter, extra
           columns are ignored and listed back to you, and the common header spellings are recognised
-          already — <span className="num">Amount spent (SGD)</span>, <span className="num">Day</span>{" "}
+          already — <span className="num">Amount spent ({currency ?? "SGD"})</span>, <span className="num">Day</span>{" "}
           and <span className="num">Reporting starts</span> all resolve on their own. Only the required
           fields have to be present under some recognisable name; if one is missing the import is
           refused and the field is named, rather than importing blanks. The templates above are the
@@ -290,8 +292,10 @@ export function ImportPane({ imports, client, declared = [] }: {
 }
 
 export function UnmatchedPane({
-  summary, reasons, rows,
+  summary, reasons, rows, currency,
 }: {
+  /** The client's currency, for the money this queue is holding. */
+  currency?: string | null;
   summary: UnmatchedSummary | null;
   reasons: UnmatchedReason[];
   rows: UnmatchedRow[];
@@ -368,7 +372,7 @@ export function UnmatchedPane({
                           )}
                         </td>
                         <td className="n">
-                          {x.revenue_held && Number(x.revenue_held) > 0 ? `SGD ${sgd(x.revenue_held)}` : "—"}
+                          {x.revenue_held && Number(x.revenue_held) > 0 ? `${currency ?? "SGD"} ${sgd(x.revenue_held)}` : "—"}
                         </td>
                         <td>
                           <UnmatchedActions rowId={x.row_id} hasGuess={Boolean(x.best_guess)} />

@@ -28,7 +28,7 @@ const TITLES: Record<string, [string, string]> = {
   ads:         ["Ads", "Creative, not audience. Same rounds, cut by the ad that ran."],
   lp:          ["Landing page", "Only rounds where more than one page ran, so a page isn't credited for traffic it never saw."],
   class:       ["Attend class", "Attendance and closing by class variant — the view the old sheet protected at the cost of ROAS."],
-  preview:     ["Preview offer", "The SGD 297 offer made in class."],
+  preview:     ["Preview offer", "The paid offer made in class."],
   middle:      ["Middle offer", "The back-end offer. Not one price — May closed at 1,197, 1,298.50, 1,400, 1,700 and 2,000."],
   product:     ["Product page", "Northsea Supply's journey has no class and no workshops."],
   checkout:    ["Checkout", "The last stage of Northsea's journey."],
@@ -283,6 +283,7 @@ export default async function Page({
                 cuts={data.columns}
                 vs={opts.vs}
                 elsewhere={data.elsewhere}
+                currency={current.currency}
                 notice={
                   <>
                     <b>The Total column is not plotted.</b> A total is not a point on this
@@ -302,7 +303,7 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "import" ? <ImportPane imports={data.imports} client={current.client_id} declared={declared} /> : null}
+          {view === "import" ? <ImportPane imports={data.imports} client={current.client_id} declared={declared} currency={current.currency} /> : null}
 
           {/* `now` comes from the server so "6 minutes ago" renders the same
               string on both sides of hydration, and is measured by the clock
@@ -313,6 +314,7 @@ export default async function Page({
 
           {view === "unmatched" ? (
             <UnmatchedPane
+              currency={current.currency}
               summary={data.unmatched}
               reasons={data.unmatchedReasons}
               rows={data.unmatchedRows}
@@ -333,6 +335,7 @@ export default async function Page({
                 <p>{blurb}</p>
               </div>
               <SpineTable
+                currency={current.currency}
                 title="Month comparison"
                 sub="one column per calendar month · rounds rolled up, not re-added"
                 baseline={data.baseline}
@@ -370,6 +373,7 @@ export default async function Page({
                 <p>{blurb}</p>
               </div>
               <SpineTable
+                currency={current.currency}
                 title="Week comparison"
                 sub="one column per calendar week · rounds rolled up, not re-added"
                 baseline={data.baseline}
@@ -404,6 +408,7 @@ export default async function Page({
                 <p>{blurb}</p>
               </div>
               <SpineTable
+                currency={current.currency}
                 title="Round comparison"
                 sub="one column per round · adding 0826-02 adds a column, not a formula"
                 baseline={data.baseline}
@@ -437,6 +442,7 @@ export default async function Page({
                 <p>{blurb}</p>
               </div>
               <SpineTable
+                currency={current.currency}
                 title="Source comparison"
                 sub="one column per acquisition source · summed across every round"
                 baseline={data.baseline}
@@ -469,6 +475,7 @@ export default async function Page({
                 <p>{blurb}</p>
               </div>
               <SpineTable
+                currency={current.currency}
                 title={filter.asset ? `${filter.asset}, round by round` : "Landing page comparison"}
                 sub={
                   filter.asset
@@ -504,6 +511,7 @@ export default async function Page({
                 <p>{blurb}</p>
               </div>
               <SpineTable
+                currency={current.currency}
                 title={filter.asset ? `${filter.asset}, round by round` : "Variant comparison"}
                 sub={
                   filter.asset
@@ -535,6 +543,7 @@ export default async function Page({
                 <p>{blurb}</p>
               </div>
               <SpineTable
+                currency={current.currency}
                 title="Round × source"
                 sub="rounds across the top, each split by where the person came from"
                 baseline={data.baseline}
@@ -573,6 +582,7 @@ export default async function Page({
                 <p>{blurb}</p>
               </div>
               <SpineTable
+                currency={current.currency}
                 title="Audience comparison"
                 sub="every round's spend on each audience, summed"
                 baseline={data.baseline}
@@ -609,6 +619,7 @@ export default async function Page({
                 <p>{blurb}</p>
               </div>
               <SpineTable
+                currency={current.currency}
                 title="Creative comparison"
                 sub="one column per ad · ordered by the leads it produced"
                 baseline={data.baseline}
@@ -662,6 +673,7 @@ export default async function Page({
                 <p>{blurb}</p>
               </div>
               <SpineTable
+                currency={current.currency}
                 title={`${title} by round`}
                 sub="the same rounds as By round, with one offer's numbers filled in"
                 baseline={data.baseline}
@@ -689,6 +701,7 @@ export default async function Page({
 
           {view === "analysis" ? (
             <RoundAnalysis
+              currency={current.currency}
               cuts={data.columns}
               baseline={data.baseline}
               context={data.roundContext}

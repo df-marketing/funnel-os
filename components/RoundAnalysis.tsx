@@ -53,12 +53,16 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 /**
  * Spend, or the fact that there isn't any.
  *
- * "SGD —" reads as a missing figure. These assets have no spend because no ad
+ * "MYR —" reads as a missing figure. These assets have no spend because no ad
  * in the export answers to their name — untracked leads, not unmeasured money —
  * and that is worth saying in words.
  */
-const spendOf = (a: { spend: number | null } | null | undefined) =>
-  a && a.spend !== null ? `SGD ${money(a.spend)}` : "no spend in the export";
+const spendOf = (
+  a: { spend: number | null } | null | undefined,
+  currency?: string | null,
+) => (a && a.spend !== null
+  ? `${currency ?? "SGD"} ${money(a.spend)}`
+  : "no spend in the export");
 
 function Chip({ move }: { move: Move }) {
   const chip = moveChip(move);
@@ -158,8 +162,10 @@ function MoveTable({
 }
 
 export function RoundAnalysis({
-  cuts, baseline, context, objective, today,
+  cuts, baseline, context, objective, today, currency,
 }: {
+  /** The client's currency, for the money this pane prints in prose. */
+  currency?: string | null;
   /** The two columns from v_metrics_this_round: this round, then the previous. */
   cuts: Cut[];
   baseline: Cut | null;
@@ -310,12 +316,12 @@ export function RoundAnalysis({
                 <span className="detail">
                   {c.change === "added" ? (
                     <>
-                      {spendOf(c.now)} · {plural(c.now?.leads ?? 0, "lead")} · new this round
+                      {spendOf(c.now, currency)} · {plural(c.now?.leads ?? 0, "lead")} · new this round
                       {c.now?.id_count ? ` · stands for ${c.now.id_count} untracked ads` : ""}
                     </>
                   ) : c.change === "dropped" ? (
                     <>
-                      ran in {prevId} and not here · was {spendOf(c.prev)}
+                      ran in {prevId} and not here · was {spendOf(c.prev, currency)}
                       {c.prev?.spend_share !== null && c.prev?.spend_share !== undefined
                         ? ` · ${c.prev.spend_share}% of that round`
                         : ""}

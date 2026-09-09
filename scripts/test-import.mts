@@ -33,6 +33,7 @@ import {
 } from "../lib/meta/insights";
 import { sliceWindow } from "../lib/meta/graph";
 import { resolve, ruleOk, type DimensionValue } from "../lib/funnel/rules";
+import { labelOf } from "../lib/funnel/spine";
 import { NO_FILTER } from "../lib/funnel/data";
 import { listOf, has, toggle, keepsSpend, windowKey, joinOr } from "../lib/funnel/filters";
 import { WIRED } from "../components/Shell";
@@ -1484,15 +1485,15 @@ console.log("\nCommit — re-importing a source retires the batch it replaces");
   ];
 
   const eff = chartModel(rounds, "cpAtt");
-  eq("spend is always the left line", eff.left.label, "Ads Spent (SGD)");
+  eq("spend is always the left line", eff.left.label, "Ads Spent");
   eq("and it owns the left axis", eff.left.axis, "left");
-  eq("the right line is the objective's efficiency", eff.right.label, "Cost per attendance (SGD)");
+  eq("the right line is the objective's efficiency", eff.right.label, "Cost per attendance");
   eq("on its own axis", eff.right.axis, "right");
   eq("two scales, not one", eff.left.max === eff.right.max, false);
 
   const obj = chartModel(rounds, "att");
   eq("picking the amount puts it on the right line", obj.right.label, "Overall Attendance");
-  eq("but never the left one", obj.left.label, "Ads Spent (SGD)");
+  eq("but never the left one", obj.left.label, "Ads Spent");
 
   eq("a blank attendance stays blank rather than becoming 0", obj.right.points[2].value, null);
   eq("but its spend is still plotted", obj.left.points[2].value, 500);
@@ -2459,6 +2460,25 @@ console.log("\nUnidentified — counted as a headcount, attached to nobody");
   eq("and with no name either, it is refused rather than guessed",
      toAdRows([{ date_start: "2026-07-08", spend: "10", campaign_name: "Shely Lead Campaign",
        ad_name: "A" }], sg).skipped[0].reason, "no_round_for_campaign");
+}
+
+{
+  // ── A MONEY LABEL CARRIES THE CLIENT'S CURRENCY ───────────────────────────
+  // The currency used to be written into twenty-one labels, which is how the
+  // app came to say SGD to a Malaysian client. Every money row already declares
+  // itself with fmt "m", so it is appended once instead.
+  eq("a money label takes the client's currency",
+     labelOf({ label: "Ads Spent", fmt: "m" }, "MYR"), "Ads Spent (MYR)");
+  eq("a count label takes none",
+     labelOf({ label: "Overall Attendance", fmt: "i" }, "MYR"), "Overall Attendance");
+  eq("a rate label takes none",
+     labelOf({ label: "Attendance %", fmt: "p" }, "MYR"), "Attendance %");
+  eq("no currency set reads exactly as it did before",
+     labelOf({ label: "Total Revenue", fmt: "m" }, null), "Total Revenue (SGD)");
+  eq("and so does an undefined one",
+     labelOf({ label: "CPL", fmt: "m" }), "CPL (SGD)");
+  eq("legacy RM is normalised upstream, so whatever arrives is printed",
+     labelOf({ label: "CPA", fmt: "m" }, "MYR"), "CPA (MYR)");
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

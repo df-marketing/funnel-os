@@ -18,9 +18,24 @@ export type MetricKey =
   | "cpm" | "cpc" | "cpl" | "cpAtt" | "cpa"
   | "prevAov" | "prevRoas" | "midAov" | "midRoas" | "roas";
 
+/**
+ * A MONEY LABEL CARRIES THE CLIENT'S CURRENCY.
+ *
+ * Every money row already declares itself with fmt "m", so the currency is
+ * appended once here rather than written into twenty-one labels — which is how
+ * it came to say SGD to a Malaysian client in the first place.
+ *
+ * SGD is the fallback because it is what every existing row was, and a client
+ * with no currency set should read exactly as it did before.
+ */
+export const labelOf = (
+  row: { label: string; fmt?: Fmt },
+  currency?: string | null,
+): string => (row.fmt === "m" ? `${row.label} (${currency ?? "SGD"})` : row.label);
+
 export const SPINE: SpineRow[] = [
   { group: "Metrics" },
-  { key: "spend",     label: "Ads Spent (SGD)",             fmt: "m" },
+  { key: "spend",     label: "Ads Spent",             fmt: "m" },
   { key: "reach",     label: "Reach",                       fmt: "i" },
   { key: "freq",      label: "Frequency",                   fmt: "d2" },
   { key: "impr",      label: "Impression",                  fmt: "i" },
@@ -29,11 +44,11 @@ export const SPINE: SpineRow[] = [
   { key: "att",       label: "Overall Attendance",          fmt: "i" },
   { key: "prevBuy",   label: "Preview Offer Purchases",     fmt: "i" },
   { key: "midBuy",    label: "Middle Offer Purchases",      fmt: "i" },
-  { key: "prevRev",   label: "Preview Offer Revenue (SGD)", fmt: "m" },
-  { key: "midRev",    label: "Middle Offer Revenue (SGD)",  fmt: "m" },
+  { key: "prevRev",   label: "Preview Offer Revenue", fmt: "m" },
+  { key: "midRev",    label: "Middle Offer Revenue",  fmt: "m" },
   { key: "prevPrice", label: "Preview Selling Price",       fmt: "m" },
   { key: "midPrice",  label: "Middle Selling Price",        fmt: "m" },
-  { key: "rev",       label: "Total Revenue (SGD)",         fmt: "m" },
+  { key: "rev",       label: "Total Revenue",         fmt: "m" },
 
   { group: "Funnel Metrics" },
   { key: "ctr",     label: "Outbound CTR %",           fmt: "p" },
@@ -43,14 +58,14 @@ export const SPINE: SpineRow[] = [
   { key: "midPct",  label: "Middle Offer Purchase %",  fmt: "p" },
 
   { group: "Unit Of Economics" },
-  { key: "cpm",      label: "CPM (SGD)",               fmt: "m" },
-  { key: "cpc",      label: "CPC (SGD)",               fmt: "m" },
-  { key: "cpl",      label: "CPL (SGD)",               fmt: "m" },
-  { key: "cpAtt",    label: "CP Attendance (SGD)",     fmt: "m" },
-  { key: "cpa",      label: "CPA (SGD)",               fmt: "m" },
-  { key: "prevAov",  label: "Preview Offer AOV (SGD)", fmt: "m" },
+  { key: "cpm",      label: "CPM",               fmt: "m" },
+  { key: "cpc",      label: "CPC",               fmt: "m" },
+  { key: "cpl",      label: "CPL",               fmt: "m" },
+  { key: "cpAtt",    label: "CP Attendance",     fmt: "m" },
+  { key: "cpa",      label: "CPA",               fmt: "m" },
+  { key: "prevAov",  label: "Preview Offer AOV", fmt: "m" },
   { key: "prevRoas", label: "Preview ROAS",            fmt: "d1", highlight: true },
-  { key: "midAov",   label: "Middle Offer AOV (SGD)",  fmt: "m" },
+  { key: "midAov",   label: "Middle Offer AOV",  fmt: "m" },
   { key: "midRoas",  label: "Middle ROAS",             fmt: "d1", highlight: true },
   { key: "roas",     label: "Overall ROAS",            fmt: "d1", highlight: true },
 ];

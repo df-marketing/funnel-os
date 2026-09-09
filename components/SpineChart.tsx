@@ -4,6 +4,7 @@ import {
   labelChars, wrapLabel, clipLabel, GEO,
   type VsKey, type Series,
 } from "@/lib/funnel/chart";
+import { labelOf } from "@/lib/funnel/spine";
 
 /**
  * One plot, an axis each, and up to three series.
@@ -34,10 +35,12 @@ import {
  * that rule costs nothing visible and changes what the chart says.
  */
 export function SpineChart({
-  title, sub, cuts, vs, elsewhere, notice, note,
+  title, sub, cuts, vs, elsewhere, notice, note, currency,
 }: {
   title: string;
   sub: string;
+  /** The client's currency. Only the money series carry it. */
+  currency?: string | null;
   cuts: Cut[];
   vs: VsKey;
   /**
@@ -179,19 +182,19 @@ export function SpineChart({
         <div className="chart-key">
           <i className="s-left">
             <span className="rule" />
-            {model.left.label}
+            {labelOf(model.left, currency)}
             <em>left axis</em>
           </i>
           {model.amount ? (
             <i className="s-left amount">
               <span className="rule" />
-              {model.amount.label}
+              {labelOf(model.amount, currency)}
               <em>left axis</em>
             </i>
           ) : null}
           <i className="s-right">
             <span className="rule" />
-            {model.right.label}
+            {labelOf(model.right, currency)}
             <em>right axis</em>
           </i>
         </div>
@@ -206,7 +209,7 @@ export function SpineChart({
             // width its own labels need
             style={{ minWidth: W }}
             role="img"
-            aria-label={`${model.left.label}${model.amount ? ` and ${model.amount.label}` : ""} against ${model.right.label}, across ${cuts.length} columns.`}
+            aria-label={`${labelOf(model.left, currency)}${model.amount ? ` and ${labelOf(model.amount, currency)}` : ""} against ${labelOf(model.right, currency)}, across ${cuts.length} columns.`}
           >
             {/* Gridlines come off the LEFT axis only. Two sets of horizontal
                 rules at different intervals would look like a printing fault. */}

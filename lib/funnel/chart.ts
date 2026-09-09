@@ -43,21 +43,21 @@ export type ObjectiveDef = {
 export const OBJECTIVES: Record<ObjectiveKey, ObjectiveDef> = {
   leads: {
     label: "Leads", metric: "leads", metricFmt: "i",
-    efficiency: "cpl", efficiencyLabel: "Cost per lead (SGD)", efficiencyFmt: "m",
+    efficiency: "cpl", efficiencyLabel: "Cost per lead", efficiencyFmt: "m",
     betterWhen: "lower",
   },
   att: {
     label: "Overall Attendance", metric: "att", metricFmt: "i",
-    efficiency: "cpAtt", efficiencyLabel: "Cost per attendance (SGD)", efficiencyFmt: "m",
+    efficiency: "cpAtt", efficiencyLabel: "Cost per attendance", efficiencyFmt: "m",
     betterWhen: "lower",
   },
   prevBuy: {
     label: "Preview Offer Purchases", metric: "prevBuy", metricFmt: "i",
-    efficiency: "cpa", efficiencyLabel: "Cost per acquisition (SGD)", efficiencyFmt: "m",
+    efficiency: "cpa", efficiencyLabel: "Cost per acquisition", efficiencyFmt: "m",
     betterWhen: "lower",
   },
   rev: {
-    label: "Total Revenue (SGD)", metric: "rev", metricFmt: "m",
+    label: "Total Revenue", metric: "rev", metricFmt: "m",
     efficiency: "roas", efficiencyLabel: "Overall ROAS", efficiencyFmt: "d1",
     betterWhen: "higher",
   },
@@ -109,10 +109,10 @@ export const VS_OPTIONS: VsOption[] = [
   { key: "leads",   metric: "leads",   short: "Leads",      label: "Leads",                   fmt: "i",  kind: "amount",     betterWhen: "higher" },
   { key: "att",     metric: "att",     short: "Attendance", label: "Overall Attendance",      fmt: "i",  kind: "amount",     betterWhen: "higher" },
   { key: "prevBuy", metric: "prevBuy", short: "Purchases",  label: "Preview Offer Purchases", fmt: "i",  kind: "amount",     betterWhen: "higher" },
-  { key: "rev",     metric: "rev",     short: "Revenue",    label: "Total Revenue (SGD)",     fmt: "m",  kind: "amount",     betterWhen: "higher" },
-  { key: "cpl",     metric: "cpl",     short: "Cost per lead",       label: "Cost per lead (SGD)",       fmt: "m",  kind: "efficiency", betterWhen: "lower" },
-  { key: "cpAtt",   metric: "cpAtt",   short: "Cost per attendance", label: "Cost per attendance (SGD)", fmt: "m",  kind: "efficiency", betterWhen: "lower" },
-  { key: "cpa",     metric: "cpa",     short: "CPA",                 label: "Cost per acquisition (SGD)",fmt: "m",  kind: "efficiency", betterWhen: "lower" },
+  { key: "rev",     metric: "rev",     short: "Revenue",    label: "Total Revenue",     fmt: "m",  kind: "amount",     betterWhen: "higher" },
+  { key: "cpl",     metric: "cpl",     short: "Cost per lead",       label: "Cost per lead",       fmt: "m",  kind: "efficiency", betterWhen: "lower" },
+  { key: "cpAtt",   metric: "cpAtt",   short: "Cost per attendance", label: "Cost per attendance", fmt: "m",  kind: "efficiency", betterWhen: "lower" },
+  { key: "cpa",     metric: "cpa",     short: "CPA",                 label: "Cost per acquisition",fmt: "m",  kind: "efficiency", betterWhen: "lower" },
   // The one that goes UP when it improves. It sits with the efficiencies
   // because that is what it measures, not because it is a cost.
   { key: "roas",    metric: "roas",    short: "ROAS",                label: "Overall ROAS",              fmt: "d1", kind: "efficiency", betterWhen: "higher" },
@@ -162,7 +162,7 @@ export const AMOUNT_OF: Partial<Record<VsKey, { metric: MetricKey; label: string
   cpa:   { metric: "prevBuy", label: "Preview Offer Purchases", fmt: "i" },
   // ROAS is revenue over spend, and revenue is money — so it shares the left
   // axis honestly rather than by convention.
-  roas:  { metric: "rev",     label: "Total Revenue (SGD)",     fmt: "m" },
+  roas:  { metric: "rev",     label: "Total Revenue",     fmt: "m" },
   // Attendance % is attendance over LEADS, not over spend — so the bar beside
   // it is the attendance itself, and on a cut with no spend that is the only
   // amount on the left axis. Which is correct: it is the whole story there.
@@ -318,7 +318,7 @@ function seriesFor(
  */
 export function chartModel(cuts: Cut[], vs: VsKey): ChartModel {
   const opt = vsOption(vs);
-  const left = seriesFor("input", "left", "Ads Spent (SGD)", "spend", "m", cuts);
+  const left = seriesFor("input", "left", "Ads Spent", "spend", "m", cuts);
   const right = seriesFor("against", "right", opt.label, opt.metric, opt.fmt, cuts);
 
   const of = opt.kind === "efficiency" ? AMOUNT_OF[vs] : undefined;
