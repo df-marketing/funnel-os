@@ -425,7 +425,22 @@ const loadStrip = unstable_cache(
     return (ok(strip, "v_journey_strip") as StripCard[] | null) ?? [];
   },
   ["funnel-strip"],
-  { tags: [FUNNEL_TAG], revalidate: 300 },
+  /*
+   * A FILTER COMBINATION NOBODY OPENED FOR FIVE MINUTES COST A COLD READ.
+   *
+   * The database floor is about 1.5 seconds, and the country path roughly
+   * doubles the journey strip — 1.56s with no country, 3.73s with one. So
+   * switching SG to MY and back paid four seconds every time the five-minute
+   * window lapsed, which, clicking between two countries while reading a table,
+   * it constantly did.
+   *
+   * Thirty minutes instead. Nothing goes stale by waiting: every import and the
+   * Refresh data button call revalidateTag(FUNNEL_TAG), which drops all of
+   * these at once. The window only governs how long an UNCHANGED figure may be
+   * reused, and between imports every figure is unchanged — that is the whole
+   * point of a period that has been closed.
+   */
+  { tags: [FUNNEL_TAG], revalidate: 1800 },
 );
 
 /**
@@ -540,7 +555,9 @@ const loadMetrics = unstable_cache(
     };
   },
   ["funnel-metrics"],
-  { tags: [FUNNEL_TAG], revalidate: 300 },
+  // Same window and the same reason as funnel-strip above. This is the one a
+  // filter change actually re-reads, so it is the one the wait is felt on.
+  { tags: [FUNNEL_TAG], revalidate: 1800 },
 );
 
 /**
@@ -738,7 +755,9 @@ const loadRoundContext = unstable_cache(
     };
   },
   ["funnel-round-context"],
-  { tags: [FUNNEL_TAG], revalidate: 300 },
+  // This round reads v_round_assets, the heaviest query left at ~3s. Worth
+  // keeping warm for the same thirty minutes.
+  { tags: [FUNNEL_TAG], revalidate: 1800 },
 );
 
 /** The parked queue, only for the tab that shows it. */
