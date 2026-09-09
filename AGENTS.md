@@ -59,6 +59,7 @@
 - the dry-run stub supports .is() filtering, matching the real pipeline's filtering capability.
 - Absent (null/missing) values are treated as distinct from zero for sales and for spend that has no named audience.
 - Rows held back during import are rows that failed validation/merge, not rows we already had in the database.
+- A rule is a row, not a CASE statement.
 
 ## Architecture
 
