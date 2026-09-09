@@ -234,3 +234,4 @@
 - Merge remote-tracking branch 'origin/main' into rules-rewire — indicates a long-lived branch being synced.
 - The editor is the transaction, so the vacuum was never runnable — likely a design insight or bug discovery about transaction isolation.
 - a view returning thirteen rows has no business taking two seconds — indicates a performance optimization was done on a small-result view that was unexpectedly slow.
+- Look the markets up once, now that looking is cheap
