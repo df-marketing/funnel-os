@@ -236,3 +236,4 @@
 - The editor is the transaction, so the vacuum was never runnable — likely a design insight or bug discovery about transaction isolation.
 - a view returning thirteen rows has no business taking two seconds — indicates a performance optimization was done on a small-result view that was unexpectedly slow.
 - Look the markets up once, now that looking is cheap
+- 1,675ms of a 2,062ms query was spent producing an empty object — indicating a severe query inefficiency where most time is wasted building a result that gets discarded.
