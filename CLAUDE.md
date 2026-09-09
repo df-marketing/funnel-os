@@ -155,6 +155,7 @@
 - A screenshot of a working screen and a broken one look the same — possible visual regression or flaky test issue.
 - campaigns are collapsed before resolving them (recently changed from after).
 - v_rounds was put back after commit 31 made things worse — likely a rollback of an optimization that degraded performance.
+- the country list is slow and runs on every page (performance hotspot).
 
 ## Notes
 
