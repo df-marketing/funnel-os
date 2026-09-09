@@ -151,6 +151,7 @@
 - client switcher defaults to opening on 'shely', not the first alphabetically sorted client.
 - fixed re-upload bug.
 - sidebar no longer spills; ambiguous round-number code is refused.
+- A screenshot of a working screen and a broken one look the same — possible visual regression or flaky test issue.
 
 ## Notes
 
@@ -225,3 +226,4 @@
 - client currency and scoped round codes were built — likely a new schema/feature for multi-currency or client-specific rounding.
 - the money display now indicates which money it is (e.g. which currency/metric).
 - A contacts export now flows to the answers, not leads — likely a pipeline routing fix.
+- Merge remote-tracking branch 'origin/main' into rules-rewire — indicates a long-lived branch being synced.
