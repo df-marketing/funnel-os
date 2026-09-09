@@ -32,6 +32,7 @@ import {
   splitReach, coarseKey,
 } from "../lib/meta/insights";
 import { sliceWindow } from "../lib/meta/graph";
+import { resolve, ruleOk, type DimensionValue } from "../lib/funnel/rules";
 import { NO_FILTER } from "../lib/funnel/data";
 import { listOf, has, toggle, keepsSpend, windowKey, joinOr } from "../lib/funnel/filters";
 import { WIRED } from "../components/Shell";
@@ -2323,6 +2324,84 @@ console.log("\nUnidentified — counted as a headcount, attached to nobody");
   eq("and keeps its dates",
      sliceWindow("2026-07-09", "2026-07-13")[0].join(".."), "2026-07-09..2026-07-13");
   eq("a single day is one slice", sliceWindow("2026-09-08", "2026-09-08").length, 1);
+}
+
+{
+  // ── A RULE IS A ROW ───────────────────────────────────────────────────────
+  // 0073 moves what a campaign name MEANS out of two functions and into rows.
+  // These are the seeded rules, verbatim, checked against every campaign name
+  // that actually exists in the database. If any of these fail, the migration
+  // would move a number.
+  const MARKET: DimensionValue[] = [
+    { key: "SG", ord: 10, rules: [{ field: "campaign", op: "regex", value: "^DF_SG_" }] },
+    { key: "MY", ord: 20, rules: [{ field: "campaign", op: "regex", value: "^DF_MY_" }] },
+  ];
+  const PAGE: DimensionValue[] = [
+    { key: "(not a page)", ord: 5, flags: { none: true }, rules: [
+      { field: "campaign", op: "is_empty", value: "" },
+      { field: "campaign", op: "contains", value: "{{" },
+      { field: "campaign", op: "regex", value: "^\\s*[0-9][0-9\\s,._-]*$" },
+    ] },
+    { key: "LP2", ord: 10, rules: [{ field: "campaign", op: "regex", value: "LP\\s*2" }] },
+    { key: "LP1", ord: 20, rules: [
+      { field: "campaign", op: "regex", value: "LP\\s*1" },
+      { field: "campaign", op: "regex", value: "LP" },
+    ] },
+    { key: "Lead Form", ord: 90, flags: { catch_all: true } },
+  ];
+  const market = (c: string | null) => resolve(MARKET, { campaign: c });
+  const page   = (c: string | null) => resolve(PAGE,   { campaign: c });
+
+  // Market, on real campaign names.
+  eq("a Singapore campaign resolves SG", market("DF_SG_Preview_Sprint1_0526_02"), "SG");
+  eq("a Malaysia campaign resolves MY", market("DF_MY_Preview_Sprint1_0926_01_LP1GHL"), "MY");
+  eq("a campaign naming no market resolves nothing", market("AOAI"), null);
+  eq("and so does the synthetic reach row", market("ALL CAMPAIGNS 0926-01"), null);
+  eq("and a null campaign", market(null), null);
+  // The one deliberate difference from fo_country, which returned any two
+  // letters after DF_ — a market nobody defined, in no list and on no filter.
+  eq("an undefined prefix is Unknown, not a market nobody declared",
+     market("DF_TH_Preview_Sprint1_0126_01"), null);
+
+  // Landing page, on every distinct shape in the data.
+  eq("LP2 wins over LP, which it contains", page("DF_SG_Preview_Sprint1_0726_03_LP2GHL"), "LP2");
+  eq("LP2 with the round code in brackets", page("DF_SG_Preview_Sprint1_0726_04_LP2GHL(0826-02)"), "LP2");
+  eq("LP1 proper", page("DF_SG_Preview_Sprint1_0726_02_LP1GHL"), "LP1");
+  eq("LP1 with a name after it", page("DF_SG_Preview_Sprint1_0726_023_LP1GHLHenry"), "LP1");
+  eq("LP1 with a suffix", page("DF_SG_Preview_Sprint1_0826_03_LP1GHL_AcqOS"), "LP1");
+  eq("a bare LP is LP1, as the client confirmed", page("DF_SG_Preview_Sprint1_0626_02_LP"), "LP1");
+  eq("and the other bare one", page("DF_SG_Preview_Sprint1_0726_01_AI_LP"), "LP1");
+  eq("a campaign naming no page is the lead form",
+     page("DF_SG_Preview_Sprint1_0526_02"), "Lead Form");
+  eq("and so is an organic name", page("AOAI"), "Lead Form");
+  eq("and the demo client's campaigns", page("DEMO \u2014 Evergreen (Google)"), "Lead Form");
+
+  // The exclusions, which must outrank the catch-all.
+  eq("an unrendered merge tag is not a page", page("{{campaign.name}}"), null);
+  eq("a blank campaign is not a page", page(""), null);
+  eq("a null campaign is not a page", page(null), null);
+  eq("a bare Meta id is not a page", page("120210983746510456"), null);
+  eq("nor an exported id list", page("120210983746510456, 120210983746510457"), null);
+
+  // The mechanism itself.
+  eq("an unimplemented operator matches nothing, rather than everything",
+     ruleOk({ field: "campaign", op: "sideways" as never, value: "x" }, { campaign: "x" }), false);
+  eq("a rule can read the source column, which is what makes affiliate work",
+     resolve([{ key: "Affiliate", ord: 10,
+                rules: [{ field: "source", op: "contains", value: "affiliate" }] }],
+             { campaign: "no token here", source: "Affiliate Partner" }), "Affiliate");
+  eq("and the ad set, for audience",
+     resolve([{ key: "Cold", ord: 10,
+                rules: [{ field: "ad_set", op: "starts_with", value: "Cold_" }] }],
+             { campaign: "x", ad_set: "Cold_BusinessOwners" }), "Cold");
+  eq("matching is case-insensitive, because people type campaign names",
+     page("df_sg_preview_sprint1_0726_03_lp2ghl"), "LP2");
+  eq("order decides, so a value sitting higher wins",
+     resolve([{ key: "B", ord: 1, rules: [{ op: "contains", value: "LP" }] },
+              { key: "A", ord: 2, rules: [{ op: "contains", value: "LP" }] }],
+             { campaign: "LP" }), "B");
+  eq("nothing matching resolves to nothing, not to the first value",
+     resolve(MARKET, { campaign: "nothing here" }), null);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
