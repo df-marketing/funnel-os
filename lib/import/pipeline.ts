@@ -4,7 +4,7 @@ import { parseCsv, toNumber, toDate, toTimestamp, localDay, type Row } from "./c
 import { SOURCES, mapColumns, stageMetricOf, stageSpec, type ImportSourceKey, type SourceKey, type SourceSpec } from "./sources";
 import { buildIndex, matchRow, normEmail, normPhone, type KnownContact, type ParkReason } from "./identity";
 import { attributeLead, closeRoundFor, resolveRoundRef, resolveProduct, roundFromCampaign, type Round, type AdSetRun } from "./attribute";
-import { parseClarityScroll, ClarityError, sessionsFrom } from "./clarity";
+import { parseClarityScroll, ClarityError, sessionsFrom, pageKeyOf } from "./clarity";
 
 /**
  * The pass, as the workflow doc specifies it:
@@ -409,15 +409,24 @@ async function planScroll(
    * would read as twice the traffic. The old run's id is carried so commit can
    * remove it in the same pass, and the diff calls it a change, not an insert.
    */
-  const { data: prior } = await db
+  const pageKey = pageKeyOf(read.url_pattern, read.page_label);
+  const priorQuery = db
     .from("scroll_runs")
     .select("run_id")
     .eq("client_id", clientId)
     .eq("round_id", round.round_id)
     .eq("device", read.device)
     .eq("captured_from", read.captured_from!)
-    .eq("captured_to", read.captured_to!)
-    .maybeSingle();
+    .eq("captured_to", read.captured_to!);
+  /* THE PAGE IS PART OF WHAT MAKES TWO EXPORTS THE SAME EXPORT.
+     Without it, LP2 imported over LP1's round, device and window matched LP1
+     as a re-export and deleted it — two pages measured, one kept, and the
+     screen showing the survivor as if it were the round. A null key has to
+     match a null key rather than matching everything, or an unfiltered export
+     re-inherits every page that ever ran in that window. */
+  const { data: prior } = await (
+    pageKey === null ? priorQuery.is("page_key", null) : priorQuery.eq("page_key", pageKey)
+  ).maybeSingle();
 
   const runId = uuid();
   return {
@@ -431,7 +440,8 @@ async function planScroll(
       newRows: prior ? 0 : read.points.length,
       changedRows: prior ? read.points.length : 0,
       restatements: prior
-        ? [`would replace the scroll curve already stored for ${round.round_id} (${read.device}) over these dates`]
+        ? [`would replace the scroll curve already stored for ${round.round_id}`
+           + ` (${pageKey ?? "no page filter"} · ${read.device}) over these dates`]
         : [],
     },
     warnings: [...new Set(warnings)],
@@ -444,6 +454,7 @@ async function planScroll(
           run_id: runId,
           client_id: clientId,
           round_id: round.round_id,
+          page_key: pageKey,
           page_label: read.page_label,
           url_pattern: read.url_pattern,
           device: read.device,

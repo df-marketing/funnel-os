@@ -116,6 +116,42 @@ export function sessionsFrom(points: ScrollPoint[]): { sessions: number; spread:
   return { sessions, spread: Math.max(...votes) - Math.min(...votes) };
 }
 
+/**
+ * WHICH PAGE THIS CURVE IS OF.
+ *
+ * A round can run two landing pages — this app compares LP1 against LP2 on a
+ * tab of its own — and each one has its own scroll curve. Without a page on the
+ * row, the two are indistinguishable: an import of LP2 over the same round,
+ * device and window as LP1 matched LP1 as a re-export and DELETED it. Two
+ * measurements of two different pages, one of them silently gone, and the
+ * screen showing the survivor as if it were the round.
+ *
+ * Derived from the URL filter and not from "Project name". The project name is
+ * what a person typed into Clarity and on the real exports it carries the round
+ * — "Shely's Landing Page 0726-01" — so keying on it would make one unchanged
+ * page look like a new page every round, which is the same fault in the other
+ * direction. The URL is the page. Clarity writes it as a regex, so the regex
+ * scaffolding comes off and what is left is the address.
+ *
+ * Null when the export filtered on nothing at all, which is a legitimate answer
+ * — one page, no filter — and is why a null key still has to match a null key
+ * rather than matching everything.
+ */
+export function pageKeyOf(urlPattern: string | null, pageLabel: string | null): string | null {
+  const raw = (urlPattern ?? "").trim();
+  if (!raw) return pageLabel?.trim().toLowerCase() || null;
+  const key = raw
+    .replace(/^\^/, "").replace(/\$$/, "")   // regex anchors
+    .replace(/\\(.)/g, "$1")                  // \. and \/ back to . and /
+    .replace(/^https?:\/\//i, "")             // the scheme is not the page
+    .replace(/^www\./i, "")
+    .replace(/[.*+?]*$/, "")                  // a trailing .* matches everything
+    .replace(/\/+$/, "")                      // one trailing slash is not a page
+    .toLowerCase()
+    .trim();
+  return key || pageLabel?.trim().toLowerCase() || null;
+}
+
 export function parseClarityScroll(text: string, fileName = ""): ClarityScroll {
   const table = parseTable(text).map((r) => r.map((c) => c.trim()));
 

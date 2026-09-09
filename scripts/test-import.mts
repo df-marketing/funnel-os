@@ -1999,6 +1999,49 @@ console.log("\nCLARITY SCROLL");
   eq("there is still only one run", tables.scroll_runs.length, 1);
   eq("and still only five readings", tables.scroll_depths.length, 5);
 
+  /*
+   * TWO LANDING PAGES ARE TWO MEASUREMENTS, NOT ONE RE-EXPORT.
+   *
+   * A round can run LP1 and LP2 — this app compares them on a tab of its own —
+   * and each has its own curve. The replace test above matched on round, device
+   * and window and nothing else, so importing LP2 over LP1 looked like the same
+   * export arriving twice and DELETED LP1. Two pages measured, one silently
+   * gone, and the screen showing the survivor as if it described the round.
+   *
+   * The page comes off the URL filter rather than "Project name", because the
+   * project name is what a person typed into Clarity and carries the round on
+   * the real exports — keying on it would make one unchanged page look like a
+   * new page every round, which is the same fault pointing the other way.
+   */
+  eq("the page is recorded off the URL filter",
+     tables.scroll_runs[0].page_key, "webinar.memiai.online/x");
+
+  const otherPage = await planImport(wdb, {
+    source: "scroll", clientId: "shely", fileName: "Clarity_Scroll_Mobile.csv",
+    text: CLARITY.replace("online/x$", "online/lp2$"),
+  });
+  eq("a second landing page is an insert, not a change",
+     [otherPage.diff.newRows, otherPage.diff.changedRows], [5, 0]);
+  ok("and it restates nothing", otherPage.diff.restatements.length === 0);
+
+  await commitPlan(wdb, "batch-3", otherPage);
+  eq("both pages are kept", tables.scroll_runs.length, 2);
+  eq("with both curves", tables.scroll_depths.length, 10);
+  eq("and they are told apart by page",
+     tables.scroll_runs.map((r: any) => r.page_key).sort(),
+     ["webinar.memiai.online/lp2", "webinar.memiai.online/x"]);
+
+  // The same page again still replaces, so fixing the loss did not cost the
+  // thing the replace was for.
+  const lp2Again = await planImport(wdb, {
+    source: "scroll", clientId: "shely", fileName: "Clarity_Scroll_Mobile.csv",
+    text: CLARITY.replace("online/x$", "online/lp2$"),
+  });
+  eq("re-exporting one of them is still a change",
+     [lp2Again.diff.newRows, lp2Again.diff.changedRows], [0, 5]);
+  await commitPlan(wdb, "batch-4", lp2Again);
+  eq("and neither page is duplicated", tables.scroll_runs.length, 2);
+
   // A window no round covers is refused with the rounds named, not filed
   // against whichever round happens to be nearest.
   ok("a window outside every round is refused", await (async () => {

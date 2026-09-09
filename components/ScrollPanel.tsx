@@ -1,5 +1,6 @@
 import { readRun, BIG_DROP_PTS, THIN_COVERAGE_PCT, type ScrollRun } from "@/lib/funnel/scroll";
 import { MIN_SAMPLE } from "@/lib/funnel/analysis";
+import { HeatmapUpload } from "@/components/HeatmapUpload";
 
 /**
  * Step 3c — the landing page, read against the round it ran in.
@@ -70,8 +71,9 @@ export function ScrollPanel({
       ))}
       {runs.length > 1 && (
         <p className="cro-foot">
-          Each device export is shown on its own. They are not added together — two curves over
-          different denominators average into a number that describes nobody.
+          Each export is shown on its own — one per page and device. They are not added together:
+          two curves over different denominators average into a number that describes nobody, and
+          two landing pages averaged together describe neither.
         </p>
       )}
     </div>
@@ -92,16 +94,28 @@ function Curve({
       <div className="scroll-h">
         <b>{run.page_label ?? "Landing page"}</b>
         <span className="kindtag">{run.device === "all" ? "all devices" : run.device}</span>
+        {/* The address, when the export filtered on one. "Project name" is what
+            a person typed into Clarity and routinely carries the round rather
+            than the page, so on a round running two pages it is the URL that
+            says which of them this is. */}
+        {run.page_key ? <span className="kindtag">{run.page_key}</span> : null}
         <span className="dim">
           {count(run.sessions)} sessions{span ? ` · ${span}` : ""}
         </span>
       </div>
 
-      {run.heatmap_path ? (
-        <a className="heatmap-link" href={heatmapUrl(run.heatmap_path)} target="_blank" rel="noreferrer">
-          Open imported Clarity heatmap
-        </a>
-      ) : null}
+      {/* The picture, and the way to put one there. Clarity exports the curve
+          and not the heatmap, so the image is a screenshot and there has to be
+          somewhere to drop it — the column and the bucket were built for this
+          and nothing could reach them, so every run's heatmap_path was null. */}
+      <div className="heatmap-row">
+        {run.heatmap_path ? (
+          <a className="heatmap-link" href={heatmapUrl(run.heatmap_path)} target="_blank" rel="noreferrer">
+            Open imported Clarity heatmap
+          </a>
+        ) : null}
+        <HeatmapUpload runId={run.run_id} path={run.heatmap_path ?? null} />
+      </div>
 
       {/* THE READING — before the curve, because the curve is the evidence for
           it and almost nobody scrolls past twenty bars to find the point. */}
