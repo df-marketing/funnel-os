@@ -67,6 +67,7 @@
 - Two landing pages are two separate measurements, not one re-exported measurement.
 - ask which country a round ran in once, not once per round
 - The dedupe step must happen before the rules step in the import pipeline.
+- Filter combination warm time was increased from five minutes to thirty minutes.
 
 ## Architecture
 
