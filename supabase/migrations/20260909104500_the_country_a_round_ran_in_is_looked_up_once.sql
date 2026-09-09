@@ -31,32 +31,28 @@
 --
 -- ── ORDER ──────────────────────────────────────────────────────────────────
 --
--- Run part 1, measure, and only run part 2 if it is still slow. Part 1 is one
--- line and may be the whole answer: 1,401 event rows were updated in migration
--- 20260909094500, and a large update leaves dead tuples behind that every one
--- of those thirteen passes then reads. A query already near the three-second
--- limit goes over it on volume alone, and nothing in the plan changed.
+-- Run the whole file. It is one script.
 --
--- Knowing WHICH of the two fixed it is worth the extra minute. If part 1 alone
--- is enough, the structural fault is still there and will come back on the next
--- big import; if it is not, part 2 is the real answer.
-
--- ═══ PART 1 — reclaim what the answers cleanup left behind ═════════════════
--- VACUUM cannot run inside a transaction block. Run these two lines on their
--- own, then re-time the filter before going further.
-
-vacuum (analyze) events;
-vacuum (analyze) ads_performance;
-
--- MEASURE NOW, through the app and not this editor:
+-- An earlier draft opened with `vacuum (analyze)`, on the theory that the 1,401
+-- event rows updated in migration 20260909094500 left dead tuples that all
+-- thirteen passes then read — enough to push a query already near the
+-- three-second limit over it with nothing in the plan having changed.
 --
---   time curl -s "$URL/rest/v1/rpc/fo_cut" -H "apikey: $ANON" \
---     -H "Content-Type: application/json" \
---     -d '{"p_view":"v_metrics_by_round","p_client":"shely","p_country":"MY"}'
+-- VACUUM CANNOT RUN HERE. The Supabase SQL editor wraps every statement it
+-- sends in a transaction, and VACUUM is not allowed inside one; selecting just
+-- those lines does not help, because the wrapper is the editor and not the
+-- selection. It needs a psql session against the connection string, and it is
+-- not worth one: autovacuum reclaims that space on its own schedule, and the
+-- dead tuples were never the real fault — they were at most the last straw on
+-- top of it.
 --
--- Under a second and returning four rounds: stop here, and note that part 2 is
--- still owed. Still timing out: continue.
+-- ANALYZE is allowed inside a transaction, and it is the half that changes what
+-- the planner does rather than what it reads. It stays.
 
+-- ═══ PART 1 — tell the planner what is actually in the tables ══════════════
+
+analyze events;
+analyze ads_performance;
 
 -- ═══ PART 2 — ask once instead of once per round ═══════════════════════════
 
