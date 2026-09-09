@@ -19,6 +19,14 @@ type Summary = {
   } | null;
 };
 
+/**
+ * The empties dropped before the separator goes in, rather than each caller
+ * remembering to lead with one. Building these by hand is what produced
+ * "1401 leads gain form answersnothing new": a fourth kind of write was added
+ * beside three that already knew about each other.
+ */
+const joinParts = (parts: string[]) => parts.filter(Boolean).join(" · ");
+
 type State =
   | { phase: "idle" }
   | { phase: "reading" }
@@ -163,7 +171,20 @@ export function ImportUploader({
                 <b>Committed.</b>{" "}
                 {state.plan.scroll
                   ? `A ${state.plan.scroll.points}-point curve on ${state.plan.scroll.sessions} sessions is now attached to ${state.plan.scroll.round}. Read it on This round, step 3.`
-                  : `${state.plan.willWrite.events + state.plan.willWrite.ads} rows written, ${state.plan.willWrite.unmatched} parked. This batch is locked — a later import can add rows or flag a restate, never silently change these.`}
+                  /* An update is a write. Counting only inserts told an import
+                     that had just enriched 1,401 leads that it wrote 0 rows —
+                     the one screen that confirms the work said none happened. */
+                  : `${joinParts([
+                      state.plan.willWrite.events + state.plan.willWrite.ads
+                        ? `${state.plan.willWrite.events + state.plan.willWrite.ads} rows written`
+                        : "",
+                      state.plan.willWrite.answers
+                        ? `${state.plan.willWrite.answers} leads gained form answers`
+                        : "",
+                      state.plan.willWrite.unmatched
+                        ? `${state.plan.willWrite.unmatched} parked`
+                        : "",
+                    ]) || "nothing was written"}. This batch is locked — a later import can add rows or flag a restate, never silently change these.`}
               </div>
             </div>
             <button className="btn" onClick={() => setState({ phase: "idle" })}>Import another file</button>
@@ -206,17 +227,22 @@ function Diff({ plan }: { plan: Summary }) {
               {plan.scroll.replaces ? " · replacing the one already stored" : ""}
             </>
           ) : (
-            <>
-              {willWrite.events ? `${willWrite.events} events` : null}
-              {willWrite.ads ? `${willWrite.ads} ads rows` : null}
-              {willWrite.contacts ? ` · ${willWrite.contacts} new contacts` : ""}
-              {/* Form answers arrive months after the leads do, so almost every
-                  row carrying one is a lead this app already has. Written as an
-                  update, not an insert — and said plainly, because "47 events"
-                  beside 1,469 rows reads as a failed import otherwise. */}
-              {willWrite.answers ? ` · ${willWrite.answers} leads gain form answers` : ""}
-              {!willWrite.events && !willWrite.ads ? "nothing new" : ""}
-            </>
+            /* ONE LIST, ONE SEPARATOR, AND "NOTHING NEW" ONLY WHEN THAT IS TRUE.
+               Built by hand these ran together — an enrichment-only file printed
+               "1401 leads gain form answersnothing new", because the fallback
+               tested events and ads and a third kind of write had been added
+               beside them. Anything countable joins the list; the fallback fires
+               on the list being empty, so it cannot contradict what precedes it. */
+            joinParts([
+              /* Form answers arrive months after the leads do, so almost every
+                 row carrying one is a lead this app already has. Written as an
+                 update, not an insert — and said plainly, because "47 events"
+                 beside 1,469 rows reads as a failed import otherwise. */
+              willWrite.events ? `${willWrite.events} events` : "",
+              willWrite.ads ? `${willWrite.ads} ads rows` : "",
+              willWrite.contacts ? `${willWrite.contacts} new contacts` : "",
+              willWrite.answers ? `${willWrite.answers} leads gain form answers` : "",
+            ]) || "nothing new"
           )}
         </dd>
 

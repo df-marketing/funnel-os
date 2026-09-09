@@ -66,7 +66,10 @@ export const WIRED = new Set([
   // "lp" joined this the moment it got a dimension to compare — it was the one
   // stage tab with compare_dimension NULL, and the screen said so.
   "targeting", "ads", "lp", "class", "preview", "middle",
-  "analysis", "import", "unmatched", "acqos",
+  // "forms" reads v_form_answer_split and has since the answers landed. Left
+  // out of this set it drew its real tables and then a "Not wired yet" notice
+  // underneath them, which is the app calling its own working screen broken.
+  "analysis", "import", "unmatched", "acqos", "forms",
 ]);
 
 export function TopBar({

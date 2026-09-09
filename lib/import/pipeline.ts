@@ -575,9 +575,28 @@ export async function planImport(
    * non-identity extra on lead rows, verbatim, rather than teaching the schema
    * a new column every time a form changes.  The known name/contact columns
    * are deliberately excluded: they describe the person, not an answer.
+   *
+   * WHAT THE CRM WROTE IS NOT WHAT THE REGISTRANT ANSWERED.
+   *
+   * "Every column I was not told to use is an answer" is one rule short. A
+   * GoHighLevel contacts export ships its own bookkeeping in the same row —
+   * Last Activity, Tags, Business Name — and all three arrived on the Form
+   * answers screen as questions. "Last Activity" listed 34 timestamps as if
+   * they were replies, the largest of them 256 people who share a minute; a
+   * reader scanning that page for what registrants said found two real
+   * questions buried under two the form never asked.
+   *
+   * Excluded here rather than hidden at the far end, because a value nobody
+   * answered is not an answer at any point downstream. Excluding is safe in a
+   * way including is not: a system field wrongly kept becomes a question on a
+   * client-facing screen, while a question wrongly dropped comes back in full
+   * on the next import — the enrichment path merges into what is already
+   * stored and never deletes.
    */
+  const CRM_FIELD =
+    /^(contact\s*id|full\s*name|first\s*name|last\s*name|business\s*name|company(\s*name)?|tags?|last\s*activity|date\s*(created|updated|added)|created(\s*(on|at))?|updated(\s*(on|at))?|assigned\s*user|followers|time\s*zone|timezone|dnd|additional\s*(emails?|phones?))$/i;
   const answerHeaders = source === "leads"
-    ? unused.filter((h) => !/^(contact\s*id|full\s*name|first\s*name|last\s*name)$/i.test(h))
+    ? unused.filter((h) => !CRM_FIELD.test(h))
     : [];
   const answersFor = (r: Row) => Object.fromEntries(
     answerHeaders.flatMap((header) => {

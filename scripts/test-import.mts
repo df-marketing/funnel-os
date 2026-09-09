@@ -2628,6 +2628,47 @@ console.log("\nUnidentified — counted as a headcount, attached to nobody");
   eq("carrying the answer with it",
      (full.ops.events[0].answers as Record<string, string>)["What is your current profession?"],
      "Coach");
+
+  /*
+   * A CRM FIELD IS NOT A FORM ANSWER.
+   *
+   * "Keep every column I was not told to use" swept up GoHighLevel's own
+   * bookkeeping. Tags and Last Activity reached the Form answers screen as
+   * questions, and being on 1,394 and 1,149 leads they outranked the three
+   * the form actually asked, which 976 people answered. "Last Activity"
+   * offered a timestamp as its most popular reply, shared by 256 people.
+   *
+   * Both directions are pinned: the system columns are dropped, and the real
+   * question in the same row still survives — an exclusion list is only safe
+   * while it stays narrower than the thing it sits inside.
+   */
+  const crm = await planImport(withKnown(), {
+    source: "leads", clientId: "shely", fileName: "leads.csv",
+    text: [
+      "email,event_date,utm_term,Tags,Last Activity,Business Name,What is your current profession?",
+      "crm@x.com,2026-05-14,Cold_Broad,\"0526-02, 0526-03\",Sep 03 2026 07:45 PM,Acme Pte Ltd,Consultant",
+    ].join("\n"),
+  });
+  const stored = crm.ops.events[0].answers as Record<string, string>;
+  eq("the lead is still created", crm.ops.events.length, 1);
+  eq("the CRM's tag column is not an answer", stored["Tags"], undefined);
+  eq("nor is its activity timestamp", stored["Last Activity"], undefined);
+  eq("nor the company it filed them under", stored["Business Name"], undefined);
+  eq("the question the form asked survives", stored["What is your current profession?"], "Consultant");
+  eq("and it is the only thing kept", Object.keys(stored).length, 1);
+
+  /*
+   * The other half of the same rule. A contacts export whose only extras are
+   * CRM columns carries no answers at all, so it is not an enrichment file —
+   * it is a leads file with nothing to say, and must not be granted the
+   * enrich-only exemption on the strength of columns nobody answered.
+   */
+  const bookkeeping = await planImport(withKnown(), {
+    source: "leads", clientId: "shely", fileName: "Export_Contacts.csv",
+    text: "Email,Created,Tags,Last Activity\nnobody@x.com,2026-05-14,0526-02,Sep 03 2026 07:45 PM",
+  });
+  ok("a file of nothing but CRM columns is not treated as an enrichment",
+     !bookkeeping.warnings.some((w) => /no new lead will be created/i.test(w)));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

@@ -14,8 +14,31 @@ export function FormAnswersPanel({ rows }: { rows: FormAnswer[] }) {
   );
   const groups = new Map<string, FormAnswer[]>();
   for (const row of rows) groups.set(row.question, [...(groups.get(row.question) ?? []), row]);
+
+  /*
+   * ORDERED HERE, BECAUSE THE ROWS ARRIVE IN NO ORDER.
+   *
+   * The read asks PostgREST for the split with no `order`, so the sequence is
+   * whatever the planner returned — stable enough to look deliberate, free to
+   * change on the next read. Sorting on arrival means the page a reader
+   * describes to someone else is the page that person opens.
+   *
+   * Most-answered question first: the one the whole list answered says more
+   * about the audience than one a handful reached. Answers within a question
+   * the same way, so the modal reply is the first line, and ties settle on the
+   * text rather than on nothing.
+   */
+  const total = (answers: FormAnswer[]) => answers.reduce((n, a) => n + a.leads, 0);
+  const questions = [...groups]
+    .map(([question, answers]) => ({
+      question,
+      answers: [...answers].sort((a, b) => b.leads - a.leads || a.answer.localeCompare(b.answer)),
+      leads: total(answers),
+    }))
+    .sort((a, b) => b.leads - a.leads || a.question.localeCompare(b.question));
+
   return <div className="form-splits">
-    {[...groups].map(([question, answers]) => <section className="form-split" key={question}>
+    {questions.map(({ question, answers }) => <section className="form-split" key={question}>
       <h2>{question}</h2>
       <table className="plain"><thead><tr><th>Answer</th><th className="num">Leads</th></tr></thead>
         <tbody>{answers.slice(0, 30).map((row) => <tr key={row.answer}>

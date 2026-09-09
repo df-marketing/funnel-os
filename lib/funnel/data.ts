@@ -624,13 +624,42 @@ const loadFilterOptions = unstable_cache(
     const dayLabel = (d: string) =>
       new Date(`${d}T00:00:00Z`).toLocaleDateString("en-SG", {
         day: "numeric", month: "short", timeZone: "UTC",
-      });
+      })
+        // en-SG abbreviates September to "Sept"; every other month gets three
+        // letters. The odd one out costs a character in a column that has none
+        // to spare, and no reader needs the fourth to know which month it is.
+        .replace("Sept", "Sep");
+    const dayOnly = (d: string) => String(Number(d.slice(8, 10)));
+
+    /**
+     * THE RANGE HAS TO FIT THE COLUMN IT IS PRINTED IN.
+     *
+     * "0526-02 (SG) · 13 May–19 May" is 28 characters in a 204px nav, so it
+     * clipped mid-range — the reader saw "13 May–19…" and had to hover to learn
+     * the one thing the label was added to say. Two redundancies were paying
+     * for that:
+     *
+     *   the month, twice, when the round does not cross one — most do not
+     *   the market, on every row, when the client only runs in one
+     *
+     * Neither carries information here. Dropped, the same round reads
+     * "0526-02 · 13–19 May" and fits. A round that does cross a month keeps
+     * both — "0926-01 · 28 Aug–3 Sep" — because there the second month is the
+     * point. And once a client runs MY and SG against the same code, the market
+     * comes back on its own, which is exactly when it starts meaning something.
+     */
+    const markets = new Set(rs.map((r) => r.market).filter(Boolean));
+    const range = (from: string, to: string) =>
+      from.slice(0, 7) === to.slice(0, 7)
+        ? `${dayOnly(from)}–${dayLabel(to)}`
+        : `${dayLabel(from)}–${dayLabel(to)}`;
 
     const periods: Period[] = [
       ...[...months].map(([k, v]) => ({ key: `m:${k}`, label: monthLabel(k), from: v.from, to: v.to })),
       ...rs.map((r) => ({
         key: `r:${r.round_id}`,
-        label: `${r.code ?? r.round_id}${r.market ? ` (${r.market})` : ""} · ${dayLabel(r.start_date)}–${dayLabel(r.end_date)}`,
+        label: `${r.code ?? r.round_id}${r.market && markets.size > 1 ? ` (${r.market})` : ""}`
+          + ` · ${range(r.start_date, r.end_date)}`,
         from: r.start_date,
         to: r.end_date,
       })),
