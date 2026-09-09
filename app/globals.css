@@ -97,7 +97,17 @@ a { color: inherit; text-decoration: none; }
   display: inline-block; width: auto; padding: 2px 8px; font-size: 11.5px;
   border: 1px solid var(--line); border-left: 1px solid var(--line); border-radius: var(--r);
   color: var(--ink-2); background: transparent; line-height: 1.5;
+  /* An ad set name runs to 38 characters — wider than this 204px column — and
+     flex-wrap cannot wrap INSIDE a chip, so it used to hang out over the table.
+     Clip instead; the full name is on the title, and the audience row below
+     gives the long ones a line each so most are readable without hovering. */
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* Rows whose values are names rather than words stack one per line: seven
+   wrapped chips of near-identical length read as a wall, and every one of them
+   was being truncated at a different point. */
+.filter-row.long .filter-opts { display: grid; gap: 3px; }
+.filter-row.long a.filter-opt { text-align: left; }
 .nav .filters a.filter-opt:hover { background: var(--surface-2); color: var(--ink); }
 .nav .filters a.filter-opt[aria-pressed="true"] {
   color: var(--ink); font-weight: 600; border-color: var(--accent); background: var(--accent-wash);

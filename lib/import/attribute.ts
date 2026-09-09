@@ -143,12 +143,42 @@ export function roundFromCampaign(campaign: string | null, rounds: Round[]): Rou
 }
 
 /** Which round's class this attendance row belongs to, given a session label or id. */
-export function resolveRoundRef(ref: string, rounds: Round[]): string | null {
+/**
+ * WHICH ROUND A FILE MEANS WHEN IT SAYS "0526-01".
+ *
+ * The id is unique and the code is not: markets may reuse codes, which is the
+ * whole point of scoping them. So a registration list naming 0526-01 can mean
+ * the Malaysian round or the Singaporean one, and picking either is a coin
+ * flip that lands people in the wrong market's numbers.
+ *
+ * `market` is the hint — the import batch knows which market it belongs to
+ * even when the file does not say. When the code is ambiguous and the hint
+ * does not settle it, this REFUSES. It used to fall through to matching a
+ * session date and then to a substring, which would have quietly picked one.
+ * An unplaceable row parks in the unmatched queue, where somebody decides;
+ * that is the whole reason the queue exists.
+ */
+export function resolveRoundRef(
+  ref: string,
+  rounds: Round[],
+  market?: string | null,
+): string | null {
   const s = ref.trim();
   const exact = rounds.find((r) => r.round_id.toLowerCase() === s.toLowerCase());
   if (exact) return exact.round_id;
+
   const byCode = rounds.filter((r) => r.code?.toLowerCase() === s.toLowerCase());
   if (byCode.length === 1) return byCode[0].round_id;
+  if (byCode.length > 1) {
+    // Ambiguous by code. The hint is the only thing that can settle it, and if
+    // it cannot, refusing is the honest answer.
+    if (!market) return null;
+    const inMarket = byCode.filter(
+      (r) => (r.market ?? r.country ?? "").toUpperCase() === market.toUpperCase(),
+    );
+    return inMarket.length === 1 ? inMarket[0].round_id : null;
+  }
+
   const bySession = rounds.find((r) => r.session_dates.some((d) => day(d) === day(s)));
   if (bySession) return bySession.round_id;
   const contains = rounds.find((r) => s.toLowerCase().includes(r.round_id.toLowerCase()));

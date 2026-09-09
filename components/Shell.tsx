@@ -269,8 +269,13 @@ function FilterBar({
     options: { key: string | null; label: string; sub?: string; dim?: boolean }[],
     active: string | null,
     build: (key: string | null) => FilterKey,
+    long = false,
   ) => (
-    <div className="filter-row">
+    /* Long-named rows stack one per line. Audience and period carry names —
+       Cold_CourseCreatorsKnowledgeBusinesses, 0526-02 (SG) · 13 May–19 May —
+       and seven of those wrapped as chips is a wall of near-identical clipped
+       text. Product, channel, country and credit stay chips; they are words. */
+    <div className={`filter-row${long ? " long" : ""}`}>
       <span className="filter-label">{label}</span>
       <div className="filter-opts">
         {options.map((o) => {
@@ -284,7 +289,11 @@ function FilterBar({
               href={href(client, view, build(next), opts)}
               className={`filter-opt${o.dim ? " dim" : ""}`}
               aria-pressed={pressed}
-              title={o.sub}
+              /* A long label is clipped, so the full one has to live somewhere.
+                 An ad set name can run to 38 characters — longer than the whole
+                 sidebar — and the sub, where there is one, is the more useful
+                 thing to read. */
+              title={o.sub ? `${o.label} — ${o.sub}` : o.label}
             >
               {o.label}
             </Link>
@@ -369,6 +378,7 @@ function FilterBar({
         }))],
         filter.audience,
         (audience) => ({ ...filter, audience }),
+        true,
       ) : null}
       {row(
         "Credit",
@@ -394,6 +404,7 @@ function FilterBar({
         ],
         filter.periods,
         (periods) => ({ ...filter, periods }),
+        true,
       )}
       {/*
         Said only while a channel is chosen, and the second half only when

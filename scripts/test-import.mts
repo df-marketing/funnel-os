@@ -2481,5 +2481,39 @@ console.log("\nUnidentified — counted as a headcount, attached to nobody");
      labelOf({ label: "CPA", fmt: "m" }, "MYR"), "CPA (MYR)");
 }
 
+{
+  // ── A CODE IS NOT UNIQUE ONCE MARKETS SCOPE IT ────────────────────────────
+  // round_id is unique; code is not. A registration list saying 0526-01 can
+  // mean the Malaysian round or the Singaporean one, and picking either is a
+  // coin flip that lands people in the wrong market's numbers.
+  const R = (round_id: string, code: string, market: string | null) => ({
+    round_id, code, market, client_id: "shely",
+    start_date: "2026-05-13", end_date: "2026-05-19", session_dates: [] as string[],
+  });
+  const both = [R("SG-0526-01", "0526-01", "SG"), R("MY-0526-01", "0526-01", "MY")];
+  const one  = [R("0526-02", "0526-02", "SG")];
+
+  eq("the immutable id always wins", resolveRoundRef("SG-0526-01", both), "SG-0526-01");
+  eq("a code only one round holds needs no hint", resolveRoundRef("0526-02", one), "0526-02");
+  eq("an ambiguous code with a hint resolves",
+     resolveRoundRef("0526-01", both, "MY"), "MY-0526-01");
+  eq("and the other way", resolveRoundRef("0526-01", both, "SG"), "SG-0526-01");
+  eq("an ambiguous code with NO hint is refused, not guessed",
+     resolveRoundRef("0526-01", both), null);
+  eq("a hint naming no round it holds is refused too",
+     resolveRoundRef("0526-01", both, "TH"), null);
+  eq("a hint is ignored when the code was never ambiguous",
+     resolveRoundRef("0526-02", one, "MY"), "0526-02");
+  eq("a code nobody holds is still refused", resolveRoundRef("9999-99", both), null);
+
+  // The fallback that used to fire on an ambiguous code and pick one.
+  const dated = [{ ...R("SG-0526-01", "0526-01", "SG"), session_dates: ["2026-05-19"] },
+                 { ...R("MY-0526-01", "0526-01", "MY"), session_dates: ["2026-05-20"] }];
+  eq("an ambiguous code does not fall through to a session date",
+     resolveRoundRef("0526-01", dated), null);
+  eq("but a session date on its own still resolves",
+     resolveRoundRef("2026-05-20", dated), "MY-0526-01");
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
