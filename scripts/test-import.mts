@@ -2515,5 +2515,62 @@ console.log("\nUnidentified — counted as a headcount, attached to nobody");
      resolveRoundRef("2026-05-20", dated), "MY-0526-01");
 }
 
+{
+  // ── A DUPLICATE LEAD IS STILL ENRICHED ────────────────────────────────────
+  // Form questions arrive on a contacts export months after the lead did, so
+  // nearly every row naming an answer is a row this app already has. Skipping
+  // it as a duplicate is right for the event and threw the answer away with it:
+  // on the first real export, 1,407 of 1,469 rows were skipped and the answers
+  // reached 47 people.
+  const existing = [{
+    event_id: "e1", contact_id: "c1", round_id: "0526-02", event_type: "lead",
+    event_date: "2026-05-14", product: null, amount: null, refund_amount: null,
+    lead_round_id: "0526-02", source: "Paid Ads", anon_key: null,
+    utm_campaign: null, answers: {},
+  }];
+  const db = fakeDb({
+    rounds: ROUNDS, contacts: [{ contact_id: "c1", email: "a@b.com", phone: null, client_id: "shely" }],
+    events: existing, ads_performance: [], v_column_map: [],
+  });
+  const again = await planImport(db, {
+    source: "leads", clientId: "shely", fileName: "ghl.csv",
+    text: [
+      "Email,Created,What is your current profession?",
+      "a@b.com,2026-05-14,Business Owner",
+    ].join("\n"),
+  });
+  eq("the lead is not written twice", again.ops.events.length, 0);
+  eq("it is still counted a duplicate", again.counts.duplicates, 1);
+  eq("but its answer is queued as an update", again.ops.answerUpdates.length, 1);
+  eq("against the row that already exists", again.ops.answerUpdates[0].event_id, "e1");
+  eq("carrying the answer",
+     (again.ops.answerUpdates[0].answers as Record<string, string>)["What is your current profession?"],
+     "Business Owner");
+  eq("and the diff says a row changed", again.diff.changedRows, 1);
+
+  // Only ever adds. Re-importing an older export must not overwrite a newer
+  // answer with a stale one.
+  const held = [{ ...existing[0], answers: { "What is your current profession?": "Coach" } }];
+  const stale = await planImport(fakeDb({
+    rounds: ROUNDS, contacts: [{ contact_id: "c1", email: "a@b.com", phone: null, client_id: "shely" }],
+    events: held, ads_performance: [], v_column_map: [],
+  }), {
+    source: "leads", clientId: "shely", fileName: "ghl.csv",
+    text: "Email,Created,What is your current profession?\na@b.com,2026-09-02,Business Owner",
+  });
+  eq("a stored answer is never overwritten", stale.ops.answerUpdates.length, 0);
+  eq("and nothing is reported as changed", stale.diff.changedRows, 0);
+
+  // A row with no answers at all changes nothing.
+  const bare = await planImport(fakeDb({
+    rounds: ROUNDS, contacts: [{ contact_id: "c1", email: "a@b.com", phone: null, client_id: "shely" }],
+    events: existing.map((e) => ({ ...e, answers: {} })), ads_performance: [], v_column_map: [],
+  }), {
+    source: "leads", clientId: "shely", fileName: "ghl.csv",
+    text: "Email,Created\na@b.com,2026-09-02",
+  });
+  eq("a duplicate carrying nothing queues nothing", bare.ops.answerUpdates.length, 0);
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

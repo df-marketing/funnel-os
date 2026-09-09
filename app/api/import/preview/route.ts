@@ -77,6 +77,7 @@ function summarise(p: Plan) {
       ads: p.ops.ads.length,
       unmatched: p.ops.unmatched.length,
       refunds: p.ops.refundUpdates.length,
+      answers: p.ops.answerUpdates.length,
     },
     /**
      * A scroll import writes no events and no ads, so every count above it is

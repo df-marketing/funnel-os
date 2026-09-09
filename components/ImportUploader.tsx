@@ -12,7 +12,7 @@ type Summary = {
   diff: { newRows: number; changedRows: number; restatements: string[] };
   warnings: string[];
   prerequisite: string | null;
-  willWrite: { contacts: number; events: number; ads: number; unmatched: number; refunds: number };
+  willWrite: { contacts: number; events: number; ads: number; unmatched: number; refunds: number; answers: number };
   scroll: {
     round: string; device: string; sessions: number;
     pageViews: number | null; points: number; replaces: boolean;
@@ -210,6 +210,11 @@ function Diff({ plan }: { plan: Summary }) {
               {willWrite.events ? `${willWrite.events} events` : null}
               {willWrite.ads ? `${willWrite.ads} ads rows` : null}
               {willWrite.contacts ? ` · ${willWrite.contacts} new contacts` : ""}
+              {/* Form answers arrive months after the leads do, so almost every
+                  row carrying one is a lead this app already has. Written as an
+                  update, not an insert — and said plainly, because "47 events"
+                  beside 1,469 rows reads as a failed import otherwise. */}
+              {willWrite.answers ? ` · ${willWrite.answers} leads gain form answers` : ""}
               {!willWrite.events && !willWrite.ads ? "nothing new" : ""}
             </>
           )}

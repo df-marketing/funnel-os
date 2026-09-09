@@ -73,6 +73,19 @@ export type Plan = {
     unmatched: Array<Record<string, unknown>>;
     refundUpdates: Array<{ event_id: string; refund_amount: number; refund_date: string | null }>;
     /**
+     * Answers for a lead that is ALREADY here.
+     *
+     * The form questions arrive on a contacts export months after the lead
+     * itself did, so almost every row naming an answer is a row this app
+     * already has. Skipping it as a duplicate — which is right for the event —
+     * threw the answer away with it: on the first real export, 1,407 of 1,469
+     * rows were skipped and the answers reached 47 people.
+     *
+     * A duplicate lead is still not a new lead. It is the same lead, now
+     * carrying something it did not carry before.
+     */
+    answerUpdates: Array<{ event_id: string; answers: Record<string, string> }>;
+    /**
      * Parked rows this import has just made countable.
      *
      * Adding phone matching to sales means a row that parked last week matches
@@ -424,7 +437,7 @@ async function planScroll(
     warnings: [...new Set(warnings)],
     prerequisite: null,
     ops: {
-      contacts: [], events: [], ads: [], unmatched: [], refundUpdates: [],
+      contacts: [], events: [], ads: [], unmatched: [], refundUpdates: [], answerUpdates: [],
       supersededParked: [], adoptedParked: [],
       scroll: {
         run: {
@@ -587,7 +600,7 @@ export async function planImport(
     diff: { newRows: 0, changedRows: 0, restatements: [] },
     warnings,
     prerequisite: null,
-    ops: { contacts: [], events: [], ads: [], unmatched: [], refundUpdates: [], supersededParked: [], adoptedParked: [], scroll: null },
+    ops: { contacts: [], events: [], ads: [], unmatched: [], refundUpdates: [], answerUpdates: [], supersededParked: [], adoptedParked: [], scroll: null },
   };
 
   const dates: string[] = [];
@@ -732,8 +745,9 @@ export async function planImport(
     lead_round_id: string | null; source: string | null;
     anon_key: string | null;
     utm_campaign: string | null;
+    answers: Record<string, string> | null;
   }>(db, "events",
-    "event_id, contact_id, round_id, event_type, event_date, product, amount, refund_amount, lead_round_id, source, anon_key, utm_campaign",
+    "event_id, contact_id, round_id, event_type, event_date, product, amount, refund_amount, lead_round_id, source, anon_key, utm_campaign, answers",
     (q) => q.in("round_id", roundIds));
 
   const adRuns = await fetchAll<AdSetRun>(db, "ads_performance", "ad_set, round_id, date",
@@ -842,6 +856,36 @@ export async function planImport(
       eventKey(e.event_type, e.anon_key ?? e.contact_id ?? "", e.round_id, e.event_date, e.product),
     ),
   );
+  /** The same keys, pointing at the row, so a duplicate can still be enriched. */
+  const eventByKey = new Map(
+    events.map((e) => [
+      eventKey(e.event_type, e.anon_key ?? e.contact_id ?? "", e.round_id, e.event_date, e.product),
+      e,
+    ]),
+  );
+
+  /**
+   * A duplicate lead carrying answers the stored row does not have.
+   *
+   * Only ever adds: a key already present keeps its stored value, so
+   * re-importing an older export cannot overwrite a newer answer. Returns true
+   * when something was actually queued, so the diff can count it.
+   */
+  const enrich = (key: string, incoming: Record<string, string>): boolean => {
+    if (!Object.keys(incoming).length) return false;
+    const prior = eventByKey.get(key);
+    if (!prior || prior.event_type !== "lead") return false;
+    const have = prior.answers ?? {};
+    const merged = { ...have };
+    let added = 0;
+    for (const [k, v] of Object.entries(incoming)) {
+      if (have[k] === undefined && v) { merged[k] = v; added++; }
+    }
+    if (!added) return false;
+    plan.ops.answerUpdates.push({ event_id: prior.event_id, answers: merged });
+    prior.answers = merged;  // a later row in the same file sees it too
+    return true;
+  };
 
   // newly created contacts are matchable by later rows in the SAME file
   const addContact = (email: string | null, phone: string | null) => {
@@ -969,7 +1013,11 @@ export async function planImport(
         else if (anonAttr.method === "date_window") plan.attribution.dateWindow++;
         else plan.attribution.none++;
         const key = eventKey("lead", anon, anonAttr.roundId, when);
-        if (seenEvents.has(key)) { plan.counts.duplicates++; continue; }
+        if (seenEvents.has(key)) {
+          if (enrich(key, answersFor(r))) plan.diff.changedRows++;
+          plan.counts.duplicates++;
+          continue;
+        }
         seenEvents.add(key);
         track(sgDayOf(when));
         plan.ops.events.push({
@@ -1026,7 +1074,11 @@ export async function planImport(
       if (!roundId) { park("no_matching_round", r, null, "no round covers this opt-in date", "none"); continue; }
 
       const key = eventKey("lead", contactId, roundId, when);
-      if (seenEvents.has(key)) { plan.counts.duplicates++; continue; }
+      if (seenEvents.has(key)) {
+        if (enrich(key, answersFor(r))) plan.diff.changedRows++;
+        plan.counts.duplicates++;
+        continue;
+      }
       seenEvents.add(key);
 
       const src = val(r, "source") || (adSet ? "Paid Ads" : "Organic");
@@ -1299,6 +1351,21 @@ export async function commitPlan(db: SupabaseClient, batchId: string, plan: Plan
       .eq("event_id", u.event_id);
     if (error) throw new ImportError(`Applying a refund failed: ${error.message}`);
   }
+  /**
+   * Answers onto leads that were already here.
+   *
+   * Written one row at a time like the refunds above, and for the same reason:
+   * each carries its own event_id and there is no shape that updates many rows
+   * with different values in one statement. A few hundred is fine; this runs
+   * once per export, not once per read.
+   */
+  for (const u of plan.ops.answerUpdates) {
+    const { error } = await db.from("events")
+      .update({ answers: u.answers })
+      .eq("event_id", u.event_id);
+    if (error) throw new ImportError(`Writing form answers failed: ${error.message}`);
+  }
+
 
   // Rows that were waiting in the queue and have just been written for real.
   // Left alone they would hold revenue that is now counted, which would make
