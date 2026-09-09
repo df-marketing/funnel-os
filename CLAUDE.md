@@ -60,6 +60,8 @@
 - Absent (null/missing) values are treated as distinct from zero for sales and for spend that has no named audience.
 - Rows held back during import are rows that failed validation/merge, not rows we already had in the database.
 - A rule is a row, not a CASE statement.
+- refresh data button added to force a re-read of data.
+- Supabase secret key and service role key are both accepted as env vars for flexibility.
 
 ## Architecture
 
@@ -81,6 +83,11 @@
 - The views read the rules, not the CASE (attribution logic is driven by rules configuration).
 - Offers, months, sequences, session formats, and landing pages all follow credited sales.
 - A sale is one fact with credited rows; sales credit is summed, never duplicated.
+- 'by source' tab wired with a two-level column header structure; both 'by source' and 'by metric' tabs are now wired.
+- app has nav shell, journey strip, client switcher, and two wired tabs (by source, by metric) — sprint 2.
+- walkthrough moved into the app UI (no longer external documentation); opens by default on launch with persistent close state.
+- seeded demo data can be wiped reversibly (migration/seed reset).
+- function moved closer to database (edge function / co-located query), fetches only the open tab, and caches results.
 
 ## Gotchas
 
@@ -138,6 +145,7 @@
 - accepting an unmatched item previously discarded funds; fixed by making the unmatched queue two-way so accepting no longer loses money.
 - five import bugs were found and fixed by testing against real exports, confirming the value of dry-run/real-export testing.
 - A pull that half-failed was reporting null/empty as if it were a finding — likely a bug in how dry-run or import reporting handled missing values.
+- client switcher defaults to opening on 'shely', not the first alphabetically sorted client.
 
 ## Notes
 
