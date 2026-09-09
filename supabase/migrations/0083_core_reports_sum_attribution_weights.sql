@@ -14,6 +14,70 @@
 
 begin;
 
+-- fo_metrics historically accepted whole purchase counts. Keep that original
+-- signature for untouched views and add this exact numeric overload for
+-- attributed views, where Even Split can produce 0.5 purchases.
+create or replace function fo_metrics(
+  p_has_ads           boolean,
+  p_spend             numeric,
+  p_reach             bigint,
+  p_impressions       bigint,
+  p_clicks            bigint,
+  p_leads             bigint,
+  p_attendance        bigint,
+  p_preview_purchases numeric,
+  p_middle_purchases  numeric,
+  p_preview_revenue   numeric,
+  p_middle_revenue    numeric,
+  p_preview_price     numeric,
+  p_middle_price      numeric
+) returns jsonb
+language sql
+immutable
+as $$
+  with m as (
+    select
+      case when p_has_ads then p_spend       end as spend,
+      case when p_has_ads then p_reach       end as reach,
+      case when p_has_ads then p_impressions end as impressions,
+      case when p_has_ads then p_clicks      end as clicks,
+      p_leads as leads, p_attendance as attendance,
+      p_preview_purchases as prev_buy, p_middle_purchases as mid_buy,
+      p_preview_revenue as prev_rev, p_middle_revenue as mid_rev
+  )
+  select jsonb_build_object(
+    'spend', spend, 'reach', reach,
+    'freq', impressions::numeric / nullif(reach, 0),
+    'impr', impressions, 'clicks', clicks,
+    'leads', leads, 'att', attendance,
+    'prevBuy', prev_buy, 'midBuy', mid_buy,
+    'prevRev', prev_rev, 'midRev', mid_rev,
+    'prevPrice', case when prev_buy > 0 then p_preview_price end,
+    'midPrice', case when mid_buy > 0 then p_middle_price end,
+    'rev', prev_rev + mid_rev,
+    'ctr', clicks::numeric * 100 / nullif(impressions, 0),
+    'leadgen', leads::numeric * 100 / nullif(clicks, 0),
+    'attPct', attendance::numeric * 100 / nullif(leads, 0),
+    'prevPct', prev_buy::numeric * 100 / nullif(attendance, 0),
+    'midPct', mid_buy::numeric * 100 / nullif(prev_buy, 0),
+    'cpm', spend * 1000 / nullif(impressions, 0),
+    'cpc', spend / nullif(clicks, 0),
+    'cpl', spend / nullif(leads, 0),
+    'cpAtt', spend / nullif(attendance, 0),
+    'cpa', spend / nullif(prev_buy, 0),
+    'prevAov', prev_rev / nullif(prev_buy, 0),
+    'prevRoas', prev_rev / nullif(spend, 0),
+    'midAov', mid_rev / nullif(mid_buy, 0),
+    'midRoas', mid_rev / nullif(spend, 0),
+    'roas', (prev_rev + mid_rev) / nullif(spend, 0)
+  )
+  from m;
+$$;
+
+grant execute on function fo_metrics(boolean, numeric, bigint, bigint, bigint,
+  bigint, bigint, numeric, numeric, numeric, numeric, numeric, numeric)
+  to anon, authenticated;
+
 -- The existing helper accepts an integer customer count. Even Split can make
 -- that count fractional, so this overload preserves the same ROAS/CPA formula
 -- without rounding a credited half-sale into a whole customer.
