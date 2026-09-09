@@ -152,7 +152,7 @@ export function TopBar({
         </span>
       )}
       <span className="meta">
-        through {span} · <b>SGD</b>
+        through {span} · <b>{current.currency ?? "SGD"}</b>
       </span>
       <RefreshButton />
     </div>

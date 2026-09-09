@@ -18,6 +18,10 @@ import { localDay } from "./csv";
 
 export type Round = {
   round_id: string;
+  /** Human display identity; distinct from the immutable foreign-key id. */
+  code?: string | null;
+  /** Market scopes a reusable code such as 0526-01. */
+  market?: string | null;
   client_id: string;
   start_date: string;
   end_date: string;
@@ -128,10 +132,14 @@ export function roundFromCampaign(campaign: string | null, rounds: Round[]): Rou
   // A market-bearing campaign must not pick an equally named round in another
   // market.  Older rounds with no country remain eligible as a compatibility
   // fallback until they are scoped; an explicit matching market wins first.
-  const sameMarket = market ? rounds.filter((r) => r.country?.toUpperCase() === market) : [];
+  // `market` is canonical after 0096; country is only the additive-migration
+  // fallback for pre-existing callers until every round has been backfilled.
+  const sameMarket = market ? rounds.filter((r) =>
+    (r.market ?? r.country)?.toUpperCase() === market,
+  ) : [];
   const candidates = [...(sameMarket.length ? sameMarket : rounds)]
-    .sort((a, b) => b.round_id.length - a.round_id.length);
-  return candidates.find((r) => hay.includes(r.round_id.toLowerCase().replace(/_/g, "-"))) ?? null;
+    .sort((a, b) => (b.code ?? b.round_id).length - (a.code ?? a.round_id).length);
+  return candidates.find((r) => hay.includes((r.code ?? r.round_id).toLowerCase().replace(/_/g, "-"))) ?? null;
 }
 
 /** Which round's class this attendance row belongs to, given a session label or id. */
@@ -139,6 +147,8 @@ export function resolveRoundRef(ref: string, rounds: Round[]): string | null {
   const s = ref.trim();
   const exact = rounds.find((r) => r.round_id.toLowerCase() === s.toLowerCase());
   if (exact) return exact.round_id;
+  const byCode = rounds.filter((r) => r.code?.toLowerCase() === s.toLowerCase());
+  if (byCode.length === 1) return byCode[0].round_id;
   const bySession = rounds.find((r) => r.session_dates.some((d) => day(d) === day(s)));
   if (bySession) return bySession.round_id;
   const contains = rounds.find((r) => s.toLowerCase().includes(r.round_id.toLowerCase()));

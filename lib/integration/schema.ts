@@ -55,6 +55,7 @@ export type FunnelSchema = {
   clientName: string;
   /** Switcher subtitle. Omitted keeps whatever is stored, like unit_price. */
   clientNote: string | null;
+  currency: "SGD" | "MYR" | null;
   /**
    * The caller asserting it is opening a client that does not exist yet.
    * Without it an unknown clientId is a typo, not an onboarding.
@@ -102,6 +103,8 @@ export function validateFunnelSchema(input: unknown):
   const rows = input.stages;
   const clientNote = input.clientNote;
   const createClient = input.createClient;
+  const currencyRaw = string(input.currency).toUpperCase();
+  const currency = currencyRaw === "RM" ? "MYR" : currencyRaw;
 
   if (!CLIENT_ID.test(clientId)) {
     errors.push({ stage: null, field: "clientId", message: "must be lowercase letters, numbers, underscores or hyphens" });
@@ -117,6 +120,9 @@ export function validateFunnelSchema(input: unknown):
   }
   if (createClient !== undefined && typeof createClient !== "boolean") {
     errors.push({ stage: null, field: "createClient", message: "must be omitted or a boolean" });
+  }
+  if (input.currency !== undefined && input.currency !== null && currency !== "SGD" && currency !== "MYR") {
+    errors.push({ stage: null, field: "currency", message: "must be SGD, MYR, or RM" });
   }
   if (!Array.isArray(rows) || rows.length === 0) {
     errors.push({ stage: null, field: "stages", message: "must contain at least one stage" });
@@ -211,6 +217,7 @@ export function validateFunnelSchema(input: unknown):
     value: {
       clientId, clientName,
       clientNote: clientNote === undefined || clientNote === null ? null : string(clientNote),
+      currency: input.currency === undefined || input.currency === null ? null : currency as "SGD" | "MYR",
       createClient: createClient === true,
       source: "acqos", schemaVersion: 1, generatedAt,
       stages: stages.sort((a, b) => a.order - b.order),

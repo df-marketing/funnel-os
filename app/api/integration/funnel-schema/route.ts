@@ -127,6 +127,13 @@ export async function POST(request: Request) {
     }, { status: 409 });
   }
 
+  if (schema.currency) {
+    const { error: currencyError } = await db.from("client_flags").upsert(
+      { client_id: schema.clientId, currency: schema.currency }, { onConflict: "client_id" },
+    );
+    if (currencyError) return NextResponse.json({ error: `Could not store currency: ${currencyError.message}` }, { status: 500 });
+  }
+
   revalidatePath("/");
   revalidateTag(FUNNEL_TAG);
   // A price, breakdown or rate label the payload did not carry was kept from the
@@ -144,5 +151,6 @@ export async function POST(request: Request) {
     dimensionsPreserved: outcome?.dimensionsPreserved ?? [],
     rateLabelsPreserved: outcome?.rateLabelsPreserved ?? [],
     syncedAt: new Date().toISOString(),
+    currency: schema.currency,
   });
 }

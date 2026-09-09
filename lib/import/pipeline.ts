@@ -262,7 +262,7 @@ function refuseIfNothingUsable(unusable: number, total: number, label: string) {
 async function loadRounds(db: SupabaseClient, clientId: string): Promise<Round[]> {
   const [roundRows, sessionRows] = await Promise.all([
     fetchAll<Omit<Round, "session_dates"> & { session_date: string | null }>(
-      db, "rounds", "round_id, client_id, start_date, end_date, country, session_date",
+      db, "rounds", "round_id, client_id, start_date, end_date, country, market, code, session_date",
       (q) => q.eq("client_id", clientId)),
     fetchAll<{ round_id: string; session_date: string }>(
       db, "round_sessions", "round_id, session_date"),
@@ -277,6 +277,8 @@ async function loadRounds(db: SupabaseClient, clientId: string): Promise<Round[]
     round_id: r.round_id, client_id: r.client_id,
     start_date: r.start_date, end_date: r.end_date,
     country: r.country,
+    market: r.market,
+    code: r.code,
     // fall back to the round's own column for a database that hasn't run 0025
     session_dates: sessionsByRound.get(r.round_id) ?? (r.session_date ? [r.session_date] : []),
   }));
@@ -538,6 +540,23 @@ export async function planImport(
     return s ? s : null;
   };
 
+  // Ads can carry measurements beyond delivery's four fixed columns. Match
+  // only this client's declarations (plus global ones), persist the exact
+  // header mapping, and leave an omitted declared measure absent rather than 0.
+  const adMeasures = new Map<string, string>();
+  if (source === "ads") {
+    const { data, error } = await db.from("journey_metrics")
+      .select("metric, aliases, client_id").eq("source", "ads");
+    if (error) throw new ImportError(`Could not read declared ads measures: ${error.message}`);
+    const canon = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+    for (const row of (data ?? []) as Array<{ metric: string; aliases: string[] | null; client_id: string | null }>) {
+      if (row.client_id !== null && row.client_id !== clientId) continue;
+      const choices = [row.metric, ...(row.aliases ?? [])].map(canon);
+      const header = headers.find((h) => choices.includes(canon(h)));
+      if (header) adMeasures.set(row.metric, header);
+    }
+  }
+
   /**
    * GoHighLevel keeps form answers as ordinary export columns.  Preserve every
    * non-identity extra on lead rows, verbatim, rather than teaching the schema
@@ -636,7 +655,7 @@ export async function planImport(
       const campaignRound = roundFromCampaign(campaign, rounds);
       const market = countryOf(campaign);
       const dateCandidates = rounds.filter((x) =>
-        (!market || !x.country || x.country.toUpperCase() === market) &&
+        (!market || !x.market || x.market.toUpperCase() === market) &&
         dayOf(x.start_date)! <= date && date <= dayOf(x.end_date)!,
       );
       const round =
@@ -675,6 +694,10 @@ export async function planImport(
         reach: round0(toNumber(val(r, "reach"))),
         clicks: round0(toNumber(val(r, "clicks"))),
         channel: normChannel(val(r, "channel")),
+        measures: Object.fromEntries([...adMeasures].flatMap(([metric, header]) => {
+          const measured = toNumber(r[header]?.trim() || null);
+          return measured === null ? [] : [[metric, measured]];
+        })),
       });
       plan.diff.newRows++;
     }

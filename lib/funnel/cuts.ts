@@ -115,8 +115,8 @@ export const narrowToAsset = <T extends { group_key?: string | null }>(
  * The name is only trusted when it overlaps the round's actual dates; a
  * round named something that does not is filed by when it ran.
  */
-export const monthOf = (r: { round_id: string; start_date: string; end_date: string }) => {
-  const m = /^(\d{2})(\d{2})-/.exec(r.round_id);
+export const monthOf = (r: { round_id: string; code?: string | null; start_date: string; end_date: string }) => {
+  const m = /^(\d{2})(\d{2})-/.exec(r.code ?? r.round_id);
   if (!m) return r.start_date.slice(0, 7);
   const named = `20${m[2]}-${m[1]}`;
   if (m[1] < "01" || m[1] > "12") return r.start_date.slice(0, 7);

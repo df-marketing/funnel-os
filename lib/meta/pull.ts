@@ -56,8 +56,8 @@ export async function runPull(
   }
 
   // The round comes from the spend date first — see insights.ts roundOf.
-  const rounds = await fetchAll<{ round_id: string; start_date: string; end_date: string }>(
-    db, "rounds", "round_id, start_date, end_date", (q) => q.eq("client_id", opts.clientId));
+  const rounds = await fetchAll<{ round_id: string; code: string | null; market: string | null; start_date: string; end_date: string }>(
+    db, "rounds", "round_id, code, market, start_date, end_date", (q) => q.eq("client_id", opts.clientId));
 
   const clicks: ClickKind = opts.clicks ?? "link";
   const skipped: Skipped[] = [];

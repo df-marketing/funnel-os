@@ -123,7 +123,13 @@ const text = (v: string | null | undefined): string | null => {
   return s ? s : null;
 };
 
-export type Round = { round_id: string; start_date?: string | null; end_date?: string | null };
+export type Round = {
+  round_id: string; code?: string | null; market?: string | null;
+  start_date?: string | null; end_date?: string | null;
+};
+
+const marketOf = (campaign: string | null) =>
+  /^df-([a-z]{2})-/.exec(String(campaign ?? "").toLowerCase().replace(/_/g, "-"))?.[1]?.toUpperCase() ?? null;
 
 /**
  * WHICH ROUND A DAY OF SPEND BELONGS TO.
@@ -149,8 +155,13 @@ export const roundOf = (
   rounds: Round[],
   date?: string | null,
 ): string | null => {
+  const market = marketOf(campaign);
+  // During the additive migration older callers/fixtures have no market yet.
+  // A matching scoped set wins; only its absence falls back to the legacy set.
+  const sameMarket = market ? rounds.filter((r) => r.market?.toUpperCase() === market) : [];
+  const scoped = sameMarket.length ? sameMarket : rounds;
   if (date) {
-    const inWindow = rounds.find(
+    const inWindow = scoped.find(
       (r) => r.start_date && r.end_date && r.start_date <= date && date <= r.end_date,
     );
     if (inWindow) return inWindow.round_id;
@@ -161,9 +172,9 @@ export const roundOf = (
   if (!campaign) return null;
   const hay = campaign.toLowerCase().replace(/_/g, "-");
   return (
-    [...rounds]
-      .sort((a, b) => b.round_id.length - a.round_id.length)
-      .find((r) => hay.includes(r.round_id.toLowerCase().replace(/_/g, "-")))?.round_id ?? null
+    [...scoped]
+      .sort((a, b) => (b.code ?? b.round_id).length - (a.code ?? a.round_id).length)
+      .find((r) => hay.includes((r.code ?? r.round_id).toLowerCase().replace(/_/g, "-")))?.round_id ?? null
   );
 };
 

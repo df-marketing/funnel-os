@@ -22,6 +22,7 @@ export type Client = {
    * 0042 — read as false, because an unflagged client is a real one.
    */
   is_demo?: boolean | null;
+  currency?: "SGD" | "MYR" | null;
 };
 
 export type Stage = {
@@ -342,7 +343,7 @@ const loadClients = unstable_cache(
   async () => {
     const db = createReadClient();
     const data = ok(
-      await db.from("v_clients").select("client_id, client_name, client_note, stage_count, is_demo"),
+      await db.from("v_clients").select("client_id, client_name, client_note, stage_count, is_demo, currency"),
       "v_clients",
     );
 
@@ -555,7 +556,7 @@ const loadFilterOptions = unstable_cache(
     const [products, channels, rounds, buckets, audiences, adCountries] = await Promise.all([
       db.from("v_products").select("*").eq("client_id", id).order("ord"),
       db.from("v_client_channels").select("*").eq("client_id", id).order("ord"),
-      db.from("rounds").select("round_id, start_date, end_date, country").eq("client_id", id).order("start_date"),
+      db.from("rounds").select("round_id, code, market, start_date, end_date, country").eq("client_id", id).order("start_date"),
       // The buckets this client has people in (0067). Tolerated when absent —
       // a database in front of that migration simply offers no source filter.
       db.from("v_client_sources").select("bucket, ord, note, leads").eq("client_id", id).order("ord"),
@@ -567,7 +568,7 @@ const loadFilterOptions = unstable_cache(
       // a page of rows.
       db.from("v_client_countries").select("country, round_count").eq("client_id", id).order("country"),
     ]);
-    const rs = (ok(rounds, "rounds") as { round_id: string; start_date: string; end_date: string; country: string | null }[] | null) ?? [];
+    const rs = (ok(rounds, "rounds") as { round_id: string; code: string | null; market: string | null; start_date: string; end_date: string; country: string | null }[] | null) ?? [];
     /**
      * The countries this client actually ran in, counted over ROUNDS but
      * gathered from the ad rows.
@@ -629,7 +630,7 @@ const loadFilterOptions = unstable_cache(
       ...[...months].map(([k, v]) => ({ key: `m:${k}`, label: monthLabel(k), from: v.from, to: v.to })),
       ...rs.map((r) => ({
         key: `r:${r.round_id}`,
-        label: `${r.round_id} · ${dayLabel(r.start_date)}–${dayLabel(r.end_date)}`,
+        label: `${r.code ?? r.round_id}${r.market ? ` (${r.market})` : ""} · ${dayLabel(r.start_date)}–${dayLabel(r.end_date)}`,
         from: r.start_date,
         to: r.end_date,
       })),
