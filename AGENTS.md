@@ -228,3 +228,4 @@
 - the money display now indicates which money it is (e.g. which currency/metric).
 - A contacts export now flows to the answers, not leads — likely a pipeline routing fix.
 - Merge remote-tracking branch 'origin/main' into rules-rewire — indicates a long-lived branch being synced.
+- The editor is the transaction, so the vacuum was never runnable — likely a design insight or bug discovery about transaction isolation.
