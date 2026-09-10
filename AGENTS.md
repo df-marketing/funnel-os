@@ -170,6 +170,7 @@
 - The same five-row read takes 0.09s idle but 20s under load — massive latency amplification under concurrency.
 - Hiding the Import tab left POST /api/import/commit wide open — the UI gate was removed without securing the endpoint.
 - confirmed multi-client — commit added a second client, verifying the app supports more than one
+- import pipeline dry-run found 5 bugs by testing against real exports, confirming value of real-export testing.
 
 ## Notes
 
@@ -257,3 +258,4 @@
 - signing in and granting nothing is not the same as asking for someone else's
 - the recent commit message says 'Say it to whoever is reading it, not to whoever built it' — likely a meta/naming convention about commit messages or comments being reader-oriented.
 - A runbook for accounts was added, intended for after-hours use.
+- 96 KB of literal rows the database could have generated itself — suggests a large data seed or import payload in the codebase that could be moved to a DB migration/generation.
