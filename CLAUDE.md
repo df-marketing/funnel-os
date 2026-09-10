@@ -73,6 +73,7 @@
 - Login screen is built but left switched off (not activated/enabled).
 - the heading belongs to the group, not to whichever entries survive the gate
 - the app supports multiple clients (confirmed by adding a second client)
+- Half of the GU sync is already built and may not be switched on.
 
 ## Architecture
 
@@ -263,3 +264,4 @@
 - A runbook for accounts was added, intended for after-hours use.
 - 96 KB of literal rows the database could have generated itself — suggests a large data seed or import payload in the codebase that could be moved to a DB migration/generation.
 - A total no column accounts for (commit message incomplete — likely related to null/zero distinction already captured).
+- No objective has been set for the project — milestones exist without a guiding north star.
