@@ -161,6 +161,7 @@
 - the country list is slow and runs on every page (performance hotspot).
 - The commit "The number I was checking against was never real" suggests a phantom-number or imaginary-baseline bug was fixed, but no concrete details are available.
 - v_round_assets reads the same three views eleven times (duplicate reads).
+- campaign lookup was being built four times per page load; reduced to once.
 
 ## Notes
 
