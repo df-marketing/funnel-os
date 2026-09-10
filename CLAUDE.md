@@ -171,6 +171,7 @@
 - Hiding the Import tab left POST /api/import/commit wide open — the UI gate was removed without securing the endpoint.
 - confirmed multi-client — commit added a second client, verifying the app supports more than one
 - import pipeline dry-run found 5 bugs by testing against real exports, confirming value of real-export testing.
+- currency check should refuse nonsense (invalid strings), not valid currencies.
 
 ## Notes
 
