@@ -72,6 +72,7 @@
 - per-client logins are planned; they fail silently in two ways (not yet implemented).
 - Login screen is built but left switched off (not activated/enabled).
 - the heading belongs to the group, not to whichever entries survive the gate
+- the app supports multiple clients (confirmed by adding a second client)
 
 ## Architecture
 
@@ -168,6 +169,7 @@
 - A materialized view has no search path — schema-qualified references are required.
 - The same five-row read takes 0.09s idle but 20s under load — massive latency amplification under concurrency.
 - Hiding the Import tab left POST /api/import/commit wide open — the UI gate was removed without securing the endpoint.
+- confirmed multi-client — commit added a second client, verifying the app supports more than one
 
 ## Notes
 
