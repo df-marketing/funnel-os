@@ -38,6 +38,21 @@ export const runtime = "nodejs";
  * row in the switcher that no import would ever fill.
  */
 
+/**
+ * BRANCH ON `code`, NOT ON THE STATUS.
+ *
+ * Both refusals below are 409 and they want opposite responses. `handle_taken`
+ * means somebody else has the name — mint another and try again.
+ * `source_holds_other` means this AcqOS client already has a handle, and
+ * re-minting there produces a SECOND handle for a client that already has one,
+ * which is the drift the unique index exists to stop. A caller switching on the
+ * status alone cannot tell them apart, and the failure is a mint loop.
+ *
+ * AcqOS inferred the re-mint contract correctly and said they had invented it.
+ * They had; this is it written down, so the next caller does not have to guess
+ * or match on English.
+ */
+
 /** Same shape GT enforces everywhere else a client id is accepted. */
 const CLIENT_ID = /^[a-z0-9_-]+$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -94,6 +109,7 @@ export async function POST(request: Request) {
   if (decision.kind === "handle-taken") {
     return NextResponse.json({
       ok: false,
+      code: "handle_taken",
       error: `handle '${clientId}' is already claimed by a different AcqOS client`,
       retry: "mint a different handle and claim again",
     }, { status: 409 });
@@ -102,6 +118,7 @@ export async function POST(request: Request) {
   if (decision.kind === "source-holds-other") {
     return NextResponse.json({
       ok: false,
+      code: "source_holds_other",
       error: `this AcqOS client already holds the handle '${decision.heldHandle}'`,
       heldHandle: decision.heldHandle,
       retry: "none — use the handle you already hold",

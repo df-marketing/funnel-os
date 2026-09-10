@@ -107,6 +107,7 @@ export async function POST(request: Request) {
   if (!flags && !stageCount) {
     return NextResponse.json({
       ok: false,
+      code: "handle_not_claimed",
       error: `no client '${clientId}' here`,
       hint: "claim the handle at /api/integration/client-handle first",
     }, { status: 404 });
@@ -116,7 +117,9 @@ export async function POST(request: Request) {
   if (sourceClientId && flags?.source_client_id && flags.source_client_id !== sourceClientId) {
     return NextResponse.json({
       ok: false,
+      code: "handle_mismatch",
       error: `handle '${clientId}' is claimed by a different AcqOS client`,
+      retry: "mint a different handle, claim it, then call this again",
     }, { status: 409 });
   }
 
