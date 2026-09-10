@@ -163,6 +163,7 @@
 - v_round_assets reads the same three views eleven times (duplicate reads).
 - campaign lookup was being built four times per page load; reduced to once.
 - A materialized view has no search path — schema-qualified references are required.
+- The same five-row read takes 0.09s idle but 20s under load — massive latency amplification under concurrency.
 
 ## Notes
 
@@ -244,3 +245,4 @@
 - 1,675ms of a 2,062ms query was spent producing an empty object — indicating a severe query inefficiency where most time is wasted building a result that gets discarded.
 - no objective is set — milestones may lack a guiding north star.
 - Credit is treated as a single answer, not a set of answers.
+- Performance bottleneck identified: import pipeline read latency spikes ~222x under concurrent load vs idle.
