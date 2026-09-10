@@ -1532,4 +1532,31 @@ export async function commitPlan(db: SupabaseClient, batchId: string, plan: Plan
     stale_flag: false,
   }).eq("batch_id", batchId);
   if (error) throw new ImportError(`Closing the batch failed: ${error.message}`);
+
+  /**
+   * THE CAMPAIGN LOOKUP IS CACHED, SO AN IMPORT HAS TO SAY SO.
+   *
+   * mv_campaign_dimensions holds every campaign resolved to its market and
+   * landing page. Five views read it and one page load used to rebuild it four
+   * times, which was about half the database floor; it is a materialised view
+   * now and only changes when a file lands or a rule is edited.
+   *
+   * A file has just landed. Any campaign it introduced has no row until this
+   * runs, and until then it reads as no market and no landing page — an
+   * understatement, in the same direction as the unmatched queue, but an
+   * understatement nobody asked for.
+   *
+   * Deliberately AFTER the batch is closed and deliberately not fatal. The rows
+   * are already written and the import succeeded; a refresh that fails must not
+   * turn a good import into an error the user retries. It is reported instead,
+   * and the Refresh data button runs the same function.
+   */
+  const { error: refreshError } = await db.rpc("fo_refresh_lookups");
+  if (refreshError) {
+    console.error(
+      `Import committed, but refreshing the campaign lookup failed: ${refreshError.message}. ` +
+      `Campaigns new to this file will read as having no market until it runs — ` +
+      `press Refresh data, or run: select fo_refresh_lookups();`,
+    );
+  }
 }

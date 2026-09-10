@@ -227,7 +227,10 @@ function fakeDb(tables: Tables) {
     };
     return api;
   };
-  return { from: (t: string) => build(tables[t] ?? []) } as any;
+  return {
+    from: (t: string) => build(tables[t] ?? []),
+    rpc: async () => ({ data: null, error: null }),
+  } as any;
 }
 
 /**
@@ -277,7 +280,20 @@ function writableDb(tables: Tables) {
     };
     return api;
   };
-  return { from: build } as any;
+  /*
+   * `rpc` too, because commitPlan calls fo_refresh_lookups() at the end.
+   *
+   * The stub records the calls rather than ignoring them: refreshing the
+   * campaign lookup after an import is the thing that stops a newly imported
+   * campaign reading as having no market, and a stub that silently swallowed
+   * the call would let that regress without a test noticing.
+   */
+  const rpcCalls: string[] = [];
+  return {
+    from: build,
+    rpc: async (name: string) => { rpcCalls.push(name); return { data: null, error: null }; },
+    rpcCalls,
+  } as any;
 }
 
 const ROUNDS = [
@@ -1986,6 +2002,23 @@ console.log("\nCLARITY SCROLL");
   await commitPlan(wdb, "batch-1", plan);
   eq("one run is stored", tables.scroll_runs.length, 1);
   eq("with all five readings", tables.scroll_depths.length, 5);
+
+  /*
+   * THE CAMPAIGN LOOKUP IS CACHED, SO A COMMIT HAS TO REFRESH IT.
+   *
+   * mv_campaign_dimensions is a materialised view — five views read it and
+   * rebuilding it per query was about half the database floor. It only changes
+   * when a file lands or a rule is edited, and a file has just landed. Until
+   * the refresh runs, a campaign introduced by this import has no row and reads
+   * as having no market and no landing page.
+   *
+   * Pinned here because the failure is invisible: the import succeeds, the
+   * numbers are almost right, and the only symptom is attribution quietly
+   * understating for whatever is new.
+   */
+  ok("committing refreshes the campaign lookup",
+     (wdb as any).rpcCalls.includes("fo_refresh_lookups"),
+     `\n       rpc calls: ${JSON.stringify((wdb as any).rpcCalls)}`);
 
   // Re-exporting the same days is how late data arrives. It must REPLACE:
   // two copies of one measurement would read as twice the traffic.
