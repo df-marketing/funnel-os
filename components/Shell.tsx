@@ -559,26 +559,33 @@ export function SideNav({
         sourceBlanked={sourceBlanked}
       />
 
-      {staff ? <>
-      <div className="nav-group">Data</div>
-      {item("import", "Import")}
-      {item(
-        "unmatched",
-        <>
-          Unmatched {unmatchedCount ? <span className="badge">{unmatchedCount}</span> : null}
-        </>,
-      )}
       {/*
-        Under Data, not under its own heading: the wire is where a funnel comes
-        from and where the readings go, which is the same question as where the
-        four files come from. It is one more source, and the one nobody drops.
+        ONE HEADING, WHOEVER IS READING.
+        Gating the three staff entries by wrapping them left the heading inside
+        the wrapper and a second copy outside it for Form answers, so staff saw
+        "Data" twice. The heading belongs to the group, not to the entries that
+        happen to be visible: staff see four items under it, a client sees one.
       */}
-      {item("acqos", "AcqOS")}
-      </> : null}
-
-      {/* Form answers is a reporting screen — what registrants said about
-          themselves — so it stays for everyone. */}
       <div className="nav-group">Data</div>
+      {staff ? (
+        <>
+          {item("import", "Import")}
+          {item(
+            "unmatched",
+            <>
+              Unmatched {unmatchedCount ? <span className="badge">{unmatchedCount}</span> : null}
+            </>,
+          )}
+          {/*
+            Under Data, not under its own heading: the wire is where a funnel comes
+            from and where the readings go, which is the same question as where the
+            four files come from. It is one more source, and the one nobody drops.
+          */}
+          {item("acqos", "AcqOS")}
+        </>
+      ) : null}
+      {/* A reporting screen — what registrants said about themselves — so it
+          stays for everyone. */}
       {item("forms", "Form answers")}
 
       <div className="nav-group">Overview</div>
