@@ -63,7 +63,14 @@ export async function updateSession(request: NextRequest) {
       path.startsWith("/auth/") ||
       // Machine-to-machine, authenticated by INTEGRATION_SHARED_KEY rather than
       // by a session. AcqOS has no cookie and must not be redirected to a form.
-      path.startsWith("/api/integration/");
+      path.startsWith("/api/integration/") ||
+      /* Liveness. It reads nothing and says nothing but the clock, and it is
+         checked by things that cannot sign in. Gated, it answered a monitor
+         with a 307 to a login form — which reads as "up" to anything counting
+         2xx-or-3xx and as "down" to anything stricter, and is useless either
+         way. Found because AcqOS asked which of two deployments was real and
+         the health check could not answer. */
+      path === "/api/health";
 
     if (gated && !user && !open) {
       const to = request.nextUrl.clone();
