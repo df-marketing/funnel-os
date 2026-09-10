@@ -247,3 +247,4 @@
 - no objective is set — milestones may lack a guiding north star.
 - Credit is treated as a single answer, not a set of answers.
 - Performance bottleneck identified: import pipeline read latency spikes ~222x under concurrent load vs idle.
+- Clients only ever see GroundTruth, so it stops being an internal tool.
