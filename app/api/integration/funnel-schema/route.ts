@@ -85,6 +85,47 @@ export async function POST(request: Request) {
     .eq("client_id", schema.clientId);
   if (knownError) return NextResponse.json({ error: knownError.message }, { status: 500 });
 
+  /**
+   * THE HANDLE'S OWNER, VERIFIED AND NEVER ESTABLISHED.
+   *
+   * `createClient: true` on an existing client is deliberately treated as a
+   * successful retry below — it replaces the funnel and reports created: false.
+   * That is right for a retry and catastrophic for a collision, and the slug
+   * alone cannot tell them apart: two AcqOS clients whose names both reduce to
+   * "acme" produce the same handle, and the second push would silently replace
+   * the first one's funnel.
+   *
+   * So the payload may carry sourceClientId — the AcqOS clients.id — and when
+   * it does, it must match whoever claimed the handle. Mismatch is a 409, not
+   * an overwrite.
+   *
+   * It only ever CHECKS. Binding happens in /api/integration/client-handle at
+   * signup, and AcqOS were right to insist on that split: if the first push
+   * could establish the binding, an unclaimed handle would still be racy in
+   * precisely the window the claim exists to close.
+   *
+   * Absent is allowed. shely and northsea_supply predate the wire and have no
+   * AcqOS id; refusing them would break the integration to fix a hazard they
+   * are not exposed to.
+   */
+  const sourceClientId = (schema as { sourceClientId?: string }).sourceClientId;
+  if (sourceClientId) {
+    const { data: owner, error: ownerError } = await db
+      .from("client_flags")
+      .select("source_client_id")
+      .eq("client_id", schema.clientId)
+      .maybeSingle();
+    if (ownerError) return NextResponse.json({ error: ownerError.message }, { status: 500 });
+
+    if (owner?.source_client_id && owner.source_client_id !== sourceClientId) {
+      return NextResponse.json({
+        ok: false,
+        error: `handle '${schema.clientId}' is claimed by a different AcqOS client`,
+        hint: "claim the handle at /api/integration/client-handle before pushing a funnel",
+      }, { status: 409 });
+    }
+  }
+
   // A client that isn't here can be opened, but only on purpose. Without the
   // flag an unknown id is overwhelmingly a mistyped one, and inventing a client
   // from it would put a second, near-identical account in the switcher that

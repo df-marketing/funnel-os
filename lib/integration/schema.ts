@@ -66,6 +66,13 @@ export type FunnelSchema = {
    */
   currency: string | null;
   /**
+   * The client's id in AcqOS. Optional, and only ever VERIFIED against whoever
+   * claimed the handle — never used to establish that claim, or an unclaimed
+   * handle is racy in the window /api/integration/client-handle exists to
+   * close. Absent for shely and northsea_supply, which predate the wire.
+   */
+  sourceClientId: string | null;
+  /**
    * The caller asserting it is opening a client that does not exist yet.
    * Without it an unknown clientId is a typo, not an onboarding.
    */
@@ -231,6 +238,8 @@ export function validateFunnelSchema(input: unknown):
       clientId, clientName,
       clientNote: clientNote === undefined || clientNote === null ? null : string(clientNote),
       currency: input.currency === undefined || input.currency === null ? null : currency,
+      sourceClientId: typeof input.sourceClientId === "string" && input.sourceClientId.trim()
+        ? input.sourceClientId.trim() : null,
       createClient: createClient === true,
       source: "acqos", schemaVersion: 1, generatedAt,
       stages: stages.sort((a, b) => a.order - b.order),

@@ -12,7 +12,8 @@
     "test:import": "npx --yes tsx@4 scripts/test-import.mts",
     "test:integration": "npx --yes tsx@4 scripts/test-integration.mts",
     "render:round": "npx --yes tsx@4 --tsconfig scripts/tsconfig.render.json scripts/render-round.mts",
-    "test:access": "npx --yes tsx@4 scripts/test-access.mts"
+    "test:access": "npx --yes tsx@4 scripts/test-access.mts",
+    "test:claim": "npx --yes tsx@4 scripts/test-claim.mts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.0",
