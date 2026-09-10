@@ -168,7 +168,44 @@ export default async function Page({
    * still a leak.
    */
   const allowed = visibleClients(access, data.clients);
-  if (!allowed.length) notFound();
+
+  /**
+   * SIGNED IN AND GRANTED NOTHING IS NOT THE SAME AS ASKING FOR SOMEBODY ELSE'S
+   * CLIENT.
+   *
+   * Found by testing: a freshly created account signed in successfully and was
+   * shown a bare 404. The decision was right — an account with no grants reads
+   * nothing — but the screen was wrong. This person authenticated, they are who
+   * they said they were, and there is nothing to conceal from them; they are
+   * simply waiting on somebody at DriveFunnels to give them a client. Telling
+   * them that is not a leak, and a 404 sends them back to whoever set it up
+   * saying the link is broken.
+   *
+   * The other case keeps its 404 below. Asking for a client you do not hold has
+   * to be indistinguishable from asking for one that does not exist, or the
+   * response itself confirms which clients we have.
+   */
+  if (!allowed.length) {
+    return (
+      <main className="main" style={{ maxWidth: 560, margin: "80px auto" }}>
+        <div className="pane-head">
+          <h1>No client yet</h1>
+          <p>You are signed in{access.email ? ` as ${access.email}` : ""}.</p>
+        </div>
+        <div className="notice info">
+          <span className="ico">?</span>
+          <div>
+            <b>This account has not been given access to a client.</b> Ask whoever
+            sent you the link to grant it — nothing is wrong with your sign-in.
+          </div>
+        </div>
+        <form action="/auth/signout" method="post" style={{ marginTop: 14 }}>
+          <button className="btn" type="submit">Sign out</button>
+        </form>
+      </main>
+    );
+  }
+
   if (params.client && !allowed.some((c) => c.client_id === params.client)) notFound();
 
   const current = allowed.find((c) => c.client_id === params.client) ?? allowed[0];
