@@ -99,6 +99,7 @@
 - walkthrough moved into the app UI (no longer external documentation); opens by default on launch with persistent close state.
 - seeded demo data can be wiped reversibly (migration/seed reset).
 - function moved closer to database (edge function / co-located query), fetches only the open tab, and caches results.
+- Bucket instants by local day; drop stale plans on commit (duplicate of existing memory).
 
 ## Gotchas
 
@@ -261,3 +262,4 @@
 - the recent commit message says 'Say it to whoever is reading it, not to whoever built it' — likely a meta/naming convention about commit messages or comments being reader-oriented.
 - A runbook for accounts was added, intended for after-hours use.
 - 96 KB of literal rows the database could have generated itself — suggests a large data seed or import payload in the codebase that could be moved to a DB migration/generation.
+- A total no column accounts for (commit message incomplete — likely related to null/zero distinction already captured).
