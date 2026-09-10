@@ -41,7 +41,45 @@ export async function updateSession(request: NextRequest) {
     });
 
     // Refresh session so it doesn't expire while user is active
-    await supabase.auth.getUser();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    /**
+     * THE GATE, AND IT IS SHUT ONLY WHEN ASKED.
+     *
+     * Without FUNNEL_REQUIRE_LOGIN this does nothing at all and the app is
+     * exactly what it was: no login, open to anybody with the link. That is
+     * deliberate — the app is being demonstrated while this is being built, and
+     * a login shipped by accident is a locked door with nobody holding a key.
+     *
+     * With it set, no session means the login page, and everything else waits.
+     * Doing it here rather than per page means a route added later is covered
+     * by default; forgetting to gate a new page is otherwise the obvious way
+     * this ends up leaking.
+     */
+    const gated = process.env.FUNNEL_REQUIRE_LOGIN === "1";
+    const path = request.nextUrl.pathname;
+    const open =
+      path === "/login" ||
+      path.startsWith("/auth/") ||
+      // Machine-to-machine, authenticated by INTEGRATION_SHARED_KEY rather than
+      // by a session. AcqOS has no cookie and must not be redirected to a form.
+      path.startsWith("/api/integration/");
+
+    if (gated && !user && !open) {
+      const to = request.nextUrl.clone();
+      to.pathname = "/login";
+      to.search = "";
+      return NextResponse.redirect(to);
+    }
+
+    // Signed in and staring at the login page: send them where they meant to go.
+    if (gated && user && path === "/login") {
+      const to = request.nextUrl.clone();
+      to.pathname = "/";
+      to.search = "";
+      return NextResponse.redirect(to);
+    }
+
     return response;
   } catch {
     // Never let an auth hiccup crash the entire edge middleware

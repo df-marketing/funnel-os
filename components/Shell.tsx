@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { fmtCount, type MetricKey, type Metrics } from "@/lib/funnel/spine";
 import { RefreshButton } from "./RefreshButton";
+import { SignOut } from "./SignOut";
 import { SOURCES, type SourceKey } from "@/lib/import/sources";
 import type {
   Client, Stage, StripCard, ImportStatus, Product, ChannelOption, CountryOption, SourceOption, AudienceOption, FilterKey, Cadence,
@@ -73,13 +74,15 @@ export const WIRED = new Set([
 ]);
 
 export function TopBar({
-  clients, current, imports, filter, opts,
+  clients, current, imports, filter, opts, email = null,
 }: {
   clients: Client[];
   current: Client;
   imports: ImportStatus[];
   filter: FilterKey;
   opts: ViewOpts;
+  /** Signed-in address, or null when login is not being enforced. */
+  email?: string | null;
 }) {
   const stale = imports.filter((i) => i.is_stale);
   /**
@@ -158,6 +161,7 @@ export function TopBar({
         through {span} · <b>{current.currency ?? "SGD"}</b>
       </span>
       <RefreshButton />
+      <SignOut email={email} />
     </div>
   );
 }
@@ -498,7 +502,7 @@ function FilterBar({
 
 export function SideNav({
   stages, client, view, unmatchedCount, filter, products, channels, countries, sources, audiences, periods, cadences, opts,
-  channelBlanked, countryBlanked, sourceBlanked,
+  channelBlanked, countryBlanked, sourceBlanked, staff = true,
 }: {
   stages: Stage[];
   client: string;
@@ -517,6 +521,15 @@ export function SideNav({
   channelBlanked: boolean;
   countryBlanked: boolean;
   sourceBlanked: boolean;
+  /**
+   * Import writes, Unmatched shows other people's names and money, and AcqOS
+   * is the parent system clients are explicitly not being given. Hidden from
+   * anyone who is not staff — and refused on the direct URL too, in
+   * app/page.tsx, because hiding a link is not access control.
+   *
+   * Defaults true so nothing changes while login is switched off.
+   */
+  staff?: boolean;
 }) {
   const item = (slug: string, label: React.ReactNode) => (
     <Link key={slug} href={href(client, slug, filter, opts, view)} aria-current={view === slug ? "page" : undefined}>
@@ -542,6 +555,7 @@ export function SideNav({
         sourceBlanked={sourceBlanked}
       />
 
+      {staff ? <>
       <div className="nav-group">Data</div>
       {item("import", "Import")}
       {item(
@@ -556,6 +570,11 @@ export function SideNav({
         four files come from. It is one more source, and the one nobody drops.
       */}
       {item("acqos", "AcqOS")}
+      </> : null}
+
+      {/* Form answers is a reporting screen — what registrants said about
+          themselves — so it stays for everyone. */}
+      <div className="nav-group">Data</div>
       {item("forms", "Form answers")}
 
       <div className="nav-group">Overview</div>

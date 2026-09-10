@@ -12,6 +12,8 @@ import {
   DEFAULT_OPTS, defaultVsFor, GRAPHABLE, isObjective, isVs, vsOption, type ViewOpts,
 } from "@/lib/funnel/chart";
 import { keepsSpend } from "@/lib/funnel/filters";
+import { notFound } from "next/navigation";
+import { getAccess, mayUseStaffView, visibleClients } from "@/lib/auth/access";
 
 export const dynamic = "force-dynamic";
 
@@ -110,7 +112,31 @@ export default async function Page({
     objective: isObjective(params.objective) ? params.objective : DEFAULT_OPTS.objective,
     vs: isVs(params.vs) ? params.vs : defaultVsFor(params.view ?? ""),
   };
-  const data = await getDashboard(params.client, params.view ?? "round", filter);
+  /**
+   * WHO IS ASKING — RESOLVED BEFORE ANYTHING IS FETCHED, AND NEVER CACHED.
+   *
+   * The order matters more than it looks. Every read below is held in a cache
+   * for thirty minutes, keyed on the arguments it was called with — and
+   * `client_id` being one of those arguments is the only reason one client's
+   * page cannot be served to another. So the rule is:
+   *
+   *     authorise here, uncached, then read the cache for that client.
+   *
+   * Never the reverse. If the filtering ever moves from "the client_id passed
+   * in" to "whatever this session may see", the cache stops being segmented and
+   * starts handing one client another's figures — with no error, on a screen
+   * that looks entirely correct. That is the single most expensive mistake
+   * available in this file.
+   *
+   * While FUNNEL_REQUIRE_LOGIN is unset, getAccess() returns unrestricted and
+   * none of this changes what anybody sees.
+   */
+  const access = await getAccess();
+  const requestedView = params.view ?? "round";
+
+  if (!mayUseStaffView(access, requestedView)) notFound();
+
+  const data = await getDashboard(params.client, requestedView, filter);
 
   if (data.error) {
     return (
@@ -135,7 +161,17 @@ export default async function Page({
     );
   }
 
-  const current = data.clients.find((c) => c.client_id === params.client) ?? data.clients[0];
+  /**
+   * The switcher offers only what this person holds, and asking for anything
+   * else is a 404 rather than a redirect. A redirect to their own client would
+   * confirm the other one exists, which is a smaller leak than the figures and
+   * still a leak.
+   */
+  const allowed = visibleClients(access, data.clients);
+  if (!allowed.length) notFound();
+  if (params.client && !allowed.some((c) => c.client_id === params.client)) notFound();
+
+  const current = allowed.find((c) => c.client_id === params.client) ?? allowed[0];
   const view = data.view;
   /**
    * Only the AcqOS tab pays for the wire's bookkeeping — it is three reads that
@@ -198,7 +234,7 @@ export default async function Page({
 
   return (
     <>
-      <TopBar clients={data.clients} current={current} imports={data.imports} filter={data.filter} opts={opts} />
+      <TopBar clients={allowed} current={current} imports={data.imports} filter={data.filter} opts={opts} email={access.email} />
       <JourneyStrip
         strip={data.strip}
         client={current.client_id}
@@ -209,6 +245,7 @@ export default async function Page({
 
       <div className="shell">
         <SideNav
+            staff={access.staff}
           stages={data.stages}
           client={current.client_id}
           view={view}
