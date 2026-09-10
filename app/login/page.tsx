@@ -1,49 +1,67 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 /**
- * The door.
+ * The door, and there are two ways through it.
  *
- * Email and password, and nothing else — no sign-up link, no magic link, no
- * social login. Accounts are created by DriveFunnels in the Supabase dashboard
- * and granted a client by hand. This is a reporting tool for named clients, not
- * a product somebody discovers and signs up to, and a sign-up form would invite
- * exactly the account nobody meant to create.
+ * A password, for anybody who has set one. And a link by email, for anybody who
+ * has not — which is every client provisioned from AcqOS, because those accounts
+ * are created without a password on purpose so there is nothing to fall out of
+ * step with AcqOS's copy.
  *
- * Nothing sends anybody here until FUNNEL_REQUIRE_LOGIN is set. The page works
- * before then, which is how it gets tested without locking anyone out.
+ * No sign-up link. Accounts are created by AcqOS at signup or by DriveFunnels by
+ * hand; this is a reporting tool for named clients, not something to be
+ * discovered and joined.
  */
-export default function LoginPage() {
+
+const MESSAGES: Record<string, string> = {
+  "link-expired": "That sign-in link has expired or was already used. Ask for a new one below.",
+  "missing-code": "That link was incomplete. Ask for a new one below.",
+};
+
+function LoginForm() {
+  const params = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(MESSAGES[params.get("error") ?? ""] ?? null);
+  const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const router = useRouter();
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setBusy(true);
-    setError(null);
+    setBusy(true); setError(null); setSent(false);
 
-    const db = createClient();
-    const { error } = await db.auth.signInWithPassword({ email, password });
-
+    const { error } = await createClient().auth.signInWithPassword({ email, password });
+    setBusy(false);
     if (error) {
-      setBusy(false);
-      /* Supabase says "Invalid login credentials" for a wrong password AND for
-         an address with no account, on purpose — telling them apart tells an
-         attacker which addresses exist. Passed through rather than improved. */
-      setError(error.message);
+      /* Supabase answers "Invalid login credentials" for a wrong password AND
+         for an address with no account, deliberately — telling them apart tells
+         an attacker which addresses exist. Passed through, with the one hint
+         that is safe to give because it is true for everybody. */
+      setError(`${error.message}. If you have never set a password, use the link option below.`);
       return;
     }
-
-    // refresh() so the server re-reads the session it was just handed; push()
-    // alone can render the destination against the cookie state from before.
     router.replace("/");
     router.refresh();
+  }
+
+  async function emailLink() {
+    if (!email) { setError("Enter your email address first."); return; }
+    setBusy(true); setError(null);
+    const { error } = await createClient().auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+    });
+    setBusy(false);
+    if (error) { setError(error.message); return; }
+    /* Said the same way whether or not the address exists, for the reason
+       above. It is also simply true: a link was sent, if there was anywhere to
+       send it. */
+    setSent(true);
   }
 
   return (
@@ -54,31 +72,51 @@ export default function LoginPage() {
 
         <label>
           Email
-          <input
-            type="email" value={email} autoComplete="username" required
-            onChange={(e) => setEmail(e.target.value)}
-          />
+          <input type="email" value={email} autoComplete="username" required
+                 onChange={(e) => setEmail(e.target.value)} />
         </label>
 
         <label>
           Password
-          <input
-            type="password" value={password} autoComplete="current-password" required
-            onChange={(e) => setPassword(e.target.value)}
-          />
+          <input type="password" value={password} autoComplete="current-password"
+                 onChange={(e) => setPassword(e.target.value)} />
         </label>
 
         {error ? <p className="login-error">{error}</p> : null}
+        {sent ? <p className="login-sent">Check your email — a sign-in link is on its way.</p> : null}
 
         <button className="btn primary" type="submit" disabled={busy}>
           {busy ? "Signing in…" : "Sign in"}
         </button>
 
+        <button className="btn" type="button" disabled={busy} onClick={emailLink}>
+          Email me a sign-in link
+        </button>
+
         <p className="cro-foot">
-          Access is arranged by DriveFunnels. If you cannot get in, ask the
-          person who sent you this link.
+          No password yet? Use the link — it signs you in and you can set one
+          afterwards. Access is arranged by DriveFunnels; if you cannot get in,
+          ask whoever sent you this.
         </p>
       </form>
     </main>
+  );
+}
+
+/**
+ * useSearchParams() opts a page out of static rendering, and Next refuses to
+ * prerender one without a boundary rather than silently shipping a blank shell.
+ * The fallback is the same card without the message, so a slow hydrate shows a
+ * login form rather than nothing.
+ */
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <main className="login-wrap">
+        <div className="login"><h1>Funnel OS</h1><p className="dim">Loading…</p></div>
+      </main>
+    }>
+      <LoginForm />
+    </Suspense>
   );
 }

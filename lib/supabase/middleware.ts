@@ -71,6 +71,9 @@ export async function updateSession(request: NextRequest) {
          way. Found because AcqOS asked which of two deployments was real and
          the health check could not answer. */
       path === "/api/health";
+    /* /auth/* is already open above, which covers the callback and sign-out.
+       Named here so the next person adding a gate knows the sign-in link has to
+       reach /auth/callback without a session — that is the whole point of it. */
 
     if (gated && !user && !open) {
       const to = request.nextUrl.clone();
