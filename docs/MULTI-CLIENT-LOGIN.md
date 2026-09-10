@@ -40,20 +40,53 @@ That is not a bug today. It becomes one the moment a client is given a login.
 
 ---
 
-## Decision one, before any code: where does identity live?
+## Identity lives here — and that answer carries a second change with it
 
-**Funnel OS is a subset of AcqOS.** Setup and admin belong to the parent system.
+**Clients do not get GroundUp or GroundWork. GroundTruth is the only thing they will ever see.**
 
-So: **do clients already log in to AcqOS?**
+So there is no AcqOS identity to reuse. Funnel OS owns its own users, via Supabase Auth. That is the
+simpler half of the answer.
 
-- **If yes** — Funnel OS should accept that identity, not mint its own. Two user lists is two things
-  to keep in sync, and the day they disagree somebody sees the wrong client's revenue. The work
-  becomes "trust an AcqOS-issued token and map it to a client", which is smaller and safer.
-- **If no** — Supabase Auth here, with the expectation that AcqOS will later want the same users.
-  Build the user↔client mapping as its own table from day one so it can move.
+The harder half: **this app stops being internal.** It was built for DriveFunnels staff, and it
+shows — in three places that a client must not reach, and in copy written for somebody who can open
+the SQL editor.
 
-**This is a question for the supervisor, not a technical detail.** It changes the shape of
-everything below. Nothing else should start until it is answered.
+### Three tabs are staff-only, and one of them writes
+
+```
+Import      writes to the database. A client must never have it.
+Unmatched   the reconciliation queue — raw parked rows, other people's names and money.
+AcqOS       the parent system's wiring, which clients are explicitly not being given.
+```
+
+`Form answers`, `By month`, `By round`, `Round × source`, `This round` and the stage tabs are all
+fine for a client to read. The gate is per tab, not per app.
+
+### The copy assumes a colleague is reading it
+
+Real strings in the app today:
+
+> *"Run `supabase/migrations/ALL.sql` in the Supabase SQL editor — that's the 7-table schema, the
+> seed and the metric views, in order."*
+>
+> *"…which migration `0033` adds."*
+>
+> *"Use this after changing rows in the SQL editor."*
+
+These are good messages for you and unusable in front of a client: they expose the stack, they read
+as an error the client caused, and they name things the client has no access to. Every empty state
+and error path needs a second reading with a client in mind — not a rewrite of the app's voice, just
+the removal of instructions only staff can act on.
+
+### Branding stops being a non-issue
+
+It was reasonable to say branding did not matter while the only readers were internal. Once a client
+logs in to look at their own revenue, the login page and the header are the product. This does not
+have to be much — a name, a logo, the client's own name where "DEMO ACCOUNT" currently sits — but it
+has to be decided rather than inherited.
+
+**None of this is hard. All of it is invisible until a client is looking at the screen**, which is
+why it belongs in the plan rather than in a later cleanup.
 
 ---
 
@@ -129,6 +162,16 @@ them. Wrong client → 404, not a redirect to their own. A redirect confirms the
 `loadClients` currently returns everything. It takes the allowed list and filters. A client with one
 client sees no switcher at all.
 
+### 4b · Staff-only tabs, and staff-only language
+
+Gate `import`, `unmatched` and `acqos` on `role = 'staff'` — hidden from the nav and 404 on direct
+URL, because hiding a link is not access control.
+
+Then walk every empty state and error path and ask whether a client could reach it. The ones naming
+`supabase/migrations`, the SQL editor or a migration number are the known offenders; there will be
+others. A client hitting an empty round should read "no data for this round yet", not an instruction
+to run a file they cannot open.
+
 ### 5 · RLS underneath, as a backstop
 
 Real policies on the 17 tables, keyed on `client_users`, **and `security_invoker = on` on all 57
@@ -156,14 +199,26 @@ Verify **through the app's session**, never through the SQL editor. The editor c
 superuser and sees rows the app cannot; that difference has already produced one false pass on this
 schema — zero mismatches in the editor, 44 out of 46 through the app's key.
 
+And one that is not about data: **log in as a client and read every screen as if you were them.**
+Every tab reachable, every empty state, every error. It is the only way to find the copy written for
+a colleague, and it takes an hour.
+
 ---
 
 ## Estimate
 
-**3–5 days**, and it should not be compressed. Most of it is steps 5 and 6, not the login screen.
+**4–6 days**, and it should not be compressed. Most of it is steps 5 and 6, not the login screen.
 
-Roughly: mapping table and login half a day, authorisation and switcher half a day, RLS and
-`security_invoker` across 57 views one to two days, verification one day.
+```
+mapping table, login, sign-out              0.5 day
+authorisation, switcher, staff-only tabs    1   day
+RLS + security_invoker across 57 views      1–2 days
+client-facing copy pass                     0.5 day
+verification, including reading as a client 1   day
+```
+
+The copy pass is the one that looks skippable and is not. It is the difference between a client
+seeing their revenue and a client seeing an instruction to run a migration.
 
 ---
 
@@ -171,10 +226,10 @@ Roughly: mapping table and login half a day, authorisation and switcher half a d
 
 **Do the database upgrade first.** RLS adds a per-row predicate to every read, and the instance
 currently throttles under two users clicking at once — see `PERFORMANCE.md`. Measuring RLS overhead
-on a throttled free tier will produce numbers nobody can act on, and the first thing multiple logins
-guarantee is multiple simultaneous users.
+on a throttled free tier will produce numbers nobody can act on, and the first thing client logins
+guarantee is multiple simultaneous users — which is exactly the condition the free tier fails under.
 
-Order: **size the database → answer the AcqOS identity question → build → verify.**
+Order: **size the database → build → verify → then hand out logins.**
 
 ---
 
@@ -182,6 +237,10 @@ Order: **size the database → answer the AcqOS identity question → build → 
 
 - **Per-user permissions inside a client** — everyone who can see Shely sees all of Shely. Finer
   than that is a different piece of work and nobody has asked for it.
-- **Audit logging.** Worth adding when clients can log in, and not in this estimate.
-- **Import access.** The import tab writes. A client user must not have it, which is a fourth screen
-  to gate rather than a new mechanism.
+- **Audit logging.** Worth adding once clients can log in — who looked at what, and when — and not
+  in this estimate.
+- **Password reset, invites, and the rest of account life.** Supabase gives most of it; somebody
+  still has to decide who issues a login and what happens when a client's staff member leaves.
+- **What a client is allowed to be told when a number is wrong.** Today the app explains itself
+  frankly, including when it is understating. That honesty is a strength internally and a decision
+  to make deliberately once the reader is the client being reported on.
