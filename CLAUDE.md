@@ -68,6 +68,7 @@
 - ask which country a round ran in once, not once per round
 - The dedupe step must happen before the rules step in the import pipeline.
 - Filter combination warm time was increased from five minutes to thirty minutes.
+- a screenshot must show specific numbers to be meaningful; numbers alone without the screenshot prove nothing.
 
 ## Architecture
 
@@ -239,3 +240,4 @@
 - a view returning thirteen rows has no business taking two seconds — indicates a performance optimization was done on a small-result view that was unexpectedly slow.
 - Look the markets up once, now that looking is cheap
 - 1,675ms of a 2,062ms query was spent producing an empty object — indicating a severe query inefficiency where most time is wasted building a result that gets discarded.
+- no objective is set — milestones may lack a guiding north star.
