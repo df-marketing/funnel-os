@@ -70,6 +70,7 @@
 - Filter combination warm time was increased from five minutes to thirty minutes.
 - a screenshot must show specific numbers to be meaningful; numbers alone without the screenshot prove nothing.
 - per-client logins are planned; they fail silently in two ways (not yet implemented).
+- Login screen is built but left switched off (not activated/enabled).
 
 ## Architecture
 
@@ -248,3 +249,4 @@
 - Credit is treated as a single answer, not a set of answers.
 - Performance bottleneck identified: import pipeline read latency spikes ~222x under concurrent load vs idle.
 - Clients only ever see GroundTruth, so it stops being an internal tool.
+- Stripe integration was dropped from the project.
