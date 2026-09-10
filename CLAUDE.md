@@ -166,6 +166,7 @@
 - campaign lookup was being built four times per page load; reduced to once.
 - A materialized view has no search path — schema-qualified references are required.
 - The same five-row read takes 0.09s idle but 20s under load — massive latency amplification under concurrency.
+- Hiding the Import tab left POST /api/import/commit wide open — the UI gate was removed without securing the endpoint.
 
 ## Notes
 
