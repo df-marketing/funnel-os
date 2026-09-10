@@ -55,7 +55,16 @@ export type FunnelSchema = {
   clientName: string;
   /** Switcher subtitle. Omitted keeps whatever is stored, like unit_price. */
   clientNote: string | null;
-  currency: "SGD" | "MYR" | null;
+  /**
+   * ISO 4217, three uppercase letters. NOT a union of the currencies we happen
+   * to have — that was "SGD" | "MYR" until a client billing in USD was refused
+   * by the type and by a database check that agreed with it. A currency field
+   * that only accepts the currencies you already have is not a currency field.
+   *
+   * "RM" is normalised to MYR before it gets here; AcqOS sends the legacy
+   * spelling and both sides have to mean the same thing.
+   */
+  currency: string | null;
   /**
    * The caller asserting it is opening a client that does not exist yet.
    * Without it an unknown clientId is a typo, not an onboarding.
@@ -121,8 +130,12 @@ export function validateFunnelSchema(input: unknown):
   if (createClient !== undefined && typeof createClient !== "boolean") {
     errors.push({ stage: null, field: "createClient", message: "must be omitted or a boolean" });
   }
-  if (input.currency !== undefined && input.currency !== null && currency !== "SGD" && currency !== "MYR") {
-    errors.push({ stage: null, field: "currency", message: "must be SGD, MYR, or RM" });
+  /* Checked by shape, not against a list. The list refused every currency
+     nobody had signed yet, which is the wrong half of the problem — the reason
+     to validate at all is to keep 'sgd', 'S$' and 'dollars' off a screen, and
+     three uppercase letters does that without deciding who may be a client. */
+  if (input.currency !== undefined && input.currency !== null && !/^[A-Z]{3}$/.test(currency)) {
+    errors.push({ stage: null, field: "currency", message: "must be a three-letter ISO 4217 code, or RM" });
   }
   if (!Array.isArray(rows) || rows.length === 0) {
     errors.push({ stage: null, field: "stages", message: "must contain at least one stage" });
@@ -217,7 +230,7 @@ export function validateFunnelSchema(input: unknown):
     value: {
       clientId, clientName,
       clientNote: clientNote === undefined || clientNote === null ? null : string(clientNote),
-      currency: input.currency === undefined || input.currency === null ? null : currency as "SGD" | "MYR",
+      currency: input.currency === undefined || input.currency === null ? null : currency,
       createClient: createClient === true,
       source: "acqos", schemaVersion: 1, generatedAt,
       stages: stages.sort((a, b) => a.order - b.order),

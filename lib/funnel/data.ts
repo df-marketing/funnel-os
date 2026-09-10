@@ -22,7 +22,9 @@ export type Client = {
    * 0042 — read as false, because an unflagged client is a real one.
    */
   is_demo?: boolean | null;
-  currency?: "SGD" | "MYR" | null;
+  /** ISO 4217. Not a union of the currencies we already have — see the note on
+      FunnelSchema.currency; that shape refused a client billing in USD. */
+  currency?: string | null;
 };
 
 export type Stage = {
