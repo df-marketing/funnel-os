@@ -253,3 +253,4 @@
 - Stripe integration was dropped from the project.
 - signing in and granting nothing is not the same as asking for someone else's
 - the recent commit message says 'Say it to whoever is reading it, not to whoever built it' — likely a meta/naming convention about commit messages or comments being reader-oriented.
+- A runbook for accounts was added, intended for after-hours use.
