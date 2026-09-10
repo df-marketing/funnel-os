@@ -75,6 +75,7 @@
 - the app supports multiple clients (confirmed by adding a second client)
 - Half of the GU sync is already built and may not be switched on.
 - health check redirects to login — likely intentional for authenticated health monitoring.
+- a health check that reports the clock is worse than one that redirects (recent commit).
 
 ## Architecture
 
