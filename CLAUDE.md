@@ -71,6 +71,7 @@
 - a screenshot must show specific numbers to be meaningful; numbers alone without the screenshot prove nothing.
 - per-client logins are planned; they fail silently in two ways (not yet implemented).
 - Login screen is built but left switched off (not activated/enabled).
+- the heading belongs to the group, not to whichever entries survive the gate
 
 ## Architecture
 
