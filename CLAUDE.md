@@ -162,6 +162,7 @@
 - The commit "The number I was checking against was never real" suggests a phantom-number or imaginary-baseline bug was fixed, but no concrete details are available.
 - v_round_assets reads the same three views eleven times (duplicate reads).
 - campaign lookup was being built four times per page load; reduced to once.
+- A materialized view has no search path — schema-qualified references are required.
 
 ## Notes
 
@@ -242,3 +243,4 @@
 - Look the markets up once, now that looking is cheap
 - 1,675ms of a 2,062ms query was spent producing an empty object — indicating a severe query inefficiency where most time is wasted building a result that gets discarded.
 - no objective is set — milestones may lack a guiding north star.
+- Credit is treated as a single answer, not a set of answers.
