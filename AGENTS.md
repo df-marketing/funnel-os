@@ -178,6 +178,7 @@
 - currency check should refuse nonsense (invalid strings), not valid currencies.
 - fo_refresh_lookups has never worked — a latent bug that went unmentioned.
 - A handle is claimed before the client exists — ordering matters in the lifecycle.
+- Branch on code, not on the status — two 409s want opposite things. This suggests a known conflict pattern where HTTP 409 status codes can mean different things depending on context, and the fix is to distinguish by the code/payload rather than the status alone.
 
 ## Notes
 
