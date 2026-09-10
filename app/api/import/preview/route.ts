@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient, MISSING_KEY_MESSAGE } from "@/lib/supabase/admin";
 import { planImport, ImportError, type Plan } from "@/lib/import/pipeline";
 import type { ImportSourceKey } from "@/lib/import/sources";
+import { requireStaff } from "@/lib/auth/access";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -15,6 +16,11 @@ export const maxDuration = 60;
  * diff that /commit will apply.
  */
 export async function POST(request: Request) {
+  /* Writing, or staff-only. The middleware proves there is a session;
+     only this proves the session may do it. */
+  const denied = await requireStaff();
+  if (denied) return denied;
+
   const db = createAdminClient();
   if (!db) return NextResponse.json({ error: MISSING_KEY_MESSAGE }, { status: 503 });
 

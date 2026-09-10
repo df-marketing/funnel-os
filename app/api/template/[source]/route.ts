@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { SOURCES, type SourceKey } from "@/lib/import/sources";
 import { buildTemplate } from "@/lib/import/template";
+import { requireStaff } from "@/lib/auth/access";
 
 export const runtime = "nodejs";
 
@@ -9,6 +10,11 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ source: string }> },
 ) {
+  /* Writing, or staff-only. The middleware proves there is a session;
+     only this proves the session may do it. */
+  const denied = await requireStaff();
+  if (denied) return denied;
+
   const { source } = await params;
   if (!(source in SOURCES)) {
     return NextResponse.json({ error: `No such source: ${source}` }, { status: 404 });

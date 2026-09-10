@@ -3,6 +3,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { FUNNEL_TAG } from "@/lib/supabase/read";
 import { createAdminClient, MISSING_KEY_MESSAGE } from "@/lib/supabase/admin";
 import { commitPlan, ImportError, type Plan } from "@/lib/import/pipeline";
+import { requireStaff } from "@/lib/auth/access";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -15,6 +16,11 @@ export const maxDuration = 60;
  * already reported.
  */
 export async function POST(request: Request) {
+  /* Writing, or staff-only. The middleware proves there is a session;
+     only this proves the session may do it. */
+  const denied = await requireStaff();
+  if (denied) return denied;
+
   const db = createAdminClient();
   if (!db) return NextResponse.json({ error: MISSING_KEY_MESSAGE }, { status: 503 });
 
@@ -80,6 +86,11 @@ export async function POST(request: Request) {
 
 /** DELETE — discard a staged batch without applying it. */
 export async function DELETE(request: Request) {
+  /* Writing, or staff-only. The middleware proves there is a session;
+     only this proves the session may do it. */
+  const denied = await requireStaff();
+  if (denied) return denied;
+
   const db = createAdminClient();
   if (!db) return NextResponse.json({ error: MISSING_KEY_MESSAGE }, { status: 503 });
 

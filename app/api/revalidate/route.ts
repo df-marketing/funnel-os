@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { FUNNEL_TAG, createReadClient } from "@/lib/supabase/read";
+import { requireStaff } from "@/lib/auth/access";
 
 export const runtime = "nodejs";
 
@@ -25,6 +26,11 @@ export const runtime = "nodejs";
  * cache from a lookup that is about to change.
  */
 export async function POST() {
+  /* Writing, or staff-only. The middleware proves there is a session;
+     only this proves the session may do it. */
+  const denied = await requireStaff();
+  if (denied) return denied;
+
   let refreshed: string | null = null;
   let refreshError: string | null = null;
 

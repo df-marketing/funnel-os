@@ -6,6 +6,7 @@ import { normEmail, normPhone } from "@/lib/import/identity";
 import { writeCsv, type Row } from "@/lib/import/csv";
 import { planImport, ImportError } from "@/lib/import/pipeline";
 import type { SourceKey } from "@/lib/import/sources";
+import { requireStaff } from "@/lib/auth/access";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -38,6 +39,11 @@ export const maxDuration = 60;
  * resolved_contact_id are stamped on it, so the queue stays auditable.
  */
 export async function POST(request: Request) {
+  /* Writing, or staff-only. The middleware proves there is a session;
+     only this proves the session may do it. */
+  const denied = await requireStaff();
+  if (denied) return denied;
+
   const db = createAdminClient();
   if (!db) return NextResponse.json({ error: MISSING_KEY_MESSAGE }, { status: 503 });
 

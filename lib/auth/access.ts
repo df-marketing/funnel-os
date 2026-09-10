@@ -98,6 +98,39 @@ export function mayUseStaffView(access: Access, view: string): boolean {
   return !STAFF_ONLY_VIEWS.has(view) || access.staff;
 }
 
+/**
+ * REFUSE THIS REQUEST UNLESS IT IS STAFF. Returns null when it may proceed.
+ *
+ * The middleware asks whether there is a session. It cannot ask whether that
+ * session may do a particular thing, so every route that writes has to ask for
+ * itself — and until this existed, none of them did. Hiding the Import tab from
+ * a client left `POST /api/import/commit` reachable by anybody signed in, which
+ * is the same "hiding a link is not access control" mistake one layer down.
+ *
+ * Shaped to return a Response rather than throw so a route reads:
+ *
+ *     const denied = await requireStaff();
+ *     if (denied) return denied;
+ *
+ * Two lines, no try/catch, and the failure is visible in the route rather than
+ * in middleware somewhere else.
+ *
+ * 403 and not 404: the caller is authenticated and these endpoints are not a
+ * secret — the client knows an import exists, they just may not run one. The
+ * 404 rule is for client_id, where the response itself would confirm which
+ * clients we have.
+ */
+export async function requireStaff(): Promise<Response | null> {
+  const access = await getAccess();
+  // Enforcement off: the app has no logins yet and this must not start
+  // refusing the people already using it.
+  if (!access.enforced || access.staff) return null;
+  return Response.json(
+    { error: "This account cannot make changes. Ask DriveFunnels if you need to." },
+    { status: 403 },
+  );
+}
+
 /** The client list this person is allowed to be shown, in the given order. */
 export function visibleClients<T extends { client_id: string }>(
   access: Access, clients: T[],

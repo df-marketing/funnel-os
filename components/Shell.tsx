@@ -74,7 +74,7 @@ export const WIRED = new Set([
 ]);
 
 export function TopBar({
-  clients, current, imports, filter, opts, email = null,
+  clients, current, imports, filter, opts, email = null, staff = true,
 }: {
   clients: Client[];
   current: Client;
@@ -83,6 +83,10 @@ export function TopBar({
   opts: ViewOpts;
   /** Signed-in address, or null when login is not being enforced. */
   email?: string | null;
+  /** Refresh drops every cache and rebuilds the campaign lookup. That is an
+      operator's action, and for a client it is a button that can only 403.
+      Defaults true so nothing changes while login is switched off. */
+  staff?: boolean;
 }) {
   const stale = imports.filter((i) => i.is_stale);
   /**
@@ -160,7 +164,7 @@ export function TopBar({
       <span className="meta">
         through {span} · <b>{current.currency ?? "SGD"}</b>
       </span>
-      <RefreshButton />
+      {staff ? <RefreshButton /> : null}
       <SignOut email={email} />
     </div>
   );

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { FUNNEL_TAG } from "@/lib/supabase/read";
 import { createAdminClient, MISSING_KEY_MESSAGE } from "@/lib/supabase/admin";
+import { requireStaff } from "@/lib/auth/access";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -46,6 +47,11 @@ const ALLOWED = new Map([
 const MAX_BYTES = 10 * 1024 * 1024;
 
 export async function POST(request: Request) {
+  /* Writing, or staff-only. The middleware proves there is a session;
+     only this proves the session may do it. */
+  const denied = await requireStaff();
+  if (denied) return denied;
+
   const db = createAdminClient();
   if (!db) return NextResponse.json({ error: MISSING_KEY_MESSAGE }, { status: 503 });
 
@@ -110,6 +116,11 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  /* Writing, or staff-only. The middleware proves there is a session;
+     only this proves the session may do it. */
+  const denied = await requireStaff();
+  if (denied) return denied;
+
   const db = createAdminClient();
   if (!db) return NextResponse.json({ error: MISSING_KEY_MESSAGE }, { status: 503 });
 

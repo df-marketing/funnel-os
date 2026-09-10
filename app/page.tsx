@@ -271,7 +271,7 @@ export default async function Page({
 
   return (
     <>
-      <TopBar clients={allowed} current={current} imports={data.imports} filter={data.filter} opts={opts} email={access.email} />
+      <TopBar clients={allowed} current={current} imports={data.imports} filter={data.filter} opts={opts} email={access.email} staff={access.staff} />
       <JourneyStrip
         strip={data.strip}
         client={current.client_id}

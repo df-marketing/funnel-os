@@ -5,6 +5,7 @@ import { createAdminClient, MISSING_KEY_MESSAGE } from "@/lib/supabase/admin";
 import { FUNNEL_TAG } from "@/lib/supabase/read";
 import { MISSING_TOKEN_MESSAGE } from "@/lib/meta/graph";
 import { runPull } from "@/lib/meta/pull";
+import { requireStaff } from "@/lib/auth/access";
 
 export const runtime = "nodejs";
 
@@ -31,6 +32,11 @@ const COOLDOWN_MS = 20_000;
 const lastPull = new Map<string, number>();
 
 export async function POST(request: Request) {
+  /* Writing, or staff-only. The middleware proves there is a session;
+     only this proves the session may do it. */
+  const denied = await requireStaff();
+  if (denied) return denied;
+
   let body: { clientId?: string; since?: string; until?: string; commit?: boolean };
   try { body = await request.json(); }
   catch { return NextResponse.json({ ok: false, error: "body must be JSON" }, { status: 400 }); }
