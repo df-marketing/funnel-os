@@ -177,6 +177,7 @@
 - import pipeline dry-run found 5 bugs by testing against real exports, confirming value of real-export testing.
 - currency check should refuse nonsense (invalid strings), not valid currencies.
 - fo_refresh_lookups has never worked — a latent bug that went unmentioned.
+- A handle is claimed before the client exists — ordering matters in the lifecycle.
 
 ## Notes
 
