@@ -5,11 +5,17 @@ export type FormAnswer = { question: string; answer: string; leads: number };
  * surface for those answers: reported values, not a fake taxonomy imposed
  * after the fact. Free text is bounded at the display edge only.
  */
-export function FormAnswersPanel({ rows }: { rows: FormAnswer[] }) {
+export function FormAnswersPanel({ rows, staff = true }: { rows: FormAnswer[]; staff?: boolean }) {
+  /* The empty state has to tell whoever is reading it something they can act
+     on. "Re-import a leads export" is a job for DriveFunnels; a client reading
+     it can only conclude something is broken and that it might be their fault.
+     Same fact, addressed to the person in front of it. */
   if (!rows.length) return (
     <div className="notice info"><span className="ico">?</span><div>
-      <b>No captured form answers yet.</b> Re-import a leads export with its extra form columns.
-      The importer keeps those values alongside the lead instead of throwing them away.
+      <b>No form answers yet.</b>{" "}
+      {staff
+        ? "Re-import a leads export with its extra form columns. The importer keeps those values alongside the lead instead of throwing them away."
+        : "Answers appear here once a lead export carrying them has been loaded. Nothing has been lost in the meantime."}
     </div></div>
   );
   const groups = new Map<string, FormAnswer[]>();

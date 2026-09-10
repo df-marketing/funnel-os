@@ -43,10 +43,12 @@ function window(from: string | null, to: string | null) {
 }
 
 export function ScrollPanel({
-  runs, roundId, leadGen, clicks,
+  runs, roundId, leadGen, clicks, staff = true,
 }: {
   runs: ScrollRun[];
   roundId: string;
+  /** Clients cannot import, so they get told what is missing, not how to fix it. */
+  staff?: boolean;
   /** The round's Lead Gen % — leads ÷ outbound clicks. Null when unmeasured. */
   leadGen: number | null;
   /** The round's outbound clicks, for the coverage check. */
@@ -56,10 +58,19 @@ export function ScrollPanel({
     return (
       <p className="cro-foot">
         <b>The landing-page question is not answered for this round.</b> No Microsoft Clarity scroll
-        export covering {roundId} has been imported. Drop one on the Import tab — Clarity&rsquo;s{" "}
-        <span className="num">Scroll</span> export, unedited, with the round&rsquo;s dates in its
-        picker — and the curve will be read against this round&rsquo;s Lead Gen % here. It is left
-        open rather than quietly dropped from the list.
+        export covering {roundId} has been imported.{" "}
+        {staff ? (
+          <>
+            Drop one on the Import tab — Clarity&rsquo;s <span className="num">Scroll</span> export,
+            unedited, with the round&rsquo;s dates in its picker — and the curve will be read against
+            this round&rsquo;s Lead Gen % here.
+          </>
+        ) : (
+          <>
+            When one is, the scroll curve will be read against this round&rsquo;s Lead Gen % here.
+          </>
+        )}{" "}
+        It is left open rather than quietly dropped from the list.
       </p>
     );
   }

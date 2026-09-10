@@ -163,7 +163,10 @@ function MoveTable({
 
 export function RoundAnalysis({
   cuts, baseline, context, objective, today, currency,
+  staff = true,
 }: {
+  /** Passed to ScrollPanel: clients are told what is missing, not how to fix it. */
+  staff?: boolean;
   /** The client's currency, for the money this pane prints in prose. */
   currency?: string | null;
   /** The two columns from v_metrics_this_round: this round, then the previous. */
@@ -353,6 +356,7 @@ export function RoundAnalysis({
         {/* 3c — the landing page. The rest of step 3 diffs what the ad account
             changed; this is the only part that asks what the page did. */}
         <ScrollPanel
+          staff={staff}
           runs={runsFor(context?.scroll ?? [], roundId)}
           roundId={roundId}
           leadGen={num((now.m as Metrics)?.leadgen)}
@@ -550,12 +554,16 @@ export function RoundAnalysis({
             ))}
           </ul>
         ) : candidates.unavailable ? (
+          /* Named a migration until clients could read it. The fact is the same
+             either way — only leads carry an ad set — and the instruction it
+             used to end on is for somebody with the SQL editor open, which a
+             client will not have. What they need to know is that nothing is
+             being guessed, and that is what it says now. */
           <p className="cro-lead">
-            <b>This database cannot break {candidates.noun}s down by audience yet.</b> Only leads
-            carry an ad set, so attendance and purchases have to be attributed through each
-            person&rsquo;s lead row — which migration <span className="num">0033</span> adds. Until
-            it runs, this step can only be answered for the Leads objective. Nothing is guessed in
-            the meantime.
+            <b>{candidates.noun}s cannot be broken down by audience yet.</b> Only leads carry an ad
+            set, so attendance and purchases have to be attributed through each person&rsquo;s lead
+            row, and this account is not set up for that yet. Until it is, this step can only be
+            answered for the Leads objective. Nothing is guessed in the meantime.
           </p>
         ) : candidates.untracked !== null ? (
           <p className="cro-lead">

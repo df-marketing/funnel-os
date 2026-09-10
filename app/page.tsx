@@ -145,16 +145,22 @@ export default async function Page({
           <h1>Funnel OS</h1>
           <p>Reporting and attribution for DriveFunnels.</p>
         </div>
+        {/*
+          THE HINT IS FOR WHOEVER CAN ACT ON IT.
+          "Run supabase/migrations/ALL.sql in the Supabase SQL editor" is the
+          right next step for staff and unusable in front of a client: it names
+          the stack, reads as an error they caused, and points at a tool they
+          have no access to. They get told plainly instead, and told whose
+          problem it is — which is the one thing they actually need.
+        */}
         <div className="notice">
           <span className="ico">!</span>
           <div>
-            <b>{data.error}</b>
-            {data.errorHint ? (
-              <>
-                <br />
-                {data.errorHint}
-              </>
-            ) : null}
+            <b>{access.staff ? data.error : "This report cannot be shown right now."}</b>
+            <br />
+            {access.staff
+              ? data.errorHint
+              : "DriveFunnels has been told. Nothing is wrong with your account, and no figures have been lost."}
           </div>
         </div>
       </main>
@@ -398,7 +404,7 @@ export default async function Page({
           {view === "forms" ? (
             <>
               <div className="pane-head"><h1>Form answers</h1><p>What registrants submitted on their lead form.</p></div>
-              <FormAnswersPanel rows={data.formAnswers} />
+              <FormAnswersPanel rows={data.formAnswers} staff={access.staff} />
             </>
           ) : null}
 
@@ -775,6 +781,7 @@ export default async function Page({
 
           {view === "analysis" ? (
             <RoundAnalysis
+              staff={access.staff}
               currency={current.currency}
               cuts={data.columns}
               baseline={data.baseline}
