@@ -273,6 +273,23 @@ function FilterBar({
     active: string | null,
     build: (key: string | null) => FilterKey,
     long = false,
+    /**
+     * ONE ANSWER, NOT A SET.
+     *
+     * Every other row here is a set: product, country, audience and source are
+     * comma-separated lists, and clicking a second one adds it. Credit is not.
+     * A sale is credited to the round somebody entered in OR the round they
+     * last attended; there is no reading in which it is both.
+     *
+     * Toggled like a set it produced `attribution=entry,entry_paid`, which
+     * matches no model. That value reached fo_cut, resolved to nothing, and the
+     * screen went on showing entry — a selector that moved while the numbers
+     * did not, which is the one failure a credit selector must never have.
+     *
+     * Single rows replace rather than accumulate, and cannot be emptied: there
+     * is always exactly one model in force, which is why Credit has no "All".
+     */
+    single = false,
   ) => (
     /* Long-named rows stack one per line. Audience and period carry names —
        Cold_CourseCreatorsKnowledgeBusinesses, 0526-02 (SG) · 13 May–19 May —
@@ -284,8 +301,15 @@ function FilterBar({
         {options.map((o) => {
           // "All" (key null) is pressed when the set is empty and clears it;
           // any other button is pressed when it is a member and toggles itself.
-          const pressed = o.key === null ? listOf(active).length === 0 : has(active, o.key);
-          const next = o.key === null ? null : toggle(active, o.key);
+          // A single row holds one value, so it compares rather than tests
+          // membership, and it replaces rather than toggling — clicking the
+          // pressed one again leaves it pressed, because there is no "none".
+          const pressed = single
+            ? active === o.key
+            : o.key === null ? listOf(active).length === 0 : has(active, o.key);
+          const next = single
+            ? o.key
+            : o.key === null ? null : toggle(active, o.key);
           return (
             <Link
               key={o.key ?? "all"}
@@ -394,6 +418,8 @@ function FilterBar({
         ],
         filter.attribution,
         (attribution) => ({ ...filter, attribution: (attribution ?? "entry") as FilterKey["attribution"] }),
+        false,  // not a long row — the five labels are short
+        true,   // but a single one: exactly one model is always in force
       )}
       {row(
         "Period",
