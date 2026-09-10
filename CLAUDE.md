@@ -250,3 +250,4 @@
 - Performance bottleneck identified: import pipeline read latency spikes ~222x under concurrent load vs idle.
 - Clients only ever see GroundTruth, so it stops being an internal tool.
 - Stripe integration was dropped from the project.
+- signing in and granting nothing is not the same as asking for someone else's
