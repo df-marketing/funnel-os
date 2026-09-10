@@ -69,6 +69,7 @@
 - The dedupe step must happen before the rules step in the import pipeline.
 - Filter combination warm time was increased from five minutes to thirty minutes.
 - a screenshot must show specific numbers to be meaningful; numbers alone without the screenshot prove nothing.
+- per-client logins are planned; they fail silently in two ways (not yet implemented).
 
 ## Architecture
 
