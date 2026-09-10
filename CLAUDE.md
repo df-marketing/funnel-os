@@ -269,3 +269,4 @@
 - A total no column accounts for (commit message incomplete — likely related to null/zero distinction already captured).
 - No objective has been set for the project — milestones exist without a guiding north star.
 - health check responds with a redirect to a login form (monitor-driven).
+- two tasks exist and they are not equally provable (recent commit note).
