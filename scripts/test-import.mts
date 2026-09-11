@@ -2021,6 +2021,26 @@ console.log("\nCLARITY SCROLL");
   eq("with all five readings", tables.scroll_depths.length, 5);
 
   /*
+   * AND THE CURVE IS ON THE RUN, which is the only copy anything reads.
+   *
+   * 0092 moved the read side to scroll_runs.points and left the write side
+   * writing scroll_depths, so for a while every import produced a run with an
+   * empty curve. Nothing threw; the row appeared with the right sessions and no
+   * readings, which on screen is indistinguishable from a page nobody has
+   * measured. The assertions above passed throughout — they checked the audit
+   * table, not the surface v_scroll_runs exposes.
+   */
+  eq("the curve is written onto the run, not only into scroll_depths",
+     (tables.scroll_runs[0].points ?? []).length, 5);
+  eq("keyed as the view and curveOf() expect",
+     Object.keys(tables.scroll_runs[0].points[0]).sort(), ["depth", "drop_off_pct", "visitors"]);
+  eq("and it carries the real readings",
+     tables.scroll_runs[0].points.map((p: any) => p.depth), [5, 10, 50, 95, 100]);
+  eq("the two copies cannot disagree — same depths in both",
+     tables.scroll_runs[0].points.map((p: any) => p.depth),
+     tables.scroll_depths.map((d: any) => d.depth_pct));
+
+  /*
    * THE CAMPAIGN LOOKUP IS CACHED, SO A COMMIT HAS TO REFRESH IT.
    *
    * mv_campaign_dimensions is a materialised view — five views read it and
@@ -2048,6 +2068,8 @@ console.log("\nCLARITY SCROLL");
   await commitPlan(wdb, "batch-2", again);
   eq("there is still only one run", tables.scroll_runs.length, 1);
   eq("and still only five readings", tables.scroll_depths.length, 5);
+  eq("and the replacement carries its curve too",
+     (tables.scroll_runs[0].points ?? []).length, 5);
 
   /*
    * TWO LANDING PAGES ARE TWO MEASUREMENTS, NOT ONE RE-EXPORT.

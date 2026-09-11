@@ -1414,7 +1414,31 @@ export async function commitPlan(db: SupabaseClient, batchId: string, plan: Plan
       const { error } = await db.from("scroll_runs").delete().eq("run_id", s.replaces);
       if (error) throw new ImportError(`Replacing the earlier scroll curve failed: ${error.message}`);
     }
-    const { error: e1 } = await db.from("scroll_runs").insert({ ...s.run, import_batch_id: batchId });
+    /**
+     * THE CURVE GOES ON THE RUN, and this is the half that was missing.
+     *
+     * 0092 moved the read side onto scroll_runs.points — it added the column,
+     * backfilled every existing run out of scroll_depths, and pointed
+     * v_scroll_runs at it. The write side was never moved with it, so every
+     * scroll import after 0092 wrote its readings to scroll_depths and left
+     * points at its '[]' default.
+     *
+     * Nothing threw. The run appeared in the list with the right sessions and
+     * the right window, and the curve was simply absent — a screen that looks
+     * identical to a page nobody has measured yet. Found by reading the two real
+     * 0926-01 exports back through the anon key after committing them, which is
+     * the only place the difference shows.
+     *
+     * `depth`, not `depth_pct`: the jsonb shape is the one 0092's backfill
+     * produced and curveOf() reads. The two writes below are built from the same
+     * array so they cannot disagree — scroll_depths is now an audit copy that
+     * nothing reads, kept because dropping a table is a separate decision.
+     */
+    const points = s.points.map((p) => ({
+      depth: p.depth_pct, visitors: p.visitors, drop_off_pct: p.drop_off_pct,
+    }));
+
+    const { error: e1 } = await db.from("scroll_runs").insert({ ...s.run, points, import_batch_id: batchId });
     if (e1) throw new ImportError(`Writing the scroll run failed: ${e1.message}`);
 
     const { error: e2 } = await db.from("scroll_depths")
