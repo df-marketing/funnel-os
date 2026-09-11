@@ -45,12 +45,26 @@ export async function GET(request: Request) {
   /* Campaign names from both sides of the join. An ads export names campaigns
      that never produced a lead, and a lead can carry a utm_campaign for a
      campaign whose spend has not been imported yet; a rule has to cover both or
-     it will look right on one tab and wrong on the next. */
+     it will look right on one tab and wrong on the next.
+
+     v_events, NOT events: the events table has no client_id — it hangs off the
+     round — so filtering the table by client silently returns nothing, and a
+     screen whose whole purpose is proposing sources would have opened empty
+     while looking like it had checked. v_events carries client_id and is the
+     surface the rest of the app reads anyway. */
   const [adRows, leadRows, srcRows] = await Promise.all([
     db.from("v_ads").select("campaign").eq("client_id", clientId).limit(1000),
-    db.from("events").select("utm_campaign").eq("client_id", clientId).not("utm_campaign", "is", null).limit(1000),
-    db.from("events").select("source").eq("client_id", clientId).not("source", "is", null).limit(1000),
+    db.from("v_events").select("utm_campaign").eq("client_id", clientId).not("utm_campaign", "is", null).limit(1000),
+    db.from("v_events").select("source").eq("client_id", clientId).not("source", "is", null).limit(1000),
   ]);
+
+  /* Surfaced rather than swallowed. Every one of these is a `?? []` below, so a
+     failed read is indistinguishable from a client with no campaigns — which is
+     exactly how the events/v_events mistake above stayed invisible. */
+  const broke = [adRows, leadRows, srcRows].find((r) => r.error);
+  if (broke?.error) {
+    return NextResponse.json({ ok: false, error: `could not read this client's data: ${broke.error.message}` }, { status: 500 });
+  }
 
   const campaigns = [...new Set([
     ...((adRows.data ?? []) as Array<{ campaign: string | null }>).map((r) => r.campaign ?? ""),

@@ -209,7 +209,7 @@ export function proposeFromCampaigns(campaigns: string[], covered: Set<string>):
       rule: { op: "starts_with", field: "campaign", value: prefix },
       matches: examples.length,
       samples: examples.slice(0, 3),
-      why: `${examples.length} campaign${examples.length === 1 ? "" : "s"} start with ${prefix}, and no rule explains them yet`,
+      why: `${examples.length} campaign${examples.length === 1 ? " starts" : "s start"} with ${prefix}, and nothing explains ${examples.length === 1 ? "it" : "them"} yet`,
     });
   }
   return out.slice(0, 8);
