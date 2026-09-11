@@ -83,6 +83,7 @@
 - a view freezes what the star meant on the day it was made
 - the query-string group Clarity appends is not part of the address
 - Source no longer proposes campaign prefixes — this functionality was removed.
+- AcqOS is a caller/consumer — it calls something else (likely the import pipeline or a data API). Success would be proven by a concrete test or observable outcome (e.g., a successful dry-run or data refresh).
 
 ## Architecture
 
@@ -285,3 +286,4 @@
 - Create the person once, where they signed up — indicates a deduplication or lifecycle fix for user creation.
 - Coverage is how far the data reaches, and the address is the heading.
 - The mismatched close in Requirement 4 was corrected (rendered vs. actual state).
+- The project still has no set objective — milestones lack a guiding north star.
