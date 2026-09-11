@@ -59,7 +59,7 @@ const href = (client: string, view: string, f?: FilterKey, o?: ViewOpts, from?: 
  * sidebar. Cadence decides the sidebar — see `cadencesFor` in data.ts — and a
  * URL for the wrong spine is redirected to the right one rather than 404'd.
  */
-export const FIXED_VIEWS = ["import", "unmatched", "month", "week", "round", "source", "roundsource", "analysis"];
+export const FIXED_VIEWS = ["import", "unmatched", "rules", "month", "week", "round", "source", "roundsource", "analysis"];
 
 /** Which tabs are wired to real Supabase data today. Everything else says so. */
 export const WIRED = new Set([
@@ -70,7 +70,7 @@ export const WIRED = new Set([
   // "forms" reads v_form_answer_split and has since the answers landed. Left
   // out of this set it drew its real tables and then a "Not wired yet" notice
   // underneath them, which is the app calling its own working screen broken.
-  "analysis", "import", "unmatched", "acqos", "forms",
+  "analysis", "import", "unmatched", "acqos", "rules", "forms",
 ]);
 
 export function TopBar({
@@ -582,6 +582,9 @@ export function SideNav({
             four files come from. It is one more source, and the one nobody drops.
           */}
           {item("acqos", "AcqOS")}
+          {/* Under Data because a rule is where a dimension comes from, which is
+              the same question as where the four files come from. */}
+          {item("rules", "Rules")}
         </>
       ) : null}
       {/* A reporting screen — what registrants said about themselves — so it

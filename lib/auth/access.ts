@@ -92,7 +92,10 @@ export function mayRead(access: Access, clientId: string): boolean {
  * reporting screen and none should be reachable by a client, hidden link or
  * typed URL.
  */
-export const STAFF_ONLY_VIEWS = new Set(["import", "unmatched", "acqos"]);
+/* "rules" joins them for a sharper reason than the other three: a rule decides
+   which source a lead is credited to, so a client able to edit their own would
+   be able to move their own revenue between columns. */
+export const STAFF_ONLY_VIEWS = new Set(["import", "unmatched", "acqos", "rules"]);
 
 export function mayUseStaffView(access: Access, view: string): boolean {
   return !STAFF_ONLY_VIEWS.has(view) || access.staff;
