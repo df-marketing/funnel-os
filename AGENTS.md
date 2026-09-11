@@ -282,3 +282,4 @@
 - health check responds with a redirect to a login form (monitor-driven).
 - two tasks exist and they are not equally provable (recent commit note).
 - Create the person once, where they signed up — indicates a deduplication or lifecycle fix for user creation.
+- Coverage is how far the data reaches, and the address is the heading.
