@@ -189,6 +189,7 @@
 - Branch on code, not on the status — two 409s want opposite things. This suggests a known conflict pattern where HTTP 409 status codes can mean different things depending on context, and the fix is to distinguish by the code/payload rather than the status alone.
 - the events table has no client_id, so the screen was scanning nothing
 - the page is part of the key in the table too, not only in the code
+- Requirement 4's render half was never closed — it was documented as closed but was not actually closed in code.
 
 ## Notes
 
@@ -283,3 +284,4 @@
 - two tasks exist and they are not equally provable (recent commit note).
 - Create the person once, where they signed up — indicates a deduplication or lifecycle fix for user creation.
 - Coverage is how far the data reaches, and the address is the heading.
+- The mismatched close in Requirement 4 was corrected (rendered vs. actual state).
