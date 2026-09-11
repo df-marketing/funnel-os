@@ -103,13 +103,26 @@ function Curve({
   return (
     <div className="scroll-run">
       <div className="scroll-h">
-        <b>{run.page_label ?? "Landing page"}</b>
+        {/*
+          THE ADDRESS IS THE HEADING, and the project name is not.
+
+          "Project name" is what a person typed into Clarity, and on the real
+          exports it carries a round — every one of Shely's says "Shely's
+          Landing Page 0726-01", including the two filed against 0926-01 because
+          the round is matched from the export's dates and not from its title.
+          As the heading it read as a mislabelled slide: 0726-01 above a panel
+          whose own window says 28 Aug – 3 Sept.
+
+          So the URL leads, which is also the only thing that tells two pages in
+          one round apart. The project name stays, dimmed, because it is how you
+          find the export again in Clarity — but it no longer makes a claim
+          about which round this is.
+        */}
+        <b>{run.page_key ?? run.page_label ?? "Landing page"}</b>
         <span className="kindtag">{run.device === "all" ? "all devices" : run.device}</span>
-        {/* The address, when the export filtered on one. "Project name" is what
-            a person typed into Clarity and routinely carries the round rather
-            than the page, so on a round running two pages it is the URL that
-            says which of them this is. */}
-        {run.page_key ? <span className="kindtag">{run.page_key}</span> : null}
+        {run.page_label && run.page_label !== run.page_key ? (
+          <span className="dim">{run.page_label}</span>
+        ) : null}
         <span className="dim">
           {count(run.sessions)} sessions{span ? ` · ${span}` : ""}
         </span>
