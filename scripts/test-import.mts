@@ -21,7 +21,7 @@ import { buildTemplate } from "../lib/import/template";
 import { buildIndex, matchRow, normPhone, normEmail, stripPlus } from "../lib/import/identity";
 import { attributeLead, closeRoundFor, resolveProduct, roundFromCampaign, resolveRoundRef } from "../lib/import/attribute";
 import { planImport, commitPlan, ImportError, roundForWindow } from "../lib/import/pipeline";
-import { parseClarityScroll, ClarityError, sessionsFrom, deviceFromName } from "../lib/import/clarity";
+import { parseClarityScroll, ClarityError, sessionsFrom, deviceFromName, pageKeyOf } from "../lib/import/clarity";
 import {
   curveOf, biggestDrop, ceilingOf, coverageOf, runsFor, type ScrollRun,
 } from "../lib/funnel/scroll";
@@ -1902,6 +1902,23 @@ console.log("\nCLARITY SCROLL");
   eq("every row agrees on the base", sessionsFrom(c.points).spread, 0);
   eq("all five readings survive", c.points.length, 5);
   eq("and they are in depth order", c.points.map((p) => p.depth), [5, 10, 50, 95, 100]);
+
+  /* PAGE IDENTITY. The key is the address, and the whole reason it exists is
+     that two pages in one round/device/window must not look like a re-export of
+     each other — which once deleted LP1 when LP2 arrived. */
+  eq("the query-string group Clarity always appends comes off",
+     pageKeyOf("^https://webinar\\.memiai\\.online/ai-avatar-discovery-webinar(\\?.*)?$", "Shely's Landing Page 0726-01"),
+     "webinar.memiai.online/ai-avatar-discovery-webinar");
+  eq("and the two real pages stay different keys",
+     pageKeyOf("^https://webinar\\.memiai\\.online/memi-ai-discovery-webinar-2(\\?.*)?$", null),
+     "webinar.memiai.online/memi-ai-discovery-webinar-2");
+  eq("a trailing .* is scaffolding too", pageKeyOf("^https://memi\\.ai/webinar-reg.*$", null), "memi.ai/webinar-reg");
+  /* But an alternation is part of the address. Stripping it would collapse two
+     pages onto one key, which is this function's one job to prevent. */
+  eq("a trailing alternation is NOT scaffolding",
+     pageKeyOf("^https://memi\\.ai/(pricing|plans)$", null), "memi.ai/(pricing|plans)");
+  eq("no filter at all falls back to the project name",
+     pageKeyOf(null, "Shely's Landing Page 0726-01"), "shely's landing page 0726-01");
 
   // Wrong file, refused by name rather than half-read.
   ok("a clicks export is refused", (() => {

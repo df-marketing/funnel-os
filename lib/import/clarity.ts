@@ -145,6 +145,20 @@ export function pageKeyOf(urlPattern: string | null, pageLabel: string | null): 
     .replace(/\\(.)/g, "$1")                  // \. and \/ back to . and /
     .replace(/^https?:\/\//i, "")             // the scheme is not the page
     .replace(/^www\./i, "")
+    /*
+     * The trailing query-string group. Clarity writes every filter as
+     * `^<url>(\?.*)?$`, and unescaping turns that tail into a literal `(?.*)?`
+     * which the trailing-quantifier strip below only nibbles the last character
+     * off — leaving keys like `memi.ai/webinar-reg(?.*)`. Found on the first
+     * real export.
+     *
+     * Only a group that LOOKS like a query string is removed: its contents must
+     * contain a `?` or a `*`. A trailing alternation such as `/(pricing|plans)`
+     * is a genuine part of two different addresses, and stripping that would
+     * collapse two pages onto one key — which is the exact fault this whole
+     * function exists to prevent.
+     */
+    .replace(/\((?=[^()]*[?*])[^()]*\)[*+?]?$/, "")
     .replace(/[.*+?]*$/, "")                  // a trailing .* matches everything
     .replace(/\/+$/, "")                      // one trailing slash is not a page
     .toLowerCase()
