@@ -307,9 +307,14 @@ export const WEEK_ADS_NOTE =
 /** YYYY-MM. The key v_metrics_by_month cuts on. */
 export const isMonth = (v: string | null): v is string => !!v && /^\d{4}-(0[1-9]|1[0-2])$/.test(v);
 
-/** First and last day of a YYYY-MM, as the window fo_cut takes. */
-export function monthWindow(month: string): { from: string; to: string } {
-  const [y, m] = month.split("-").map(Number);
-  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  return { from: `${month}-01`, to: `${month}-${String(last).padStart(2, "0")}` };
-}
+/**
+ * First and last day of a YYYY-MM, as the window fo_cut takes.
+ *
+ * Re-exported rather than defined here so there is one definition of a month's
+ * window in the app. This endpoint reads the month's own figures from
+ * v_metrics_by_month and listed its rounds through this window, and while the
+ * filter matched by overlap the two disagreed on the same response: a round
+ * straddling the boundary was listed under both months, whole. 20260911100000
+ * made selection anchor-based, which is what makes this window exact.
+ */
+export { monthWindow } from "@/lib/funnel/cuts";

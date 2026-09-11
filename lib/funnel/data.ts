@@ -5,6 +5,7 @@ import {
   cutFor, NEEDS_MONTHS, NEEDS_WEEKS, NEEDS_ROUNDS, NEEDS_ADSETS, NEEDS_SOURCES,
   NEEDS_ROUND_SOURCE, NEEDS_ADS, NEEDS_SESSION, NEEDS_OFFER, NEEDS_THIS_ROUND,
   NEEDS_UNMATCHED_DETAIL, NEEDS_VARIANT, NEEDS_LANDING, narrowToAsset, monthOf,
+  anchorOf, monthWindow,
   type Cut2,
 } from "./cuts";
 import type { Metrics } from "./spine";
@@ -627,15 +628,22 @@ const loadFilterOptions = unstable_cache(
      * choosing it would produce a screen of dashes and no way to tell that from
      * a broken filter. Months first, then the rounds inside them.
      */
+    /**
+     * A month's window is the CALENDAR month, not the span of its rounds.
+     *
+     * It used to be min(start_date)..max(end_date) of the rounds named for the
+     * month, which read as harmlessly descriptive and was the bug: August's
+     * window ran to the last day any August round ran — 28 Aug or later — and
+     * September's began on 28 Aug, so each month's window overlapped the other's
+     * straddling round and the filter, matching by overlap, admitted it whole.
+     * Selecting August returned 8,933.95 against By month's 4,997.27.
+     *
+     * Now that a round is selected by its anchor (anchorOf), and an anchor always
+     * falls inside the named month, the calendar month selects exactly the rounds
+     * By month reports — no more, no fewer.
+     */
     const months = new Map<string, { from: string; to: string }>();
-    for (const r of rs) {
-      const k = monthOf(r);
-      const m = months.get(k);
-      months.set(k, {
-        from: m && m.from < r.start_date ? m.from : r.start_date,
-        to: m && m.to > r.end_date ? m.to : r.end_date,
-      });
-    }
+    for (const r of rs) months.set(monthOf(r), monthWindow(monthOf(r)));
     const monthLabel = (k: string) =>
       new Date(`${k}-01T00:00:00Z`).toLocaleDateString("en-SG", {
         month: "long", year: "numeric", timeZone: "UTC",
@@ -675,12 +683,19 @@ const loadFilterOptions = unstable_cache(
 
     const periods: Period[] = [
       ...[...months].map(([k, v]) => ({ key: `m:${k}`, label: monthLabel(k), from: v.from, to: v.to })),
+      /**
+       * A single round selects on its anchor alone — the same day, twice — not on
+       * its date span. A span admits any OTHER round anchored inside it, which is
+       * the same leak the month options had, one round wide. The LABEL still
+       * prints the real dates, because "0926-01 · 28 Aug–3 Sep" is when the class
+       * actually ran and that is what a reader needs; only the window narrowed.
+       */
       ...rs.map((r) => ({
         key: `r:${r.round_id}`,
         label: `${r.code ?? r.round_id}${r.market && markets.size > 1 ? ` (${r.market})` : ""}`
           + ` · ${range(r.start_date, r.end_date)}`,
-        from: r.start_date,
-        to: r.end_date,
+        from: anchorOf(r),
+        to: anchorOf(r),
       })),
     ];
 

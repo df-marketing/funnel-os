@@ -124,3 +124,38 @@ export const monthOf = (r: { round_id: string; code?: string | null; start_date:
     ? named
     : r.start_date.slice(0, 7);
 };
+
+/**
+ * THE ONE DAY A ROUND IS FILED UNDER.
+ *
+ * A round is atomic — it is the unit a class is sold in — so it belongs to one
+ * period and cannot be split across two. Filtering by overlap gave it to every
+ * window it touched: an August window pulled in the whole of 0926-01, and so did
+ * September's, and adding the two double-counted it. Anchoring on a single day
+ * and asking whether a window CONTAINS that day means disjoint windows partition
+ * the rounds, so adjacent periods add up exactly.
+ *
+ *     0826-01   31 Jul – 6 Aug    named Aug   → 2026-08-01
+ *     0926-01   28 Aug – 3 Sep    named Sep   → 2026-09-01
+ *     0526-02   13 – 19 May       named May   → 2026-05-13   (start_date)
+ *
+ * The anchor is always inside the round, because monthOf only trusts a name that
+ * overlaps the real dates, and always inside the named month, because it is
+ * either start_date or that month's first day. The second property is why a
+ * plain calendar month now selects exactly the rounds By month reports.
+ *
+ * The SQL twin is fo_round_anchor (20260911100000); the two must agree, and
+ * scripts/test-period.mts pins the cases that prove they do.
+ */
+export const anchorOf = (r: { round_id: string; code?: string | null; start_date: string; end_date: string }) => {
+  const first = `${monthOf(r)}-01`;
+  return r.start_date > first ? r.start_date : first;
+};
+
+/** The calendar window of a YYYY-MM — the window that selects exactly the
+    rounds named for that month, now that selection is by anchor. */
+export function monthWindow(month: string): { from: string; to: string } {
+  const [y, m] = month.split("-").map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return { from: `${month}-01`, to: `${month}-${String(last).padStart(2, "0")}` };
+}
