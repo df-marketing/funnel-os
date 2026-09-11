@@ -101,15 +101,20 @@ export async function GET(request: Request) {
   const coveredCampaigns = new Set(campaignHits.filter(([, k]) => k !== null).map(([c]) => c));
   const coveredSources = new Set(sourceHits.filter(([, k]) => k !== null).map(([s]) => s));
 
-  /* Source is the only target proposed from the lead-source column, and it is
-     the point of the requirement: a new source arrives with no tracking
-     parameter of its own, so the export's own column is the only honest signal.
-     Every other target reads the campaign name. */
+  /*
+   * Source reads the lead-source column and NOTHING ELSE, which is the point of
+   * the requirement: a new source arrives with no tracking parameter of its own,
+   * so the export's own column is the only honest signal.
+   *
+   * It briefly also offered campaign prefixes here, on the theory that more
+   * suggestions is more help. Against Shely's real data that proposed creating
+   * sources called "DF" and "ALL CAMPAIGNS 0726" — a campaign name is not a
+   * source, and a confidently wrong proposal is worse than none on a screen
+   * whose whole value is that accepting is safer than typing. Every other target
+   * reads the campaign name, where a prefix genuinely is the signal.
+   */
   const proposals: Proposal[] = target === "source"
-    ? [
-        ...proposeFromSources(sources.filter((s) => scanSources.includes(s)), coveredSources),
-        ...proposeFromCampaigns(scanCampaigns, coveredCampaigns),
-      ]
+    ? proposeFromSources(sources.filter((s) => scanSources.includes(s)), coveredSources)
     : proposeFromCampaigns(scanCampaigns, coveredCampaigns);
 
   return NextResponse.json({
