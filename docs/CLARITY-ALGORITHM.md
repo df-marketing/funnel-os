@@ -110,8 +110,17 @@ needs explaining produces a story, not a finding.
        ↓
       YES
        ↓
-5. NOW open Clarity, for that page, that round, that device
+5. Compare CLICKS to PAGE VISITS for that page, before opening the curve
+       ↓
+   If most clicks never became a visit, STOP — the people who would
+   explain the gap never reached the page. Look at load time, the
+   redirect, and the ad's destination URL instead.
+       ↓
+6. NOW open Clarity's curve, for that page, that round, that device
 ```
+
+> ⚠️ Step 5 was added on 11 September after it changed the answer. See the worked example below —
+> without it the curve produces a confident, well-evidenced, wrong conclusion about form placement.
 
 **The gate at step 3 is the whole point.** Clarity measures what happens *on a page*. If the
 difference is between audiences or between creatives, the page is not the variable and the curve
@@ -149,6 +158,52 @@ attached by hand — *Attach Clarity heatmap* beside the curve.
 
 That makes it evidence you cannot re-derive. Attach it when it shows something the curve does not,
 and say what that is in the note. A heatmap with no claim attached is decoration.
+
+---
+
+## Worked example — `0926-01`, 11 September 2026
+
+The first real run of this algorithm, kept because it ended somewhere nobody expected and shows
+what the curve is and is not for.
+
+**The gate passed.** Two pages in one round, and a real spread: LP1 **15.2%** Lead Gen, LP2
+**11.2%**. Landing page was the failing dimension, so Clarity was allowed.
+
+**The hypothesis was that LP2 loses people before the form.** Both pages exported, mobile, 28 Aug –
+3 Sep. The curves say the opposite:
+
+| Depth reached | LP1 | LP2 |
+|---|---|---|
+| 10% | 66.6% | **87.3%** |
+| 50% | 53.2% | **85.9%** |
+| 100% | 27.2% | **75.1%** |
+
+LP2 holds its visitors far better at every depth. **Three quarters of them reach the very bottom**,
+and they still convert worse per click. Scroll depth is not the constraint on either page — LP1
+converts 15.2% while 27% reach the bottom, so its form could sit at 100% and still be seen by more
+people than convert.
+
+**The answer was upstream of the page**, and the curve is not what found it — the page-visit count
+beside it was:
+
+| | Clicks | Clarity visits | Arrive | Leads | Per click | **Per visit** |
+|---|---|---|---|---|---|---|
+| LP1 | 1,630 | 1,124 | 69% | 248 | 15.2% | **22.1%** |
+| LP2 | 922 | 377 | **41%** | 103 | 11.2% | **27.3%** |
+
+**LP2 is the better page.** Once somebody arrives it converts 27.3% against LP1's 22.1% — five
+points ahead. The entire Lead Gen deficit, and more, is **545 clicks that never became a page
+view**: 59% of LP2's clicks disappear between the ad and the page, against 31% for LP1.
+
+So the fix is not on the page. It is load time, a redirect, or an ad-to-page mismatch that sends
+people straight back — and the tools for that are Clarity's **recordings**, the page's own load
+timing, and the ad's destination URL, not the scroll curve.
+
+**What this changes about the algorithm:** step 5 gains a check before the curve is read at all.
+**Compare clicks to page visits first.** If a large share of clicks never became a visit, nothing
+about on-page behaviour can explain the gap, because the people who would explain it were never
+there. Reading the curve first would have produced a confident, well-evidenced, wrong answer about
+form placement.
 
 ---
 
