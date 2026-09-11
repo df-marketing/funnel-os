@@ -30,8 +30,12 @@ sum to 20,474.78 exactly.
 reads the database and can take a few seconds; every load after is 0.15–0.2s. Otherwise half the
 shots are of a spinner and the review becomes a conversation about speed.
 
-**Three of these need the deploy.** Requirement 3's screen and the Clarity heatmap attach are
-committed but not live. They are marked ⏳. Everything else is provable on production today.
+**Everything here is live on production.** Requirement 3's Rules screen and the Clarity curves both
+shipped on 11 September and are verified against production data.
+
+**One requirement is not fully photographable, and it is 4.** Its journey stages are — that is the
+half every client needs. Its custom *ads measures* are not: the figure reaches the data and the
+table that would draw it has a fixed row list. Section 4 says exactly where that stops.
 
 ---
 
@@ -117,43 +121,44 @@ source are stored and the label is derived at read, so nothing is re-imported.
 
 ---
 
-## 4 · Dynamic customer journey ✅ *closed 11 September*
+## 4 · Dynamic customer journey 🟡 *one half proven, one half still not on screen*
 
-**Two halves, and the second one is new.**
+**The stages — photograph this.** `?client=shely&view=acqos` for the declared stages, plus the
+client switcher showing **Memi AI** and **Northsea Supply** running different journeys — six stages
+against five. Stages are rows, so a new client's journey needs no deploy. That half works and always
+did.
 
-**The stages.** `?client=shely&view=acqos` for the declared stages, plus the client switcher showing
-**Memi AI** and **Northsea Supply** running different journeys — six stages against five. Stages are
-rows, so a new client's journey needs no deploy.
+**The ads measures — do not photograph, there is nothing to see.** A client can declare an ads
+figure the four fixed columns do not carry — video views, ThruPlays — and it is captured, stored and
+now carried all the way through the read. It still does not appear on a screen.
 
-**The ads measures.** This was the open half: a client could *declare* an ads figure the four fixed
-columns do not carry — video views, ThruPlays — and it stored correctly but no view merged it, so it
-never reached a screen. **That branch now exists.**
+**What was fixed on 11 September, and what was not.** `fo_stage_extras` read `source = 'events'` and
+nothing else, so a declared ads measure was captured, stored and dropped on the floor. 20260911110000
+added the missing branch, and the figure now reaches the cut correctly — measured on `acme_fitness`:
 
-It was priced at *"a 14th argument across 93 call sites"* and deferred. That was true on 8
-September and stopped being true on the 9th, when `fo_stage_extras` arrived and `fo_cut` began
-merging its output into every row. **The import side was already complete.** What was missing was
-one branch reading `source = 'ads'`.
-
-**To photograph it** you need a client that declares one. **Do not use Shely** — use a demo client:
-
-```sql
--- 1. acme declares a measure the four fixed columns do not carry
-insert into journey_metrics (metric, metric_key, label, source, is_core, seq, client_id)
-values ('video_views','vv','Video views','ads',false,15,'acme');
-
--- 2. put a real figure on one of its ad rows
-update ads_performance set measures = jsonb_build_object('video_views', 1234)
- where id = (select a.id from ads_performance a join rounds r on r.round_id = a.round_id
-              where r.client_id = 'acme' order by a.date limit 1);
+```
+ACME-MY-0126-01   m.vv = 1234        the round it was put on
+another round     m.vv = undefined   absent, not zero
+total             m.vv = 1234        and it sums
 ```
 
-Then switch to **acme** and capture the round tab — **Video views** appears as a column beside
-Impressions and Clicks, for that round only, and **absent elsewhere rather than zero**.
+**But `SPINE` is a hard-coded array** — `lib/funnel/spine.ts`, twenty-nine keys in a closed
+`MetricKey` union. A declared metric is not one of them, so the By round table cannot draw a row for
+it. The number arrives and nothing renders it.
 
-⚠️ **Undo it afterwards** — delete the `journey_metrics` row and reset `measures` to `'{}'`.
+> ⚠️ **This document previously said requirement 4 was closed, and told you to demo it on a client
+> called `acme`.** Both were wrong. The client id is `acme_fitness`, and the demo would have produced
+> a correct figure on a screen with no row to show it. The data half closed; the render half never
+> did, and the original description — *"it stores correctly, but it doesn't display yet"* — is still
+> the accurate one.
 
-**Say this:** it lands on the round's **named month**, not the month the spend happened in, so it
-agrees with every other figure in the app.
+**What closing it takes:** `SPINE` becomes the fixed list plus the client's declared metrics, and
+`MetricKey` widens from a closed union to `string`. That union is a typed contract across the table,
+the chart and the analysis code, so it is real work rather than a one-liner.
+
+**Say this:** the journey stages are dynamic today and that is the half every client needs. The ads
+measures are dynamic as far as the database; the table that draws them still has a fixed row list,
+and no client has asked for one — FWD was checked directly and buys on clicks.
 
 ---
 
