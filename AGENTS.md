@@ -76,6 +76,12 @@
 - Half of the GU sync is already built and may not be switched on.
 - health check redirects to login — likely intentional for authenticated health monitoring.
 - a health check that reports the clock is worse than one that redirects (recent commit).
+- compare clicks to page visits before reading the curve
+- a round belongs to one period, not to every period it touches
+- a rule is something you can write, and a declared ads measure reaches the screen
+- the curve goes on the run, which is the only copy anything reads
+- a view freezes what the star meant on the day it was made
+- the query-string group Clarity appends is not part of the address
 
 ## Architecture
 
@@ -179,6 +185,8 @@
 - fo_refresh_lookups has never worked — a latent bug that went unmentioned.
 - A handle is claimed before the client exists — ordering matters in the lifecycle.
 - Branch on code, not on the status — two 409s want opposite things. This suggests a known conflict pattern where HTTP 409 status codes can mean different things depending on context, and the fix is to distinguish by the code/payload rather than the status alone.
+- the events table has no client_id, so the screen was scanning nothing
+- the page is part of the key in the table too, not only in the code
 
 ## Notes
 
