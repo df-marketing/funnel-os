@@ -207,16 +207,77 @@ form placement.
 
 ---
 
+## Second worked example — `0726-03`, and the one that settles it
+
+Run eight weeks earlier, on the round with the widest Lead Gen spread in the account: LP1 **20.8%**,
+LP2 **12.5%**. If the page ever explains a gap, it explains this one.
+
+**Two traps first, both worth knowing.**
+
+The site was rebuilt between July and September. July's pages are `memi-ai-discovery-webinar…`;
+September's are `ai-avatar-discovery-webinar…`. **Exporting by remembering a URL from another round
+gets you the wrong page** — here it produced a file with one page view.
+
+And the `-2` suffix does not mean LP2. Matched against clicks, July's LP1 is
+`memi-ai-discovery-webinar-2` (299 visits against 308 clicks) and LP2 is
+`memi-ai-discovery-webinar-v2-2` (38 against 64). **This is why the app derives LP1/LP2 from campaign
+names and never from the URL.** A page's address says nothing about which arm of a test it is.
+
+**The curve, unlike September's, does show a real difference:**
+
+| Depth | LP1 (270) | LP2 (33) |
+|---|---|---|
+| 10% | 64.8% | **74.2%** |
+| 50% | 55.9% | 45.2% |
+| 70% | **53.3%** | **22.6%** |
+| 100% | 29.9% | 12.9% |
+
+LP2 starts ahead and falls off a cliff after halfway — thirty points behind by 70%. In September the
+same page held 75% to the bottom, so the rebuild fixed it. A tempting conclusion sits right there.
+
+**It is the wrong one.** Conversion per visitor who actually arrived:
+
+| | Clicks | Visits | Arrive | Leads | **Per visit** |
+|---|---|---|---|---|---|
+| Jul LP1 | 308 | 299 | **97%** | 64 | **21.4%** |
+| Jul LP2 | 64 | 38 | **59%** | 8 | **21.1%** |
+| Sep LP1 | 1,630 | 1,124 | **69%** | 248 | **22.1%** |
+| Sep LP2 | 922 | 377 | **41%** | 103 | **27.3%** |
+
+**Per-visit conversion is 21–27% in all four.** It does not move between pages, between rounds, or
+even when the scroll curve collapses — because the form sits above the collapse, so losing people at
+70% depth costs nothing. **Arrival swings from 97% to 41%, and that is the whole of every gap.**
+
+Stated once, for both rounds: **every landing-page gap this client has is arrival, not the page.**
+Since July, LP1's arrival has fallen from 97% to 69% — about 500 clicks a round, paid for and never
+landing.
+
+⚠️ LP2's July curve is **33 sessions**, far too small to read in detail. It does not weaken the
+conclusion, because the conclusion rests on the click-to-visit counts, which are in the hundreds.
+
+**Why this example matters more than the first.** In September the curve agreed with step 5 — LP2
+held its visitors and the gap was upstream. Here the curve **disagreed**: it showed a page visibly
+failing, with a plausible mechanism and a satisfying before-and-after. Step 5 still overruled it, and
+the per-visit figures proved step 5 right. A rule that only ever confirms what you already suspected
+has not been tested; this one has.
+
+---
+
 ## Current status
 
-**Built and never fed.** The import, the curve, the Lead Gen % comparison and the heatmap upload all
-work. There is **one test curve on `0526-03` with no page and no heatmap.**
+**Closed 11 September.** Four real curves are loaded — LP1 and LP2 for `0926-01`, LP1 and LP2 for
+`0726-03` — and the two rounds reached the same conclusion by opposite routes: in one the curve
+agreed with step 5, in the other it disagreed and was overruled.
 
-🚫 **Do not screenshot it.** It would be a picture of a working screen with no data behind it, which
-is indistinguishable from a broken one.
+🚫 **The `0526-03` test curve should be deleted.** It has no page attached and sits on a round whose
+only landing page is the lead form — the one shape this algorithm says cannot be diagnosed. It is a
+picture of a working screen with nothing behind it, which is indistinguishable from a broken one.
 
-**To close requirement 5:** export one real curve for `0526-03` (23–27 May 2026) following A4, walk
-it through Part B, and capture the diff before committing plus the curve after.
+**Which rounds are worth exporting at all.** Eight of Shely's thirteen fail the gate outright: five
+run a single page, and three have pages within 1.4 points of each other. Clarity explains a drop-off;
+it cannot find one, so a round where both pages convert the same yields a true and useless curve.
+Export when a round has two pages and one converts materially worse — nothing is gained by
+backfilling the rest.
 
 **Worth doing in the same sitting:** import a **second** landing page for the same round, device and
 dates. Both curves must survive, each tagged with its own URL. That is the regression the six-field
