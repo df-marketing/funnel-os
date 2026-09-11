@@ -1,11 +1,11 @@
-# Proving the nine requirements — a screenshot script
+# Proving the nine requirements — the screenshot script
 
 **For:** a supervisor review.
-**Verified:** 10 September 2026, against production through the app's own key.
+**Rewritten:** 11 September 2026, against production, after requirements 3, 4 and 5 closed.
 
-Every step names what to click, what to capture, and **what the picture proves**. Three of these
-cannot be proven by photographing the obvious thing, and those are called out — a screenshot of a
-screen that would look identical if the feature were broken proves nothing.
+Every step names what to click, what to capture, and **what the picture proves**. Several cannot be
+proven by photographing the obvious thing, and those are called out — a screenshot of a screen that
+would look identical if the feature were broken proves nothing.
 
 Base URL `https://funnel-os-red.vercel.app`. Client **Memi AI (Shely)** unless stated.
 
@@ -15,45 +15,52 @@ Base URL `https://funnel-os-red.vercel.app`. Client **Memi AI (Shely)** unless s
 spend 20,474.78 · leads 1,889 · attendance 682 · revenue 83,927.00 · ROAS 1.80 · CPA 365.62
 ```
 
----
+**Months:** May 2,447.26 · Jun 2,180.32 · Jul 6,913.25 · **Aug 4,997.27** · Sep 3,936.68 — and they
+sum to 20,474.78 exactly.
 
-## Before you start — load each page twice
-
-The first load of any filter combination is slow: it reads the database, and on the current
-instance that can take anywhere from two to forty seconds. Every load after it is **0.15–0.2s**,
-because the result is cached for thirty minutes.
-
-So: **click through everything once to warm it, then go back and take the screenshots.** Otherwise
-half your shots are of a loading page, and the review turns into a conversation about speed instead
-of about the nine requirements.
+> ⚠️ **August changed on 11 September.** A round crossing a month boundary used to be counted in
+> both months, so August read 8,933.95. **It is 4,997.27.** Any earlier deck or report showing the
+> old figure is wrong, including Report 14.
 
 ---
 
-## 1 · Qualitative data visualisation — READY
+## Before you start
 
-**Go to** `?client=shely&view=forms`
+**Load every page once to warm it, then go back and shoot.** First load of a filter combination
+reads the database and can take a few seconds; every load after is 0.15–0.2s. Otherwise half the
+shots are of a spinner and the review becomes a conversation about speed.
 
-**Capture** the whole pane.
+**Three of these need the deploy.** Requirement 3's screen and the Clarity heatmap attach are
+committed but not live. They are marked ⏳. Everything else is provable on production today.
+
+---
+
+## 1 · Qualitative data visualisation ✅
+
+**Go to** `?client=shely&view=forms` · **Capture** the whole pane.
 
 **It proves it** if three questions appear — profession, main challenge, free webinar — each on
 **976 leads**, and **"Tags" and "Last Activity" are absent**. Those two were being reported as
 questions until 9 September; if either is back, the importer has regressed.
 
 **Say this before they ask:** it covers **976 of 1,889 leads (52%)**, and **"Others" is the top
-profession at 413 (42%)**. A supervisor who finds those numbers themselves will discount the whole
-screen.
+profession at 413 (42%)**. A supervisor who finds those numbers themselves will discount the screen.
+
+**The use-case question the meeting asked is a product question, not a build one.** The answers are
+stored, split and countable today. What to *do* with them — audience naming, creative angles,
+qualifying questions — is a decision nobody has made yet, and the app is not blocking it.
 
 ---
 
-## 2 · Attribution Model — READY
+## 2 · Attribution model ✅
 
 **Go to** `?client=shely&view=round`. The **CREDIT** block is in the left sidebar.
 
 **Capture three shots** of the same tab: **Entry**, **Last touch**, **Even split**.
 
-**Include the round columns, not just the header.** The total is 83,927 in all three — and that on
-its own is also what a selector wired to nothing would show. The proof is that the **per-round
-revenue moves** while the total does not. `0726-02` is the clearest:
+⚠️ **Include the round columns, not just the header.** The total is 83,927 in all five — and that on
+its own is also what a selector wired to nothing would show. The proof is that **per-round revenue
+moves while the total does not.** `0726-02` is clearest:
 
 ```
 entry        23,173.00
@@ -65,17 +72,20 @@ even_split   18,648.25
 
 Credit moves between rounds. It is never created or destroyed.
 
+**On "Previous Paid Ads is no more":** the bucket already holds **zero rows** — all 113 sales sit in
+Paid Ads (64), Organic (30), AOAI (16), Unattributed (3) = 83,927. Retiring it is a code cleanup
+with no number attached, and it is queued behind stamping the model onto frozen reports.
+
 ---
 
-## 3 · Source Attribution — READY
+## 3 · Source attribution ⏳ *needs the deploy*
 
-**Go to** `?client=shely&view=source`
+**Two halves. The first is provable now.**
 
-**Capture** the table.
+**Now — the sources themselves.** `?client=shely&view=source` · capture the table.
 
-**It proves it** if five sources appear and **spend sits only on Paid Ads**, with the others
-**blank — not `0.00`**. Blank means absent. A zero would claim Organic was advertised against and
-returned nothing.
+**It proves it** if five sources appear and **spend sits only on Paid Ads**, the others **blank, not
+`0.00`**. Blank means absent; a zero would claim Organic was advertised against and returned nothing.
 
 ```
 Paid Ads 1,520 · Organic 307 · AOAI 61 · Tracking not captured 1 · Unattributed 0  =  1,889
@@ -85,64 +95,113 @@ Paid Ads 1,520 · Organic 307 · AOAI 61 · Tracking not captured 1 · Unattribu
 must drop with the table. A strip still reading 1,889 over a filtered table is the specific bug this
 app had once.
 
----
+**⏳ After the deploy — adding one.** This is what the meeting actually asked: *how do we create a
+new source, like an affiliate programme?*
 
-## 4 · Dynamic Customer Journey — READY TO EXPLAIN, NOT TO PHOTOGRAPH
+**Go to** `?client=shely&view=rules` (staff only) → the **Source** tab.
 
-**What is built:** a client's journey stages are rows, not code. `event_types` holds what a person
-can do, `journey_metrics` maps a stage to one, so adding "policy issued" is two rows and no deploy.
+**Capture** the "What your data suggests" block. It reads what is already there and offers it:
 
-**Capture** `?client=shely&view=acqos` for the declared stages, and the client switcher showing
-**Memi AI** and **Northsea Supply** running different journeys.
+```
+[Create Organic]     455 rows arrived with source "Organic", which no rule names yet
+[Create Paid Ads]    437 rows arrived with source "Paid Ads", which no rule names yet
+[Create AOAI]        108 rows arrived with source "AOAI", which no rule names yet
+```
 
-**What is deferred, and say so plainly:** a client can declare a custom *ads* measurement — video
-views, ThruPlays — and it stores correctly, but no view merges it into the spine, so it never
-reaches a screen. Finishing it is a 14th argument across 93 call sites.
+**It proves it** because nobody typed a rule. To show affiliate specifically, add one by hand:
+**source column · is exactly · `affiliate_partner`** — then capture it sitting in the order list
+above the catch-all.
 
-**This is no longer waiting on anybody.** FWD's media plan was checked directly: statics only across
-all six cycles, video is advisory-only with no production, the buy type is clicks, and every kill,
-graduate and scale trigger is click-based. The media grid is already the four columns the app has.
-**FWD does not trigger this work**, so it stays deferred by decision rather than by drift.
-
----
-
-## 5 · Microsoft Clarity — BUILT, NEVER FED. DO NOT FAKE A SCREENSHOT.
-
-The import, the scroll curve, the Lead Gen % comparison and the heatmap upload all work. **No
-Clarity export has ever been loaded.** There is one test curve on `0526-03` with no page and no
-heatmap; photographing it would be evidence of nothing.
-
-**To make it real, in order:**
-
-1. Clarity → **Heatmaps** → the landing page.
-2. Date range = **one round's dates**. `0526-03` is **23–27 May 2026**. The round is matched from
-   this range, so a sloppy range files the curve against the wrong round.
-3. Set the **device** filter — Mobile or Desktop.
-4. Metric: **Scroll**. A Clicks export is refused by name.
-5. Export the CSV and **do not open or re-save it** — Excel rewrites the date line.
-6. **Keep the device in the filename.** Clarity puts it nowhere else in the file; a file that does
-   not say records as "all devices", and the import warns you.
-
-**Import:** Import tab → panel 5 **Landing page scroll** → drop → read the diff → Commit.
-**Capture the diff before committing** — it names the round it matched and the window.
-
-**Then** `?client=shely&view=analysis` with `0526-03` selected, step 3.
-
-**Capture** the curve. It proves it if you can see the **vertical mark on each bar** — that is the
-round's Lead Gen % on the same axis — and one of the readings above the table. The strongest is
-*"the opt-in form cannot sit below N% of the page"*, which is a constraint the two independent
-sources produce together, not a restatement of either.
-
-**Heatmap:** Clarity has no heatmap export and its share links expire, so this is a screenshot.
-Take one, click **Attach Clarity heatmap** beside the curve, capture the link that appears.
-
-**Worth proving if there is time:** import a **second** landing page for the same round, device and
-dates. Both curves must survive, each tagged with its own URL. Until 9 September the second import
-silently deleted the first.
+**Say this:** changing a rule **restates every past round instantly** — the raw campaign name and
+source are stored and the label is derived at read, so nothing is re-imported.
 
 ---
 
-## 6 · Round Naming Separation — READY
+## 4 · Dynamic customer journey ✅ *closed 11 September*
+
+**Two halves, and the second one is new.**
+
+**The stages.** `?client=shely&view=acqos` for the declared stages, plus the client switcher showing
+**Memi AI** and **Northsea Supply** running different journeys — six stages against five. Stages are
+rows, so a new client's journey needs no deploy.
+
+**The ads measures.** This was the open half: a client could *declare* an ads figure the four fixed
+columns do not carry — video views, ThruPlays — and it stored correctly but no view merged it, so it
+never reached a screen. **That branch now exists.**
+
+It was priced at *"a 14th argument across 93 call sites"* and deferred. That was true on 8
+September and stopped being true on the 9th, when `fo_stage_extras` arrived and `fo_cut` began
+merging its output into every row. **The import side was already complete.** What was missing was
+one branch reading `source = 'ads'`.
+
+**To photograph it** you need a client that declares one. **Do not use Shely** — use a demo client:
+
+```sql
+-- 1. acme declares a measure the four fixed columns do not carry
+insert into journey_metrics (metric, metric_key, label, source, is_core, seq, client_id)
+values ('video_views','vv','Video views','ads',false,15,'acme');
+
+-- 2. put a real figure on one of its ad rows
+update ads_performance set measures = jsonb_build_object('video_views', 1234)
+ where id = (select a.id from ads_performance a join rounds r on r.round_id = a.round_id
+              where r.client_id = 'acme' order by a.date limit 1);
+```
+
+Then switch to **acme** and capture the round tab — **Video views** appears as a column beside
+Impressions and Clicks, for that round only, and **absent elsewhere rather than zero**.
+
+⚠️ **Undo it afterwards** — delete the `journey_metrics` row and reset `measures` to `'{}'`.
+
+**Say this:** it lands on the round's **named month**, not the month the spend happened in, so it
+agrees with every other figure in the app.
+
+---
+
+## 5 · Microsoft Clarity ✅ *closed 11 September, with a real finding*
+
+**This is no longer "built, never fed".** Two real exports are committed against round **`0926-01`**
+and they produced a conclusion worth showing.
+
+**The algorithm is `docs/CLARITY-ALGORITHM.md`.** Screenshot the decision path from it — that is what
+the meeting asked for, and the gates are the point:
+
+```
+month → round → drill down → is the failing dimension LANDING PAGE?
+  → is its Lead Gen % low against the OTHER pages in the same round?
+    → do most clicks actually become page visits?        ← added 11 Sep
+      → only now, read the curve
+```
+
+**Go to** `?client=shely&view=analysis` with **`0926-01`** selected, step 3.
+
+**Capture** both curves. It proves it if each is tagged with **its own URL** — two landing pages,
+one round, one device, one window, both surviving. Until 9 September the second import silently
+deleted the first.
+
+**The finding, and lead with it:**
+
+| | Clicks | Visits | Arrive | Leads | Per click | **Per visit** |
+|---|---|---|---|---|---|---|
+| LP1 | 1,630 | 1,124 | 69% | 248 | 15.2% | **22.1%** |
+| LP2 | 922 | 377 | **41%** | 103 | 11.2% | **27.3%** |
+
+**LP2 is the better page.** It converts 27.3% of arrivals against LP1's 22.1%. Its entire Lead Gen
+deficit is **545 clicks that never became a page view** — 59% lost between ad and page, against 31%
+for LP1. The fix is load time, a redirect or an ad-to-page mismatch; **it is not on the page.**
+
+The curves say the same thing from the other side: LP2 holds **87.3%** at a tenth of the page
+against LP1's 66.6%, and **75.1%** reach the bottom against 27.2%.
+
+⚠️ **State the caveat before anyone finds it:** scroll depth is a percentage of page height, so LP2
+may simply be a shorter page. That does not weaken the conclusion — the click-to-visit gap is
+measured, not inferred — but do not let "75% reach the bottom" be read as engagement.
+
+**⏳ The heatmap** is a screenshot attached by hand (*Attach Clarity heatmap*), which needs the
+deploy. The two PNGs are already exported and waiting.
+
+---
+
+## 6 · Round naming separation ✅
 
 **Go to** the client switcher → **Northsea Supply** → capture the **PERIOD** list.
 
@@ -165,16 +224,18 @@ is the design, not an inconsistency.
 from `code`, not from `round_id` — `DEMO-MY-0526-01` has no `MMYY-NN` at the front, so if the month
 still parsed the id, both would land nowhere.
 
-The undo is at the bottom of `_build/28`.
+**Say this:** the ads importer resolves the **market first and the date second**. A campaign reading
+`DF_MY_..._0526_01` can only match the Malaysian round. Date-first would have produced silently
+wrong spend the day two markets overlapped.
 
 ---
 
-## 7 · Personalisation — READY
+## 7 · Personalisation ✅
 
 **Go to** `?client=shely&view=round`, click **AUDIENCE → Cold_Broad**.
 
-**Capture two shots:** the round tab filtered, then **switch to another tab** with the filter still
-set.
+**Capture two shots:** the round tab filtered, then **switch to another tab with the filter still
+set.**
 
 **It proves it** if the filter **follows you across tabs** and the journey strip narrows with it:
 
@@ -184,15 +245,20 @@ Cold_Broad            spend  3,373.84 · leads   230 · rev  6,667
 Cold_BusinessOwners   spend  3,679.49 · leads   252 · rev  4,173
 ```
 
+**For the ads × audience half the meeting asked about:** with the audience filter set, open the
+**Ads** tab — creatives are now shown for that audience only. Landing page × audience is the same
+move on the **Landing page** tab.
+
 Note this deliberately **reverses** the older "an asset does not follow you to another tab" rule.
 Filters follow; drill-downs stay local.
 
 ---
 
-## 8 · Cross-round exposure — READY, BUT ONLY IN SQL
+## 8 · Cross-round exposure / ads event tracking ✅ *SQL only*
 
-Nothing was built, correctly: a person registering for two rounds already writes two rows. There is
-**no screen showing one person's history**, so the only honest proof is the query.
+Nothing was built, correctly: a person registering for two rounds already writes two rows, each
+carrying **its own ad, ad set and campaign**. That is why those columns sit on the event and not on
+the contact — storing them on the person would collapse May's ad and June's ad into one.
 
 ```sql
 select contact_id, count(distinct round_id) as rounds
@@ -205,11 +271,15 @@ having count(distinct round_id) > 1
 ```
 
 **It proves it** if contacts appear with 2 and 3 rounds — there are **56 in the first 2,000 lead
-rows**, one of them in three. Each is counted in the round they registered for and in no other.
+rows**, one of them in three.
+
+**Say this about cohort analysis:** the data supports it and there is **no screen**. When one is
+built it must state that **Meta gives no per-person impressions**, so exposure is only observable
+when a click became a registration — any cohort view understates and has to say so.
 
 ---
 
-## 9 · Drop is_lead — READY
+## 9 · Drop `is_lead` ✅
 
 **Capture three failures**, which is what proof of a removal looks like:
 
@@ -224,52 +294,48 @@ it is the only way this could go wrong, and the pair of pictures rules it out.
 
 ---
 
-## The country filter — verified working, and worth one shot
+## Worth one extra shot: the country filter
 
-It broke and was rebuilt on 9 September. Current behaviour, measured through the app's key at about
-one second each:
+It broke and was rebuilt on 9 September.
 
 ```
-country=MY       1 round   ·    989.53 · 247 leads   0926-01
-country=SG      12 rounds  · 19,485.25 · 1,601 leads
-country=SG,MY   12 rounds  · 20,474.78 · 1,848 leads
+MY       1 round   ·    989.53 · 247 leads   0926-01
+SG      12 rounds  · 19,485.25 · 1,601 leads
+                     ─────────
+                     20,474.78   exactly the account total
 ```
-
-989.53 + 19,485.25 = **20,474.78**, exactly the account total.
 
 **MY is one round and that is correct.** There are exactly two MY campaigns in the account, both in
-`0926-01`. An earlier note in these files claimed four; that number came from a script counting the
-keys of an error object and was never real.
-
-The 41 leads between 1,848 and 1,889 sit on campaigns resolving to no market — `ALL CAMPAIGNS
-0526-02`, `{{campaign.name}}` and fourteen others. Counted in the round, not in a country. That is
-the rule working.
+`0926-01`. An earlier note claimed four; that number came from a script counting the keys of an
+error object and was never real.
 
 ---
 
 ## If somebody asks why a page was slow
 
-Say it before they ask, because it is the one thing that will come up.
+Say it before they ask.
 
-**Every screen is 0.15–0.2 seconds once loaded.** The first load of a filter combination reads the
-database and can take several seconds; the result is then cached for thirty minutes. The database
-floor is about 1.5 seconds for any read, and a page fires several at once.
+**Every screen is 0.15–0.2s once loaded.** First load of a filter combination reads the database and
+can take a few seconds; the result is cached for thirty minutes. The floor is about **1.5s** for any
+read and a page fires several at once — measured today: 0.6–1.8s typical, `v_round_assets` 3.0s.
 
 That floor is the honest open item. **52 campaigns and 3,000 events should not cost 1.5 seconds on
-any plan.** It is an instance-size question, not a query-tuning one — seven query fixes on 9
-September took the app from failing to working, and the floor barely moved. It should be sized
-before FWD lands, not after.
+any plan.** It is an instance-size question, not a query-tuning one: seven query fixes on 9
+September took the app from failing to working and the floor barely moved.
 
 ---
 
 ## The one rule behind all nine
 
-**A total that does not move is not proof.** Both faults found in review left `20,474.78` intact
-while everything underneath was wrong — one because row-level security hid a table's rows from the
-app but not from the SQL editor, the other because credit was being re-filed between rounds that
-still summed correctly.
+**A total that does not move is not proof.**
 
-So: **check the distribution, not the sum**, and read anything you verify **through the app**, never
-through the Supabase SQL editor. The editor connects as a superuser and sees rows the app cannot.
-That difference has already produced one false pass — zero mismatches in the editor, 44 out of 46
+Every fault found in review left `20,474.78` intact while something underneath was wrong — row-level
+security hiding a table from the app but not the editor; credit re-filed between rounds that still
+summed correctly; and on 11 September, two Clarity curves that imported cleanly, reported the right
+sessions, and **contained no readings at all** because the write path and the read path had drifted
+apart. That one survived 683 tests, because the tests asserted the table nothing reads.
+
+So: **check the distribution, not the sum.** Read anything you verify **through the app**, never
+through the Supabase SQL editor — the editor connects as a superuser and sees rows the app cannot.
+That difference has already produced one false pass: zero mismatches in the editor, **44 of 46**
 through the app's key.
