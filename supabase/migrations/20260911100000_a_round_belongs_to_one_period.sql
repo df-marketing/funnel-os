@@ -87,6 +87,30 @@
 -- matches and a date comparison, no table access, inlinable. All three call
 -- sites already join rounds, so the code is in scope for free.
 --
+-- WHY THE TWO VIEWS ARE BUILT BY DYNAMIC SQL. The first attempt at this
+-- migration failed, safely, on:
+--
+--     ERROR 42P16: cannot change name of view column "product_id" to "measures"
+--
+-- v_ads is `select r.client_id, a.*, …` and a view freezes what `*` meant on the
+-- day it was created. 0091 created it; 20260909072902 then added `measures` to
+-- ads_performance. Re-running the same text expands `a.*` one column wider than
+-- the live view, so every column past that point shifts and CREATE OR REPLACE
+-- refuses. v_attributed_events has the same shape over v_event_attribution,
+-- which 20260909063435 redefined after 0091 created the view above it.
+--
+-- Writing the frozen lists out by hand would mean reconstructing them from the
+-- migration history — which is exactly the reasoning that produced the error, so
+-- doing more of it is not the fix. Instead each view is rebuilt by reading its
+-- OWN current column list out of information_schema and projecting exactly that,
+-- whatever it turns out to be. The query keeps its wider inner select; the outer
+-- projection is pinned to what already exists.
+--
+-- This is also why attr_anchor is NOT added as a column. It lives inside the
+-- `prepared` CTE where the predicate needs it and is projected away, so neither
+-- view's column list changes at all — nothing to append, nothing to shift, and
+-- no caller reading by position can notice.
+--
 -- WHAT IS NOT TOUCHED. fo_round_month keeps its signature and its callers —
 -- v_metrics_by_month is already correct and this migration does not alter a
 -- single figure it produces. Frozen month insights (0041) keep the reading they
@@ -97,9 +121,7 @@
 -- BLAST RADIUS. Three live views call these predicates — v_rounds, v_ads and
 -- v_attributed_events. Everything else inherits: v_events reads
 -- v_attributed_events, and every metrics view reads v_rounds/v_ads/v_events.
--- v_attributed_events gains one appended column (attr_anchor); appending is the
--- only column change CREATE OR REPLACE VIEW allows and no caller reads it by
--- position.
+-- No view's column list changes.
 --
 -- Safe to re-run. Section 2 is cleanup in its own transaction so that a
 -- straggler cannot roll back the fix.
@@ -109,6 +131,22 @@
 -- 20260909160000, and v_ads + v_attributed_events from 0091. Then
 --   drop function if exists fo_round_anchor(text, date, date);
 -- ═══════════════════════════════════════════════════════════════════════════
+
+-- ═══ 0. PRE-FLIGHT — read-only, run it alone if section 1 ever fails ═══════
+-- The frozen column lists the rebuild has to reproduce. Nothing here writes.
+--
+--   select table_name,
+--          string_agg(column_name, ', ' order by ordinal_position) as frozen_columns
+--     from information_schema.columns
+--    where table_schema = 'public'
+--      and table_name in ('v_ads', 'v_attributed_events', 'v_rounds')
+--    group by table_name;
+--
+-- v_ads should NOT list `measures` — it is on ads_performance but was added
+-- after the view was created, and v_ads_measures (20260909072902) is where it
+-- is meant to be read. If it DOES list measures, the view was recreated at some
+-- point and the projection below will simply carry it through; either way the
+-- rebuild matches what is there rather than what the history implies.
 
 -- ═══ 1. THE FIX ════════════════════════════════════════════════════════════
 begin;
@@ -225,56 +263,90 @@ where fo_filter_people_ok(
 grant select on v_rounds to anon, authenticated;
 
 -- v_ads: per ad row, which is why the anchor function is pure.
-create or replace view v_ads as
-with campaign_dimensions as materialized (select * from v_campaign_dimensions)
-select r.client_id, a.*, r.product_id, coalesce(d.market, r.country) as country
-from ads_performance a
-join rounds r on r.round_id = a.round_id
-left join campaign_dimensions d
-  on d.client_id = r.client_id and d.campaign is not distinct from a.campaign
-where fo_filter_ok(r.product_id, a.channel, coalesce(d.market, r.country),
-                   fo_round_anchor(r.code, r.start_date, r.end_date))
-  and fo_filter_audience_ok(coalesce(nullif(btrim(a.ad_set), ''), '(unsplit)'));
+--
+-- Projected through its own frozen column list, for the reason in the header:
+-- `a.*` means more today than it did when 0091 ran, and the live view is
+-- entitled to the narrower shape it was born with.
+do $do$
+declare
+  v_cols text;
+begin
+  select string_agg(quote_ident(column_name), ', ' order by ordinal_position)
+    into v_cols
+    from information_schema.columns
+   where table_schema = 'public' and table_name = 'v_ads';
+
+  if v_cols is null then
+    raise exception 'v_ads does not exist; this migration replaces, it does not create';
+  end if;
+
+  execute format($f$
+    create or replace view v_ads as
+    with campaign_dimensions as materialized (select * from v_campaign_dimensions)
+    select %s from (
+      select r.client_id, a.*, r.product_id, coalesce(d.market, r.country) as country
+      from ads_performance a
+      join rounds r on r.round_id = a.round_id
+      left join campaign_dimensions d
+        on d.client_id = r.client_id and d.campaign is not distinct from a.campaign
+      where fo_filter_ok(r.product_id, a.channel, coalesce(d.market, r.country),
+                         fo_round_anchor(r.code, r.start_date, r.end_date))
+        and fo_filter_audience_ok(coalesce(nullif(btrim(a.ad_set), ''), '(unsplit)'))
+    ) s
+  $f$, v_cols);
+end
+$do$;
 grant select on v_ads to anon, authenticated;
 
--- v_attributed_events: attr_anchor is APPENDED. attr_country stays the first
--- appended column for the reason 0082 gives, and attr_start_date/attr_end_date
--- keep their positions — a replacement view may add columns at the end and
--- nowhere else.
-create or replace view v_attributed_events as
-with campaign_dimensions as materialized (select * from v_campaign_dimensions),
-entry_context as materialized (select * from v_contact_entry),
-prepared as (
-  select a.*,
-         -- attr_country already exists on v_attributed_events (0082), so it
-         -- must remain the first appended column. Postgres does not permit a
-         -- replacement view to insert a new column ahead of it.
-         coalesce(d.market, r.country) as attr_country,
-         r.product_id as attr_product_id,
-         r.start_date as attr_start_date,
-         r.end_date as attr_end_date,
-         case
-           when a.event_type = 'attendance' then c.attr_ad_set
-           when a.event_type = 'sale' then a.attr_ad_set
-           else a.ad_set
-         end as attr_audience,
-         case when a.event_type = 'attendance' then c.attr_ad else a.attr_ad end as attr_creative,
-         fo_round_anchor(r.code, r.start_date, r.end_date) as attr_anchor
-  from v_event_attribution a
-  join rounds r on r.client_id = a.client_id and r.round_id = a.attr_round_id
-  left join campaign_dimensions d
-    on d.client_id = a.client_id and d.campaign is not distinct from a.attr_utm_campaign
-  left join entry_context c
-    on c.client_id = a.client_id and c.contact_id = a.contact_id
-)
-select * from prepared p
-where fo_filter_people_ok(
-        p.attr_product_id,
-        p.attr_country,
-        p.attr_anchor
-      )
-  and fo_filter_source_ok(coalesce(p.attr_source, 'Unattributed'))
-  and fo_filter_audience_ok(coalesce(nullif(btrim(p.attr_audience), ''), '(unsplit)'));
+-- v_attributed_events: same treatment, same reason — `select * from prepared`
+-- froze whatever v_event_attribution exposed in 0091, and 20260909063435 changed
+-- it afterwards. attr_anchor stays INSIDE prepared and is projected away, so the
+-- column list is untouched and attr_country keeps the leading position 0082
+-- requires.
+do $do$
+declare
+  v_cols text;
+begin
+  select string_agg(quote_ident(column_name), ', ' order by ordinal_position)
+    into v_cols
+    from information_schema.columns
+   where table_schema = 'public' and table_name = 'v_attributed_events';
+
+  if v_cols is null then
+    raise exception 'v_attributed_events does not exist; this migration replaces, it does not create';
+  end if;
+
+  execute format($f$
+    create or replace view v_attributed_events as
+    with campaign_dimensions as materialized (select * from v_campaign_dimensions),
+    entry_context as materialized (select * from v_contact_entry),
+    prepared as (
+      select a.*,
+             coalesce(d.market, r.country) as attr_country,
+             r.product_id as attr_product_id,
+             r.start_date as attr_start_date,
+             r.end_date   as attr_end_date,
+             case
+               when a.event_type = 'attendance' then c.attr_ad_set
+               when a.event_type = 'sale' then a.attr_ad_set
+               else a.ad_set
+             end as attr_audience,
+             case when a.event_type = 'attendance' then c.attr_ad else a.attr_ad end as attr_creative,
+             fo_round_anchor(r.code, r.start_date, r.end_date) as attr_anchor
+      from v_event_attribution a
+      join rounds r on r.client_id = a.client_id and r.round_id = a.attr_round_id
+      left join campaign_dimensions d
+        on d.client_id = a.client_id and d.campaign is not distinct from a.attr_utm_campaign
+      left join entry_context c
+        on c.client_id = a.client_id and c.contact_id = a.contact_id
+    )
+    select %s from prepared p
+    where fo_filter_people_ok(p.attr_product_id, p.attr_country, p.attr_anchor)
+      and fo_filter_source_ok(coalesce(p.attr_source, 'Unattributed'))
+      and fo_filter_audience_ok(coalesce(nullif(btrim(p.attr_audience), ''), '(unsplit)'))
+  $f$, v_cols);
+end
+$do$;
 grant select on v_attributed_events to anon, authenticated;
 
 commit;
