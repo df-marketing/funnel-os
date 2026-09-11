@@ -82,6 +82,7 @@
 - the curve goes on the run, which is the only copy anything reads
 - a view freezes what the star meant on the day it was made
 - the query-string group Clarity appends is not part of the address
+- Source no longer proposes campaign prefixes — this functionality was removed.
 
 ## Architecture
 
@@ -109,6 +110,7 @@
 - seeded demo data can be wiped reversibly (migration/seed reset).
 - function moved closer to database (edge function / co-located query), fetches only the open tab, and caches results.
 - Bucket instants by local day; drop stale plans on commit (duplicate of existing memory).
+- A source is a rule, like every other dimension — the concept of 'source' was unified with other dimensions in the data model.
 
 ## Gotchas
 
