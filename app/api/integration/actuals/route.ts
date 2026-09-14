@@ -29,7 +29,7 @@ type ParkedCut = {
 
 /** Ground Up pulls the same filtered totals the Funnel OS UI reads. */
 export async function GET(request: Request) {
-  const key = checkIntegrationKey(request);
+  const key = checkIntegrationKey(request, "read");
   if (key === "unconfigured") return NextResponse.json({ error: MISSING_INTEGRATION_KEY_MESSAGE }, { status: 503 });
   if (key !== "ok") return new NextResponse(null, { status: 401 });
 

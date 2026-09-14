@@ -196,7 +196,7 @@ async function liveRound(request: Request): Promise<LiveRound | NextResponse> {
 }
 
 function guarded(request: Request) {
-  const key = checkIntegrationKey(request);
+  const key = checkIntegrationKey(request, "read");
   if (key === "unconfigured") return NextResponse.json({ error: MISSING_INTEGRATION_KEY_MESSAGE }, { status: 503 });
   return key === "ok" ? null : new NextResponse(null, { status: 401 });
 }
