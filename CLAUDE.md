@@ -84,6 +84,7 @@
 - the query-string group Clarity appends is not part of the address
 - Source no longer proposes campaign prefixes — this functionality was removed.
 - AcqOS is a caller/consumer — it calls something else (likely the import pipeline or a data API). Success would be proven by a concrete test or observable outcome (e.g., a successful dry-run or data refresh).
+- A read-only API key was added for the four GET routes, restricting them to read-only access.
 
 ## Architecture
 
@@ -289,3 +290,4 @@
 - The mismatched close in Requirement 4 was corrected (rendered vs. actual state).
 - The project still has no set objective — milestones lack a guiding north star.
 - no objective is set for the project — all recent commits lack a guiding north star (confirmed still true).
+- The project has no objective set — milestones lack a guiding north star.
