@@ -77,6 +77,16 @@ export async function GET() {
   checks.integrationKey = process.env.INTEGRATION_SHARED_KEY ? "configured" : "not configured";
   if (!process.env.INTEGRATION_SHARED_KEY) ok = false;
 
+  /* The read-only key is optional, so its absence is not a fault. Set to the
+     same value as the shared key it is silently not read-only, which is worth
+     saying out loud — that is a limit somebody believes in but does not have. */
+  const readonly = process.env.INTEGRATION_READONLY_KEY;
+  checks.integrationReadonlyKey = !readonly
+    ? "not configured"
+    : readonly === process.env.INTEGRATION_SHARED_KEY
+      ? "ignored: identical to INTEGRATION_SHARED_KEY"
+      : "configured";
+
   return NextResponse.json({
     status: ok ? "ok" : "degraded",
     checks,

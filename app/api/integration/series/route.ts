@@ -42,7 +42,7 @@ const isCut = (v: string | null): v is CutKey => v !== null && v in VIEWS;
 const OFFERS = ["preview", "middle"] as const;
 
 export async function GET(request: Request) {
-  const key = checkIntegrationKey(request);
+  const key = checkIntegrationKey(request, "read");
   if (key === "unconfigured") return NextResponse.json({ error: MISSING_INTEGRATION_KEY_MESSAGE }, { status: 503 });
   if (key !== "ok") return new NextResponse(null, { status: 401 });
 
