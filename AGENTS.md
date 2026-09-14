@@ -191,6 +191,7 @@
 - the events table has no client_id, so the screen was scanning nothing
 - the page is part of the key in the table too, not only in the code
 - Requirement 4's render half was never closed — it was documented as closed but was not actually closed in code.
+- Hand GroundStream the reasoning, not just the schema — the commit message suggests a code/pattern is being applied by hand rather than generated, or that reasoning steps should be explicitly captured.
 
 ## Notes
 
@@ -287,3 +288,4 @@
 - Coverage is how far the data reaches, and the address is the heading.
 - The mismatched close in Requirement 4 was corrected (rendered vs. actual state).
 - The project still has no set objective — milestones lack a guiding north star.
+- no objective is set for the project — all recent commits lack a guiding north star (confirmed still true).
