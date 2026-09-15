@@ -123,6 +123,7 @@
 - function moved closer to database (edge function / co-located query), fetches only the open tab, and caches results.
 - Bucket instants by local day; drop stale plans on commit (duplicate of existing memory).
 - A source is a rule, like every other dimension — the concept of 'source' was unified with other dimensions in the data model.
+- slug ownership changes are tracked via a push mechanism (likely an event/trigger or notification)
 
 ## Gotchas
 
@@ -304,3 +305,4 @@
 - no objective is set for the project — all recent commits lack a guiding north star (confirmed still true).
 - The project has no objective set — milestones lack a guiding north star.
 - the freezing step now asks whether data arrived, not just whether the period ended.
+- a push says when a slug changed hands
