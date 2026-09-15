@@ -94,6 +94,7 @@
 - The skill tree reflects current state (truth at read time), not the state from earlier today (was not refreshed).
 - A refusal message should say what it wants, not just that it was refused.
 - Health endpoint is now pointed at directly instead of relying on a hash that goes stale.
+- the middle pricing offer was intentionally removed from display/pricing.
 
 ## Architecture
 
@@ -202,6 +203,7 @@
 - the page is part of the key in the table too, not only in the code
 - Requirement 4's render half was never closed — it was documented as closed but was not actually closed in code.
 - Hand GroundStream the reasoning, not just the schema — the commit message suggests a code/pattern is being applied by hand rather than generated, or that reasoning steps should be explicitly captured.
+- rename failure should trigger a test failure, not a client-facing error — indicates a testing philosophy shift toward catching misconfigurations early.
 
 ## Notes
 
