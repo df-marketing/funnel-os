@@ -302,3 +302,4 @@
 - The project still has no set objective — milestones lack a guiding north star.
 - no objective is set for the project — all recent commits lack a guiding north star (confirmed still true).
 - The project has no objective set — milestones lack a guiding north star.
+- the freezing step now asks whether data arrived, not just whether the period ended.
