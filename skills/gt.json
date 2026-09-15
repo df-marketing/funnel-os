@@ -1,0 +1,579 @@
+{
+  "name": "groundtruth",
+  "title": "GroundTruth (Funnel OS)",
+  "version": "2026-09-15",
+  "description": "Reporting and attribution for DriveFunnels clients. Four exports arrive — ads spend, leads, attendance, sales — plus Microsoft Clarity scroll curves, and GT answers what the money did, in many cuts.",
+  "source": {
+    "repo": "df-marketing/funnel-os",
+    "branch": "feat/readonly-integration-key",
+    "commit": "71cc54f",
+    "deployed_commit": "6d92f33",
+    "generated_from": "SKILLTREE-GT-2026-09-15.md",
+    "verified_against": "production, 15 Sep 2026"
+  },
+
+  "base_url": "https://funnel-os-red.vercel.app",
+
+  "auth": {
+    "readonly_key": {
+      "header": "x-integration-key",
+      "env": "INTEGRATION_READONLY_KEY",
+      "reaches": "the four GET routes only",
+      "recommended_for": "agents",
+      "evidence": "lib/integration/auth.ts:57,66"
+    },
+    "integration_key": {
+      "header": "x-integration-key",
+      "env": "INTEGRATION_SHARED_KEY",
+      "reaches": "all eight /api/integration/* routes",
+      "recommended_for": "AcqOS, which calls a fixed set of routes",
+      "warning": "Four of these routes create users, grant client access, replace funnel schemas and write ad spend. Do not give this key to a caller that chooses its own requests at runtime.",
+      "evidence": "lib/integration/auth.ts:20-26"
+    },
+    "none": {
+      "reaches": "/api/health only",
+      "evidence": "lib/supabase/middleware.ts:73"
+    },
+    "staff_session": {
+      "mechanism": "Supabase auth cookie via requireStaff()",
+      "reaches": "every route outside /api/integration/* and /api/health",
+      "obtainable_by_machine": false,
+      "evidence": "lib/auth/access.ts"
+    }
+  },
+
+  "hazards": [
+    {
+      "id": "blocked-routes-return-200-html",
+      "severity": "high",
+      "summary": "A route that needs a staff session answers 307 to /login. A client that follows redirects receives 200 OK with text/html, not an error.",
+      "detail": "Middleware redirects rather than refusing, so res.ok is true and the body is a login page. Sending an integration key does not change this — middleware never consults it for these routes. Any skill marked callable:false will fail this way if attempted.",
+      "mitigation": "Never call a skill with callable:false. If you must probe, use redirect:'manual' and treat 307 as a refusal.",
+      "verified": "GET /api/rules?client=shely → 307 → follow → 200 text/html 5951 bytes, 15 Sep 2026",
+      "evidence": "lib/supabase/middleware.ts:62-73"
+    },
+    {
+      "id": "error-codes-not-in-any-contract",
+      "severity": "medium",
+      "summary": "The four refusal codes exist only as string literals in route bodies. No schema, no exported constant.",
+      "detail": "A rename in GT would break callers silently. This manifest is currently the only machine-readable copy.",
+      "evidence": "app/api/integration/client-handle/route.ts:112,121; client-user/route.ts:110,120"
+    },
+    {
+      "id": "read-floor",
+      "severity": "low",
+      "summary": "A single read takes roughly 850ms and five concurrent reads about 3s on the current Supabase instance.",
+      "detail": "Instance size, not query cost. Budget timeouts accordingly; do not interpret slowness as failure."
+    }
+  ],
+
+  "errors": {
+    "handle_taken": {
+      "status": 409,
+      "meaning": "A DIFFERENT AcqOS client already holds this handle.",
+      "action": "Mint a different handle and claim again."
+    },
+    "source_holds_other": {
+      "status": 409,
+      "meaning": "THIS AcqOS client already holds a different handle.",
+      "action": "Stop. Use the handle returned in heldHandle. Do not mint another.",
+      "extra_fields": ["heldHandle"]
+    },
+    "handle_not_claimed": {
+      "status": 404,
+      "meaning": "No such handle in GT.",
+      "action": "Call claim-handle first."
+    },
+    "handle_mismatch": {
+      "status": 409,
+      "meaning": "That handle belongs to a different AcqOS client.",
+      "action": "Do not retry. Resolve ownership first."
+    },
+    "_note": "handle_taken and source_holds_other share status 409 and want OPPOSITE actions. Branch on the code field, never on the status.",
+    "_unlabelled": {
+      "401": "Wrong or missing key.",
+      "503": "GT is missing a key or its service-role key. GT's problem, not the caller's. Retrying will not help.",
+      "500": "GT fault. Safe to retry once."
+    }
+  },
+
+  "enums": {
+    "cut": ["month", "week", "round", "ad", "adset", "source", "offer", "roundsource"],
+    "objective": ["leads", "att", "prevBuy", "rev"],
+    "frozen": ["prefer", "only", "never"],
+    "offer": ["preview", "middle"],
+    "import_source": ["ads", "leads", "attendance", "sales", "scroll"]
+  },
+
+  "skills": [
+    {
+      "id": "gt.read.account.read-actuals",
+      "name": "read-actuals",
+      "ask": "What are this client's totals for this window, and is the data complete?",
+      "callable": true,
+      "access": "read",
+      "auth": "readonly_key",
+      "method": "GET",
+      "path": "/api/integration/actuals",
+      "params": {
+        "type": "object",
+        "required": ["clientId", "from", "to"],
+        "additionalProperties": false,
+        "properties": {
+          "clientId": { "type": "string", "description": "GT handle, lowercase slug." },
+          "from": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+          "to": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "Must be >= from." },
+          "product": { "type": "string" },
+          "channel": { "type": "string" }
+        }
+      },
+      "returns": "Whole-funnel totals, the client's journey stages, import coverage per source, and unmatched-row counts for the window.",
+      "errors": [
+        { "status": 400, "when": "clientId, from or to missing or malformed, or from > to" },
+        { "status": 400, "when": "offer passed — refused, because these are whole-funnel totals" },
+        { "status": 404, "when": "unknown clientId" }
+      ],
+      "caveats": ["offer is refused rather than ignored; read the preview_purchases and middle_purchases stages instead."],
+      "evidence": "app/api/integration/actuals/route.ts:37,48,74,87"
+    },
+    {
+      "id": "gt.read.series.read-exposed-cut",
+      "name": "read-exposed-cut",
+      "ask": "Give me this client month by month.",
+      "callable": true,
+      "access": "read",
+      "auth": "readonly_key",
+      "method": "GET",
+      "path": "/api/integration/series",
+      "params": {
+        "type": "object",
+        "required": ["clientId", "cut"],
+        "additionalProperties": false,
+        "properties": {
+          "clientId": { "type": "string" },
+          "cut": { "enum": ["month", "week", "round", "ad", "adset", "source", "offer", "roundsource"] },
+          "from": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "Give with to, or omit both for all time." },
+          "to": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+          "product": { "type": "string" },
+          "channel": { "type": "string" },
+          "offer": { "enum": ["preview", "middle"], "description": "Only honoured when cut=offer." }
+        }
+      },
+      "returns": "Rows of { cut_key, cut_label, cut_sub, m }. Metrics are nested under m as an opaque object; keys include spend, leads, att, rev, roas, cpa, leadgen and others.",
+      "errors": [
+        { "status": 400, "when": "cut not in the enum" },
+        { "status": 400, "when": "from given without to, or from > to" },
+        { "status": 400, "when": "offer not in the enum" }
+      ],
+      "caveats": [
+        "This is the same fo_cut the UI reads, with the same filters. A difference between this and a screen is a difference in windows, not in arithmetic.",
+        "Only 8 of roughly 14 UI cuts are exposed. Landing page, class variant and the asset drill-downs are not here.",
+        "Blank is never zero. A missing metric key means absent, not nought."
+      ],
+      "evidence": "app/api/integration/series/route.ts:27,45"
+    },
+    {
+      "id": "gt.read.period.read-round-insight",
+      "name": "read-round-insight",
+      "ask": "What happened in round 0926-01?",
+      "callable": true,
+      "access": "read",
+      "auth": "readonly_key",
+      "method": "GET",
+      "path": "/api/integration/round-insight",
+      "params": {
+        "type": "object",
+        "required": ["clientId"],
+        "additionalProperties": false,
+        "properties": {
+          "clientId": { "type": "string" },
+          "roundId": { "type": "string", "description": "Omit for the most recent round. Required when frozen=only or version is set." },
+          "product": { "type": "string" },
+          "channel": { "type": "string" },
+          "objective": { "enum": ["leads", "att", "prevBuy", "rev"], "default": "att" },
+          "frozen": { "enum": ["prefer", "only", "never"], "default": "prefer" },
+          "version": { "type": "integer", "minimum": 1 }
+        }
+      },
+      "returns": "A narrative for one round: numbered steps, what changed upstream, findings, a diagnosis, proposed tests, plus versions[] listing every frozen reading of this round.",
+      "errors": [
+        { "status": 400, "when": "objective not in the enum" },
+        { "status": 400, "when": "frozen=only or version set without an explicit roundId" },
+        { "status": 404, "when": "unknown clientId, or no frozen insight at the requested version" }
+      ],
+      "caveats": [
+        "Omitting roundId means 'the most recent round', which is resolved by a live calculation — that is why frozen=only refuses it.",
+        "versions[] comes back on every response, but there is no endpoint that lists frozen periods across rounds."
+      ],
+      "evidence": "app/api/integration/round-insight/route.ts:37,225,241"
+    },
+    {
+      "id": "gt.read.period.read-month-insight",
+      "name": "read-month-insight",
+      "ask": "What happened in September for this client?",
+      "callable": true,
+      "access": "read",
+      "auth": "readonly_key",
+      "method": "GET",
+      "path": "/api/integration/month-insight",
+      "params": {
+        "type": "object",
+        "required": ["clientId"],
+        "additionalProperties": false,
+        "properties": {
+          "clientId": { "type": "string" },
+          "month": { "type": "string", "pattern": "^\\d{4}-(0[1-9]|1[0-2])$", "description": "Omit for the most recent month with data." },
+          "product": { "type": "string" },
+          "objective": { "enum": ["leads", "att", "prevBuy", "rev"], "default": "att" },
+          "frozen": { "enum": ["prefer", "only", "never"], "default": "prefer" },
+          "version": { "type": "integer", "minimum": 1 }
+        }
+      },
+      "returns": "A narrative for one month, plus per-product and per-channel breakdowns and the rounds and weeks inside it. This is an analysis, not raw cuts.",
+      "errors": [
+        { "status": 400, "when": "month is not YYYY-MM" },
+        { "status": 400, "when": "channel passed — refused, this endpoint reports every channel side by side" },
+        { "status": 404, "when": "unknown clientId, or the client has no months of data" }
+      ],
+      "caveats": [
+        "channel is REFUSED here but ACCEPTED on round-insight. Read the byChannel block instead.",
+        "A month is the rounds NAMED for it, whole. A round crossing a month boundary belongs to one month, not both."
+      ],
+      "evidence": "app/api/integration/month-insight/route.ts:43,56,94"
+    },
+    {
+      "id": "gt.record.frozen.read-frozen-version",
+      "name": "read-frozen-version",
+      "ask": "Give me exactly the v2 reading of that round, not a live one.",
+      "callable": true,
+      "access": "read",
+      "auth": "readonly_key",
+      "method": "GET",
+      "path": "/api/integration/round-insight",
+      "params": {
+        "type": "object",
+        "required": ["clientId", "roundId", "frozen"],
+        "additionalProperties": false,
+        "properties": {
+          "clientId": { "type": "string" },
+          "roundId": { "type": "string" },
+          "frozen": { "const": "only" },
+          "version": { "type": "integer", "minimum": 1, "description": "Omit for the current frozen version." }
+        }
+      },
+      "returns": "The stored payload exactly as frozen, with the attribution model and rule version that produced it, plus versions[].",
+      "errors": [
+        { "status": 400, "when": "roundId omitted" },
+        { "status": 404, "when": "no frozen insight at that version" }
+      ],
+      "caveats": [
+        "Fixing a view does not fix a frozen report — that is the point of this skill.",
+        "Same path as read-round-insight; separated here because the intent and the failure modes differ.",
+        "For months, use /api/integration/month-insight with the same frozen and version params."
+      ],
+      "evidence": "app/api/integration/round-insight/route.ts:225,241"
+    },
+    {
+      "id": "gt.governance.deployment.check-health",
+      "name": "check-health",
+      "ask": "Is GroundTruth up, and which commit is live?",
+      "callable": true,
+      "access": "read",
+      "auth": "none",
+      "method": "GET",
+      "path": "/api/health",
+      "params": { "type": "object", "additionalProperties": false, "properties": {} },
+      "returns": "{ status: 'ok'|'degraded', checks: { supabase, integrationKey, integrationReadonlyKey }, commit, loginRequired, timestamp }",
+      "errors": [{ "status": 503, "when": "status is degraded — Supabase unreachable or a key missing" }],
+      "caveats": [
+        "Open by design so a monitor that cannot sign in can use it.",
+        "A sibling deployment at fo-main.vercel.app answers {status:'ok'} with NO database behind it. Check the commit field to tell them apart."
+      ],
+      "evidence": "app/api/health/route.ts:51,77,84"
+    },
+    {
+      "id": "gt.ingest.meta.dry-run-pull",
+      "name": "dry-run-pull",
+      "ask": "Pull this client's Meta spend for last week but don't write it.",
+      "callable": true,
+      "access": "read",
+      "auth": "integration_key",
+      "method": "POST",
+      "path": "/api/integration/meta-pull",
+      "params": {
+        "type": "object",
+        "required": ["clientId"],
+        "additionalProperties": false,
+        "properties": {
+          "clientId": { "type": "string" },
+          "since": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "Give with until, or omit both for a default window." },
+          "until": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+          "clicks": { "type": "boolean" },
+          "commit": { "const": false }
+        }
+      },
+      "returns": "Counts and the rows that would be written. Nothing is stored.",
+      "errors": [
+        { "status": 400, "when": "since/until malformed or since > until" },
+        { "status": 400, "when": "window longer than 30 days — a pull is not a backfill" }
+      ],
+      "caveats": ["Reaches the Meta Graph API, so it is slower than a database read."],
+      "evidence": "app/api/integration/meta-pull/route.ts:68,74"
+    },
+    {
+      "id": "gt.ingest.meta.commit-pull",
+      "name": "commit-pull",
+      "ask": "Pull this client's Meta spend for last week and save it.",
+      "callable": true,
+      "access": "write",
+      "auth": "integration_key",
+      "method": "POST",
+      "path": "/api/integration/meta-pull",
+      "params": {
+        "type": "object",
+        "required": ["clientId", "commit"],
+        "additionalProperties": false,
+        "properties": {
+          "clientId": { "type": "string" },
+          "since": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+          "until": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+          "clicks": { "type": "boolean" },
+          "commit": { "const": true }
+        }
+      },
+      "returns": "Counts and the import batch id.",
+      "errors": [{ "status": 400, "when": "window longer than 30 days" }],
+      "caveats": [
+        "Writes ad spend rows. Run dry-run-pull first and read the counts.",
+        "The integration route is NOT rate-limited; the staff route is. Do not loop this."
+      ],
+      "evidence": "app/api/integration/meta-pull/route.ts:74; lib/meta/pull.ts:161,177"
+    },
+    {
+      "id": "gt.record.frozen.freeze-round",
+      "name": "freeze-round",
+      "ask": "Keep this round's reading as it stands today.",
+      "callable": true,
+      "access": "write",
+      "auth": "integration_key",
+      "method": "POST",
+      "path": "/api/integration/round-insight",
+      "query": {
+        "type": "object",
+        "required": ["clientId"],
+        "properties": {
+          "clientId": { "type": "string" },
+          "roundId": { "type": "string", "description": "Omit for the most recent round." }
+        }
+      },
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "replace": { "type": "boolean", "description": "Required to re-freeze a period that already has a current version, else 409." },
+          "force": { "type": "boolean", "description": "Freeze a round that has not finished. Adds a note recording that it was forced." },
+          "frozenBy": { "type": "string" },
+          "note": { "type": "string" }
+        }
+      },
+      "returns": "{ version, supersededVersion, isFirst }. The superseded version stays readable.",
+      "errors": [
+        { "status": 409, "when": "a current version exists and replace was not set" },
+        { "status": 422, "when": "the round has not ended, or has no end date — pass force" }
+      ],
+      "caveats": [
+        "Stamps attribution_model and rule_version, so an old report can still explain itself after the rules change.",
+        "Nothing is overwritten; each freeze is a new version."
+      ],
+      "evidence": "app/api/integration/round-insight/route.ts:268,286,289"
+    },
+    {
+      "id": "gt.record.frozen.freeze-month",
+      "name": "freeze-month",
+      "ask": "Keep August's reading as it stands today.",
+      "callable": true,
+      "access": "write",
+      "auth": "integration_key",
+      "method": "POST",
+      "path": "/api/integration/month-insight",
+      "query": {
+        "type": "object",
+        "required": ["clientId"],
+        "properties": {
+          "clientId": { "type": "string" },
+          "month": { "type": "string", "pattern": "^\\d{4}-(0[1-9]|1[0-2])$", "description": "Omit for the most recent month." }
+        }
+      },
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "replace": { "type": "boolean" },
+          "force": { "type": "boolean" },
+          "frozenBy": { "type": "string" },
+          "note": { "type": "string" }
+        }
+      },
+      "returns": "{ version, supersededVersion }",
+      "errors": [
+        { "status": 409, "when": "a current version exists and replace was not set" },
+        { "status": 422, "when": "the month has not closed — pass force" }
+      ],
+      "caveats": ["Same closure rule as freeze-round."],
+      "evidence": "app/api/integration/month-insight/route.ts:271"
+    },
+    {
+      "id": "gt.governance.handle.claim-handle",
+      "name": "claim-handle",
+      "ask": "Reserve the handle acme_fitness for this AcqOS client.",
+      "callable": true,
+      "access": "write",
+      "auth": "integration_key",
+      "method": "POST",
+      "path": "/api/integration/client-handle",
+      "params": {
+        "type": "object",
+        "required": ["clientId", "sourceClientId"],
+        "additionalProperties": false,
+        "properties": {
+          "clientId": { "type": "string", "pattern": "^[a-z0-9_-]+$", "description": "The handle GT will know this client by permanently. It becomes client_id on every row." },
+          "sourceClientId": { "type": "string", "format": "uuid", "description": "The AcqOS clients.id. Required — a claim without it is a handle held by nobody." }
+        }
+      },
+      "returns": "201 { claimed: true, adopted } on a fresh claim. 200 { claimed: false, alreadyYours: true } on a retry.",
+      "errors": [
+        { "status": 409, "code": "handle_taken", "action": "Mint a different handle." },
+        { "status": 409, "code": "source_holds_other", "action": "Stop. Use heldHandle." },
+        { "status": 400, "when": "clientId fails the slug pattern, or sourceClientId is not a uuid" }
+      ],
+      "caveats": [
+        "Idempotent for the same (handle, sourceClientId) pair — a retry is a 200, not an error.",
+        "adopted:true means a handle created by hand was adopted rather than duplicated.",
+        "Claiming does NOT make the client visible. Push a funnel schema first.",
+        "The handle is permanent. Mint it from something stable, not a display name."
+      ],
+      "evidence": "app/api/integration/client-handle/route.ts:112,121,129,149"
+    },
+    {
+      "id": "gt.meaning.schema.push-schema",
+      "name": "push-schema",
+      "ask": "Replace this client's funnel stages with this list.",
+      "callable": true,
+      "access": "write",
+      "auth": "integration_key",
+      "method": "POST",
+      "path": "/api/integration/funnel-schema",
+      "params": {
+        "type": "object",
+        "required": ["clientId", "clientName", "stages"],
+        "properties": {
+          "clientId": { "type": "string", "pattern": "^[a-z0-9_-]+$" },
+          "clientName": { "type": "string" },
+          "stages": { "type": "array", "items": { "type": "object" }, "description": "UNVERIFIED SHAPE — the validator in lib/integration/schema.ts was not read in full. A 400 returns errors[] naming the stage and field, which is the reliable way to learn the shape." },
+          "clientNote": { "type": "string" },
+          "schemaVersion": { "type": "string" },
+          "generatedAt": { "type": "string", "format": "date-time", "description": "Used to refuse a stale push." },
+          "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+          "createClient": { "type": "boolean", "description": "Required when the handle has no funnel yet." }
+        }
+      },
+      "returns": "{ ok, created, stagesWritten, pricesPreserved[], dimensionsPreserved[], rateLabelsPreserved[] }",
+      "errors": [
+        { "status": 400, "when": "validation failed — errors[] names each bad stage and field" },
+        { "status": 400, "when": "a stage names a dimension or metric GT does not know" },
+        { "status": 404, "when": "unknown clientId and createClient was not true" },
+        { "status": 409, "when": "a newer funnel is already stored — compares generatedAt. Nothing was written." }
+      ],
+      "caveats": [
+        "WHOLESALE REPLACE. client_journey_config is deleted and rewritten for this client.",
+        "THREE FIELDS SURVIVE, keyed by stage_slug: unit_price, compare_dimension, stage_rate_label. Renaming a slug silently drops that stage's price and comparison dimension.",
+        "The response names what was preserved. Read it — the stored funnel is not exactly what you sent."
+      ],
+      "evidence": "app/api/integration/funnel-schema/route.ts:144,161; supabase/migrations/0040_a_push_keeps_the_breakdown_and_the_label.sql:84,112"
+    },
+    {
+      "id": "gt.governance.login.grant-login",
+      "name": "grant-login",
+      "ask": "Give jane@acme.com access to acme_fitness and return me the sign-in link.",
+      "callable": true,
+      "access": "write",
+      "auth": "integration_key",
+      "method": "POST",
+      "path": "/api/integration/client-user",
+      "params": {
+        "type": "object",
+        "required": ["email", "clientId"],
+        "additionalProperties": false,
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "clientId": { "type": "string", "pattern": "^[a-z0-9_-]+$" },
+          "sourceClientId": { "type": "string", "format": "uuid", "description": "Checked against the handle's owner when given." }
+        }
+      },
+      "returns": "201 created:true, or 200 created:false on a retry. Both carry signInLink and note.",
+      "errors": [
+        { "status": 404, "code": "handle_not_claimed", "action": "Call claim-handle first." },
+        { "status": 409, "code": "handle_mismatch", "action": "Do not retry." }
+      ],
+      "caveats": [
+        "Creates the account with NO password. GT sends no mail — the link is returned for the caller's own welcome email.",
+        "signInLink may be null with linkError set. The grant is still written and correct. Retry the LINK, not the onboarding.",
+        "Safe to call twice — magiclink, not invite, so a retry still returns a usable link."
+      ],
+      "evidence": "app/api/integration/client-user/route.ts:110,120,153"
+    },
+    {
+      "id": "gt.governance.login.revoke-login",
+      "name": "revoke-login",
+      "ask": "Take away jane@acme.com's access to acme_fitness.",
+      "callable": true,
+      "access": "destructive",
+      "auth": "integration_key",
+      "method": "DELETE",
+      "path": "/api/integration/client-user",
+      "params": {
+        "type": "object",
+        "required": ["email", "clientId"],
+        "additionalProperties": false,
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "clientId": { "type": "string", "pattern": "^[a-z0-9_-]+$" }
+        }
+      },
+      "returns": "{ ok, revoked }. revoked:false with a reason when there was nothing to revoke — that is a success, not an error.",
+      "errors": [],
+      "caveats": [
+        "The auth user SURVIVES on purpose. AcqOS owns whether the person exists; GT owns what they may read.",
+        "The person then sees a 'no client yet' screen rather than a broken login."
+      ],
+      "evidence": "app/api/integration/client-user/route.ts:183"
+    },
+
+    { "id": "gt.ingest.file.preview-import", "name": "preview-import", "ask": "Show me what this export would change before I commit it.", "callable": false, "access": "write", "blocked_reason": "staff_session", "method": "POST", "path": "/api/import/preview", "evidence": "app/api/import/preview/route.ts:21" },
+    { "id": "gt.ingest.file.commit-import", "name": "commit-import", "ask": "Apply the import I just previewed.", "callable": false, "access": "write", "blocked_reason": "staff_session", "method": "POST", "path": "/api/import/commit", "evidence": "app/api/import/commit/route.ts:21" },
+    { "id": "gt.ingest.file.discard-staged-import", "name": "discard-staged-import", "ask": "Throw away that staged file.", "callable": false, "access": "write", "blocked_reason": "staff_session", "method": "DELETE", "path": "/api/import/commit", "evidence": "app/api/import/commit/route.ts:98" },
+    { "id": "gt.ingest.file.download-template", "name": "download-template", "ask": "Give me the CSV template for attendance.", "callable": false, "access": "read", "blocked_reason": "staff_session", "method": "GET", "path": "/api/template/{source}", "evidence": "app/api/template/[source]/route.ts:15" },
+    { "id": "gt.ingest.parked.accept-best-guess", "name": "accept-best-guess", "ask": "Accept the match this parked row already guessed.", "callable": false, "access": "write", "blocked_reason": "staff_session", "method": "POST", "path": "/api/unmatched/resolve", "evidence": "app/api/unmatched/resolve/route.ts:34" },
+    { "id": "gt.ingest.parked.assign-identity", "name": "assign-identity", "ask": "This parked row is jane@x.com — assign it.", "callable": false, "access": "write", "blocked_reason": "staff_session", "method": "POST", "path": "/api/unmatched/resolve", "evidence": "app/api/unmatched/resolve/route.ts:35" },
+    { "id": "gt.ingest.parked.dismiss", "name": "dismiss", "ask": "Close this parked row without counting it.", "callable": false, "access": "destructive", "blocked_reason": "staff_session", "method": "POST", "path": "/api/unmatched/resolve", "evidence": "app/api/unmatched/resolve/route.ts:36" },
+    { "id": "gt.ingest.heatmap.attach", "name": "attach", "ask": "Attach this heatmap screenshot to that scroll curve.", "callable": false, "access": "write", "blocked_reason": "staff_session", "method": "POST", "path": "/api/scroll/heatmap", "evidence": "app/api/scroll/heatmap/route.ts:11" },
+    { "id": "gt.ingest.heatmap.detach", "name": "detach", "ask": "Remove the heatmap from that scroll run.", "callable": false, "access": "destructive", "blocked_reason": "staff_session", "method": "DELETE", "path": "/api/scroll/heatmap", "evidence": "app/api/scroll/heatmap/route.ts:12" },
+    { "id": "gt.meaning.rule.list-rules", "name": "list-rules", "ask": "What rules decide this client's sources?", "callable": false, "access": "read", "blocked_reason": "staff_session", "method": "GET", "path": "/api/rules", "evidence": "app/api/rules/route.ts:42" },
+    { "id": "gt.meaning.rule.propose-rules-from-data", "name": "propose-rules-from-data", "ask": "What sources exist in this client's data that no rule names?", "callable": false, "access": "read", "blocked_reason": "staff_session", "method": "GET", "path": "/api/rules/propose", "evidence": "app/api/rules/propose/route.ts:23" },
+    { "id": "gt.meaning.rule.create-rule", "name": "create-rule", "ask": "Add an Affiliate source matching source column = affiliate_partner.", "callable": false, "access": "write", "blocked_reason": "staff_session", "method": "POST", "path": "/api/rules", "evidence": "app/api/rules/route.ts:62" },
+    { "id": "gt.meaning.rule.delete-rule", "name": "delete-rule", "ask": "Delete the Affiliate source rule.", "callable": false, "access": "destructive", "blocked_reason": "staff_session", "method": "DELETE", "path": "/api/rules", "evidence": "app/api/rules/route.ts:116" },
+    { "id": "gt.governance.cache.refresh-cache", "name": "refresh-cache", "ask": "Drop the cache, I just changed something in the database.", "callable": false, "access": "write", "blocked_reason": "staff_session", "method": "POST", "path": "/api/revalidate", "evidence": "app/api/revalidate/route.ts:31" },
+
+    { "id": "gt.read.series.read-landing-page-cut", "name": "read-landing-page-cut", "ask": "Compare this client's landing pages.", "callable": false, "access": "read", "blocked_reason": "no_route", "reads": "v_metrics_by_lp via fo_cut, rendered in a server component", "evidence": "lib/funnel/data.ts:484" },
+    { "id": "gt.read.series.read-class-variant-cut", "name": "read-class-variant-cut", "ask": "Compare this client's class variants.", "callable": false, "access": "read", "blocked_reason": "no_route", "reads": "v_metrics_by_variant", "evidence": "lib/funnel/data.ts:493" },
+    { "id": "gt.read.series.drill-into-asset", "name": "drill-into-asset", "ask": "Show me that one creative round by round.", "callable": false, "access": "read", "blocked_reason": "no_route", "reads": "v_metrics_by_ad_round, _adset_round, _lp_round, _variant_round", "evidence": "lib/funnel/data.ts:473-476" },
+    { "id": "gt.read.forms.read-answer-split", "name": "read-answer-split", "ask": "What did this client's leads say their profession was?", "callable": false, "access": "read", "blocked_reason": "no_route", "reads": "v_form_answer_split", "evidence": "lib/funnel/data.ts:807" }
+  ],
+
+  "blocked_reasons": {
+    "staff_session": "The route exists but middleware requires a Supabase staff session. There is no key-based door. A call returns 307 to /login, and 200 text/html if redirects are followed.",
+    "no_route": "The capability exists only in the UI, rendered from fo_cut inside a server component. No HTTP endpoint exposes it."
+  },
+
+  "counts": { "total": 32, "callable": 14, "blocked": 18 }
+}
