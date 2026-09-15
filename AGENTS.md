@@ -206,6 +206,7 @@
 - Hand GroundStream the reasoning, not just the schema — the commit message suggests a code/pattern is being applied by hand rather than generated, or that reasoning steps should be explicitly captured.
 - rename failure should trigger a test failure, not a client-facing error — indicates a testing philosophy shift toward catching misconfigurations early.
 - the slug fix is blocked (not merely unstarted)
+- a slug bug was reproduced, not inferred — meaning the bug was confirmed via reproduction rather than assumed from logs/code.
 
 ## Notes
 
