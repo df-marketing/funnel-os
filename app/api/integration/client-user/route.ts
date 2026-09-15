@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { checkIntegrationKey, MISSING_INTEGRATION_KEY_MESSAGE } from "@/lib/integration/auth";
 import { createAdminClient, MISSING_KEY_MESSAGE } from "@/lib/supabase/admin";
+import { refuse, REFUSALS } from "@/lib/integration/codes";
 
 export const runtime = "nodejs";
 
@@ -105,22 +106,18 @@ export async function POST(request: Request) {
     .from("client_journey_config").select("client_id", { count: "exact", head: true }).eq("client_id", clientId);
 
   if (!flags && !stageCount) {
-    return NextResponse.json({
-      ok: false,
-      code: "handle_not_claimed",
-      error: `no client '${clientId}' here`,
-      hint: "claim the handle at /api/integration/client-handle first",
-    }, { status: 404 });
+    return refuse("handle_not_claimed", `no client '${clientId}' here`, {
+      // `hint` predates the contract and AcqOS may still read it. Kept as an
+      // alias of `retry` rather than removed — a field nobody reads costs less
+      // than a field somebody reads going missing.
+      hint: REFUSALS.handle_not_claimed.retry,
+    });
   }
 
   // Same rule as the funnel push: verified when offered, never established here.
   if (sourceClientId && flags?.source_client_id && flags.source_client_id !== sourceClientId) {
-    return NextResponse.json({
-      ok: false,
-      code: "handle_mismatch",
-      error: `handle '${clientId}' is claimed by a different AcqOS client`,
-      retry: "mint a different handle, claim it, then call this again",
-    }, { status: 409 });
+    return refuse("handle_mismatch",
+      `handle '${clientId}' is claimed by a different AcqOS client`);
   }
 
   let user;
