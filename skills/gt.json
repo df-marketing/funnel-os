@@ -6,8 +6,8 @@
   "source": {
     "repo": "df-marketing/funnel-os",
     "branch": "feat/readonly-integration-key",
-    "commit": "71cc54f",
-    "deployed_commit": "6d92f33",
+    "commit": "99cfbf5",
+    "deployed_commit": "892d5ac",
     "generated_from": "SKILLTREE-GT-2026-09-15.md",
     "verified_against": "production, 15 Sep 2026"
   },
@@ -16,14 +16,14 @@
     "readonly_key": {
       "header": "x-integration-key",
       "env": "INTEGRATION_READONLY_KEY",
-      "reaches": "the four GET routes only",
+      "reaches": "the six GET routes only: actuals, series, month-insight, round-insight, periods, refusals",
       "recommended_for": "agents",
       "evidence": "lib/integration/auth.ts:57,66"
     },
     "integration_key": {
       "header": "x-integration-key",
       "env": "INTEGRATION_SHARED_KEY",
-      "reaches": "all eight /api/integration/* routes",
+      "reaches": "all ten /api/integration/* routes",
       "recommended_for": "AcqOS, which calls a fixed set of routes",
       "warning": "Four of these routes create users, grant client access, replace funnel schemas and write ad spend. Do not give this key to a caller that chooses its own requests at runtime.",
       "evidence": "lib/integration/auth.ts:20-26"
@@ -41,6 +41,15 @@
   },
   "hazards": [
     {
+      "id": "every-number-may-be-stale",
+      "severity": "high",
+      "summary": "Every read returns anySourceStale and lastObservationDate at the TOP LEVEL. If anySourceStale is true the numbers are real but incomplete, and quoting them without the caveat misreports the client.",
+      "detail": "A stale figure is not a slightly-old figure. Coverage ends per source at the EARLIEST coverage_end, so a ratio can have a numerator that stopped before its denominator did — a close rate computed across a short sales file is simply wrong, not merely dated. Shely on 15 Sep 2026: anySourceStale true, lastObservationDate 2026-09-02, daysBehind 12, staleSources all five. The fields also remain nested under `coverage` for older callers.",
+      "mitigation": "Read anySourceStale BEFORE reading any metric. If true, report lastObservationDate and staleSources alongside every number you quote, or refuse to quote. Use list-periods to find which months are safe to report on.",
+      "verified": "GET /api/integration/actuals?clientId=shely — top-level keys observed 15 Sep 2026",
+      "evidence": "lib/integration/coverage.ts staleness(); actuals/series/month-insight/round-insight routes"
+    },
+    {
       "id": "blocked-routes-return-200-html",
       "severity": "high",
       "summary": "A route that needs a staff session answers 307 to /login. A client that follows redirects receives 200 OK with text/html, not an error.",
@@ -51,10 +60,11 @@
     },
     {
       "id": "error-codes-not-in-any-contract",
-      "severity": "medium",
-      "summary": "The four refusal codes exist only as string literals in route bodies. No schema, no exported constant.",
+      "severity": "resolved",
+      "summary": "RESOLVED 15 Sep 2026. The four refusal codes are now exported from lib/integration/codes.ts and served live at GET /api/integration/refusals, each with a machine-readable `recover` field.",
       "detail": "A rename in GT would break callers silently. This manifest is currently the only machine-readable copy.",
-      "evidence": "app/api/integration/client-handle/route.ts:112,121; client-user/route.ts:110,120"
+      "evidence": "app/api/integration/client-handle/route.ts:112,121; client-user/route.ts:110,120",
+      "mitigation": "Branch on `recover` or `code`, never the HTTP status — handle_taken and source_holds_other are both 409 and want opposite responses."
     },
     {
       "id": "read-floor",
@@ -67,7 +77,8 @@
     "handle_taken": {
       "status": 409,
       "meaning": "A DIFFERENT AcqOS client already holds this handle.",
-      "action": "Mint a different handle and claim again."
+      "action": "Mint a different handle and claim again.",
+      "recover": "mint-new-handle"
     },
     "source_holds_other": {
       "status": 409,
@@ -75,19 +86,22 @@
       "action": "Stop. Use the handle returned in heldHandle. Do not mint another.",
       "extra_fields": [
         "heldHandle"
-      ]
+      ],
+      "recover": "use-held-handle"
     },
     "handle_not_claimed": {
       "status": 404,
       "meaning": "No such handle in GT.",
-      "action": "Call claim-handle first."
+      "action": "Call claim-handle first.",
+      "recover": "claim-first"
     },
     "handle_mismatch": {
       "status": 409,
       "meaning": "That handle belongs to a different AcqOS client.",
-      "action": "Do not retry. Resolve ownership first."
+      "action": "Do not retry. Resolve ownership first.",
+      "recover": "mint-new-handle"
     },
-    "_note": "handle_taken and source_holds_other share status 409 and want OPPOSITE actions. Branch on the code field, never on the status.",
+    "_note": "handle_taken and source_holds_other share status 409 and want OPPOSITE actions. Branch on the code field, never on the status. Every refusal now also carries a machine-readable `recover` field — branch on that or on `code`, never on the status. GET /api/integration/refusals serves this contract live from the same constant the routes throw.",
     "_unlabelled": {
       "401": "Wrong or missing key.",
       "503": "GT is missing a key or its service-role key. GT's problem, not the caller's. Retrying will not help.",
@@ -790,16 +804,79 @@
           },
           "stages": {
             "type": "array",
+            "description": "Verified against lib/integration/schema.ts:41-51 and :120-235 on 15 Sep 2026. A 400 still returns errors[] naming the stage and field.",
             "items": {
-              "type": "object"
-            },
-            "description": "UNVERIFIED SHAPE — the validator in lib/integration/schema.ts was not read in full. A 400 returns errors[] naming the stage and field, which is the reliable way to learn the shape."
+              "type": "object",
+              "required": [
+                "order",
+                "slug",
+                "name",
+                "metric",
+                "sourceType",
+                "sourceRef"
+              ],
+              "properties": {
+                "order": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "Positive integer, unique within the payload."
+                },
+                "slug": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9-]+$",
+                  "description": "Unique within the payload. WARNING: not a stable identity — see caveats."
+                },
+                "name": {
+                  "type": "string"
+                },
+                "metric": {
+                  "type": "string",
+                  "description": "One of JOURNEY_METRIC_KEYS."
+                },
+                "sourceType": {
+                  "type": "string",
+                  "enum": [
+                    "meta",
+                    "google",
+                    "crm",
+                    "csv"
+                  ]
+                },
+                "sourceRef": {
+                  "type": "string"
+                },
+                "compareDimension": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "null, or table.column."
+                },
+                "rateLabel": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "unitPrice": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0
+                }
+              }
+            }
           },
           "clientNote": {
             "type": "string"
           },
           "schemaVersion": {
-            "type": "string"
+            "type": "integer",
+            "enum": [
+              1
+            ],
+            "description": "Integer, not a string. schema.ts:130 requires exactly 1."
           },
           "generatedAt": {
             "type": "string",
@@ -808,7 +885,7 @@
           },
           "currency": {
             "type": "string",
-            "pattern": "^[A-Z]{3}$"
+            "description": "Three-letter ISO 4217, or the legacy 'RM' which is normalised to MYR before validation (schema.ts:122-123,144)."
           },
           "createClient": {
             "type": "boolean",
@@ -838,7 +915,8 @@
       "caveats": [
         "WHOLESALE REPLACE. client_journey_config is deleted and rewritten for this client.",
         "THREE FIELDS SURVIVE, keyed by stage_slug: unit_price, compare_dimension, stage_rate_label. Renaming a slug silently drops that stage's price and comparison dimension.",
-        "The response names what was preserved. Read it — the stored funnel is not exactly what you sent."
+        "The response names what was preserved. Read it — the stored funnel is not exactly what you sent.",
+        "KNOWN BUG, unfixed: the three preserved fields (unitPrice, compareDimension, rateLabel) are re-applied by SLUG, and AcqOS assigns slugs BY POSITION. A funnel edit that moves a stage moves its price onto a different stage. Both pushes return written:true and pricesPreserved is unchanged. See docs/SLUG-IDENTITY-PROPOSAL.md. Do not treat a successful push as proof the values landed correctly."
       ],
       "evidence": "app/api/integration/funnel-schema/route.ts:144,161; supabase/migrations/0040_a_push_keeps_the_breakdown_and_the_label.sql:84,112"
     },

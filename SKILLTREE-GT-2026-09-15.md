@@ -1,9 +1,10 @@
 # GT (GroundTruth / "Funnel OS") — skill tree
 
 **Read from the codebase on 15 Sep 2026** — checkout `funnel-os`, branch
-`feat/readonly-integration-key`, HEAD `71cc54f`, deployed as `origin/main` `6d92f33`. Every leaf
-points at a route file, a page, or the loader behind one. Nothing here is from a handover doc or
-from memory.
+`feat/readonly-integration-key`, HEAD `99cfbf5`, **not yet merged**; production runs `origin/main`
+`892d5ac`, which does **not** include the two newest leaves or the top-level staleness fields. Every
+leaf points at a route file, a page, or the loader behind one. Nothing here is from a handover doc
+or from memory.
 
 **`<OTHER>` = GU (GroundUp / "AcqOS").** I have read GU's *skill tree file*
 (`SKILLTREE-GU-2026-09-14.md`), **not GU's repository**. So every overlap below is confirmed or
@@ -76,6 +77,8 @@ Three levels. Not deeper — a fourth would only re-split verbs.
   - read-round-insight · read-month-insight
 - **An account snapshot**
   - read-actuals
+- **The period list**
+  - list-periods
 - **Form answers**
   - read-answer-split
 
@@ -92,6 +95,8 @@ Three levels. Not deeper — a fourth would only re-split verbs.
   - claim-handle
 - **A client login**
   - grant-login · revoke-login
+- **The refusal contract**
+  - read-refusals
 - **The deployment**
   - check-health
 - **The read cache**
@@ -103,11 +108,20 @@ Three levels. Not deeper — a fourth would only re-split verbs.
 
 `R` = read · `W` = write · `D` = destructive.
 
+> ⚠️ **Read `anySourceStale` before you read any number.** Every read route returns
+> `anySourceStale` and `lastObservationDate` at the **top level** (also still nested under
+> `coverage`), plus `daysBehind` and `staleSources`. A stale figure is not a slightly-old figure:
+> coverage ends at the **earliest** `coverage_end` across sources, so a ratio can have a numerator
+> that stopped before its denominator did. Shely on 15 Sep reads `anySourceStale: true`,
+> `lastObservationDate: 2026-09-02`, 12 days behind on all five sources. Quote the caveat with the
+> number, or use `list-periods` to find the months that are safe to report.
+
 **Machine reachability: two auth classes exist, and they do not overlap.**
-**Integration key** (`x-integration-key`) reaches the eight `/api/integration/*` routes plus
+**Integration key** (`x-integration-key`) reaches the ten `/api/integration/*` routes plus
 `/api/health` — these are the only paths middleware leaves open
-(`lib/supabase/middleware.ts:62-73`). A second key, `INTEGRATION_READONLY_KEY`, reaches the four
-GET routes **only** (`lib/integration/auth.ts:57,66`) — that is the one to give an agent.
+(`lib/supabase/middleware.ts:62-73`). A second key, `INTEGRATION_READONLY_KEY`, reaches the six
+GET routes **only** — `actuals`, `series`, `month-insight`, `round-insight`, `periods`, `refusals`
+(`lib/integration/auth.ts:57,66`) — that is the one to give an agent.
 **Staff session** (a Supabase cookie via `requireStaff()`, `lib/auth/access.ts`) guards everything
 else. **There is no key-based door to the operator routes**, which is why `machine` reads `no`
 for half this table.
@@ -129,7 +143,7 @@ for half this table.
 | gt.meaning.rule.propose-rules-from-data | "What sources exist in Shely's data that no rule names?" | R `v_ads`,`v_events`,`fo_resolve` / none | R | **no** — staff session | `client`, `target` | `{proposals[], scanned, truncated}` | Scan capped at 200 distinct; `truncated` is the only signal | `app/api/rules/propose/route.ts:23,45` |
 | gt.meaning.rule.create-rule | "Add an Affiliate source matching source column = affiliate_partner" | R / W `dimension_values` | W | **no** — staff session | `client_id`,`target`,`key`,`rules[]`,`label?`,`ord?` | `{ok, value}` | **Restates every past round immediately** — nothing is re-imported | `app/api/rules/route.ts:62,99,112` |
 | gt.meaning.rule.delete-rule | "Delete the Affiliate source rule" | R / W `dimension_values` (delete) | **D** | **no** — staff session | `id` | `{ok, deleted}` | Refuses to delete the last catch-all (409) | `app/api/rules/route.ts:116,130` |
-| gt.meaning.schema.push-schema | "Replace Shely's funnel stages with this list" | R `fo_unknown_dimensions`,`fo_unknown_metrics`,`client_flags` / W `client_journey_config` **(delete+insert)**, `client_flags.currency` | W | yes — integration key | `clientId`,`clientName`,`stages[]`,`generatedAt`,`schemaVersion`,`currency?`,`createClient?` | `{ok, created, stagesWritten, pricesPreserved[], dimensionsPreserved[], rateLabelsPreserved[]}` | **Wholesale replace**, slug-keyed preservation of three fields; stale push refused by `generatedAt` (409). See overlap 5 | `funnel-schema/route.ts:144,161`; `migrations/0040_a_push_keeps_the_breakdown_and_the_label.sql:84,112` |
+| gt.meaning.schema.push-schema | "Replace Shely's funnel stages with this list" | R `fo_unknown_dimensions`,`fo_unknown_metrics`,`client_flags` / W `client_journey_config` **(delete+insert)**, `client_flags.currency` | W | yes — integration key | `clientId`,`clientName`,`stages[]`,`generatedAt`,`schemaVersion`,`currency?`,`createClient?` | `{ok, created, stagesWritten, pricesPreserved[], dimensionsPreserved[], rateLabelsPreserved[]}` | **Wholesale replace**, slug-keyed preservation of three fields; stale push refused by `generatedAt` (409). ⚠️ **Slug-keyed preservation is known-broken** — AcqOS assigns slugs by POSITION, so a funnel edit moves a stage's price onto a different stage, and the push still returns `written:true`. See `docs/SLUG-IDENTITY-PROPOSAL.md`. See overlap 5 | `funnel-schema/route.ts:144,161`; `migrations/0040_a_push_keeps_the_breakdown_and_the_label.sql:84,112` |
 | gt.read.series.read-exposed-cut | "Give me Shely month by month" | R `fo_cut` over 8 views / none | R | yes — **read-only key** | `clientId`,`cut` ∈ month/week/round/ad/adset/source/offer/roundsource, `from?`,`to?`,`product?`,`channel?`,`offer?` | rows of `{cut_key, cut_label, m}` | Only 8 of ~14 UI cuts are exposed | `app/api/integration/series/route.ts:27,45` |
 | gt.read.series.read-landing-page-cut | "Compare Shely's landing pages" | R `v_metrics_by_lp` via `fo_cut` / none | R | **no** — no route exists | client + filters (UI) | table | **UI only** — absent from the `VIEWS` map | `lib/funnel/data.ts:484`; `series/route.ts:27` |
 | gt.read.series.read-class-variant-cut | "Compare Shely's class variants" | R `v_metrics_by_variant` / none | R | **no** — no route exists | client + filters (UI) | table | **UI only** | `lib/funnel/data.ts:493` |
@@ -137,10 +151,12 @@ for half this table.
 | gt.read.period.read-round-insight | "What happened in round 0926-01?" | R `fo_cut`,`v_round_assets`,`v_scroll_runs`,`rounds`,`period_insights` / none | R | yes — **read-only key** | `clientId`,`roundId?`,`product?`,`channel?`,`objective?`,`frozen?`,`version?` | steps, moves, diagnosis, `versions[]` | No `roundId` means "most recent round"; incompatible with `frozen=only` (400) | `round-insight/route.ts:37,225,241` |
 | gt.read.period.read-month-insight | "What happened in September for Shely?" | R `fo_cut`,`v_products`,`v_client_channels`,`v_round_assets`,`period_insights` / none | R | yes — **read-only key** | `clientId`,`month` YYYY-MM,`product?`,`objective?`,`frozen?`,`version?` | month narrative, per-product, per-channel, rounds, weeks | `channel` is **refused** here (400), unlike round-insight | `month-insight/route.ts:43,56,94` |
 | gt.read.account.read-actuals | "What are Shely's totals for this window, and is the data complete?" | R `fo_cut`,`rounds`,`client_journey_config`,`v_import_status`,`fo_unmatched_cut` / none | R | yes — **read-only key** | `clientId`,`from`,`to`,`product?`,`channel?` | totals, stages, coverage, unmatched | `offer` refused (400); 404 on unknown client | `actuals/route.ts:37,48,74,87` |
+| gt.read.account.list-periods | "Which months may I report on for Shely?" | R `v_round_period`,`v_import_status`,`client_journey_config` / none | R | yes — **read-only key** | `clientId` | `{finalPeriods[], periods[{period,status,reason,rounds,roundCodes,completeThrough}]}` | **There is no `finalised` column** — status is derived from round end dates vs import reach, so it can change when someone re-imports. `incomplete` (waiting on an import) and `open` (waiting on the calendar) are not interchangeable. 503 until `v_round_period` migration is run | `app/api/integration/periods/route.ts`; `lib/integration/periods.ts` |
 | gt.read.forms.read-answer-split | "What did Shely's leads say their profession was?" | R `v_form_answer_split` / none | R | **no** — no route exists | client (UI) | question → answer → leads | **UI only** | `lib/funnel/data.ts:807` |
 | gt.record.frozen.freeze-round | "Keep this round's reading as it stands today" | R `period_insights`,`rounds` / W `period_insights` (new version) | W | yes — integration key | `clientId`,`roundId`, body `{replace?, force?, frozenBy?, note?}` | `{version, supersededVersion, isFirst}` | Refuses an unfinished round unless `force:true` (422); re-freeze needs `replace` else 409 | `round-insight/route.ts:268,286,289` |
 | gt.record.frozen.freeze-month | "Keep August's reading as it stands today" | R `period_insights` / W `period_insights` | W | yes — integration key | `clientId`,`month`, same body | `{version, supersededVersion}` | same closure rule | `month-insight/route.ts:271` |
 | gt.record.frozen.read-frozen-version | "Give me exactly the v2 reading of that round, not a live one" | R `period_insights` / none | R | yes — **read-only key** | `clientId`,`roundId`/`month`,`frozen=only`,`version=N` | stored payload + `versions[]` | `frozen=only` needs an explicit period id (400) | `round-insight/route.ts:225,241` |
+| gt.governance.contract.read-refusals | "What can a write call refuse with, and what do I do about each?" | R none (static) / none | R | yes — **read-only key** | none | `{refusals:{code:{status,recover,retry,means}}}` | Served from the same constant the routes throw, so it cannot drift from behaviour. **Branch on `recover` or `code`, never the status** | `app/api/integration/refusals/route.ts`; `lib/integration/codes.ts` |
 | gt.governance.handle.claim-handle | "Reserve the handle acme_fitness for this AcqOS client" | R `client_flags`,`lib/integration/claim.ts decideClaim` / W `client_flags.source_client_id`,`claimed_at` | W | yes — integration key | `clientId` slug `^[a-z0-9_-]+$`, `sourceClientId` uuid **required** | `{claimed, adopted}` or `{alreadyYours}` | **Two 409s wanting opposite things** — branch on `code`, never status | `client-handle/route.ts:112,121,129,149` |
 | gt.governance.login.grant-login | "Give jane@acme.com access to acme_fitness and send me the link" | R `client_flags`,`client_journey_config`,auth users / W `auth.users`,`app_users`,`client_users` | W | yes — integration key | `email`,`clientId`,`sourceClientId?` | `{created, signInLink, linkError}` | `signInLink:null`+`linkError` means *retry the link* — the grant is already written; magiclink not invite, so retries work | `client-user/route.ts:110,120,153` |
 | gt.governance.login.revoke-login | "Take away jane@acme.com's access to acme_fitness" | R auth users / W `client_users` (delete) | **D** | yes — integration key | `email`,`clientId` | `{revoked}` | **Auth user survives on purpose** — AcqOS owns existence, GT owns what they may read | `client-user/route.ts:183` |
