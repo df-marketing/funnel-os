@@ -87,6 +87,13 @@
 - A read-only API key was added for the four GET routes, restricting them to read-only access.
 - GT can only be asked to do things that are in its enumerated set of 14 calls; 18 other possible calls are explicitly forbidden.
 - GT's capabilities and restrictions have been explicitly enumerated — an agent can make 14 calls, and cannot make 18 others.
+- Periods (punctuation) are used to indicate whether something is finished or not.
+- The 'slug is not an identity' change is a proposal only — nothing was shipped to production.
+- The duplicate deployment and stale references (three files claiming it was live) have been removed.
+- The caveat (warning/notice) should be placed where it will actually be read by the user.
+- The skill tree reflects current state (truth at read time), not the state from earlier today (was not refreshed).
+- A refusal message should say what it wants, not just that it was refused.
+- Health endpoint is now pointed at directly instead of relying on a hash that goes stale.
 
 ## Architecture
 
