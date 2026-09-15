@@ -216,10 +216,10 @@ client's reporting to another.
 - **No endpoint for declared ads measures.** They import and now reach the cut, but `SPINE` is a
   closed `MetricKey` union so no row is ever drawn (`lib/funnel/spine.ts:14`).
 - **`client_targets` is empty** (0 rows). Every "vs target" comparison degrades to "no target set".
-- **`fo-main` is still live.** `https://fo-main.vercel.app/api/health` returns
-  `{"status":"ok","timestamp":…}` — **no checks, no commit, no database behind it.** Confirmed by
-  request on 15 Sep. It is disconnected from git, so it can never self-correct, on a URL one letter
-  from the real one. **GU's finding stands.**
+- **`fo-main` is deleted.** It answered `/api/health` with `{"status":"ok","timestamp":…}` — no
+  checks, no commit, no database — while `POST /api/import/commit` reached the handler
+  **unauthenticated**, saved only by an unset service-role key. The Vercel project was removed on
+  15 Sep; the URL now returns `DEPLOYMENT_NOT_FOUND`. **GU's finding was correct and is closed.**
 
 ### blocked — exists in the UI, no machine-reachable path
 
@@ -276,11 +276,15 @@ account holding a real staff session. `requireStaff()` also **passes everyone** 
 
 ---
 
-**Total leaf count: 32.** — Ingest 11 · Meaning 5 · Read 8 · Record 3 · Governance 5.
-**Machine-reachable: 14. Blocked: 18.**
+**Total leaf count: 34.** — Ingest 11 · Meaning 5 · Read 9 · Record 3 · Governance 6.
+**Machine-reachable: 16. Blocked: 18.**
 
-⚠️ **18 of 32 are not machine-reachable.** For a skill tree, that is the headline number rather
-than the 32: half of GT's capability is behind a browser session or has no route at all. GU reported
-83 leaves with `blocked` empty; GT reports 32 with `blocked` at 18. **The asymmetry is real, not a
-difference in how carefully we each looked** — GU's operator surface is key- or cron-reachable, and
-GT's is not.
+> Two leaves added on 15 Sep, both callable: `read.account.list-periods` (which months may be
+> reported on) and `governance.contract.read-refusals` (the four refusal codes, served from the
+> constant the routes throw rather than described in prose). The blocked count did not move.
+
+⚠️ **18 of 34 are not machine-reachable.** For a skill tree, that is the headline number rather
+than the 34: over half of GT's capability is behind a browser session or has no route at all. GU
+reported 83 leaves with `blocked` empty; GT reports 34 with `blocked` at 18. **The asymmetry is
+real, not a difference in how carefully we each looked** — GU's operator surface is key- or
+cron-reachable, and GT's is not.
