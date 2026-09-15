@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { checkIntegrationKey, MISSING_INTEGRATION_KEY_MESSAGE } from "@/lib/integration/auth";
 import { createAdminClient, MISSING_KEY_MESSAGE } from "@/lib/supabase/admin";
+import { refuse } from "@/lib/integration/codes";
+import { freezeRefusal } from "@/lib/integration/periods";
+import { reachOf } from "@/lib/integration/coverage";
 import {
   CHANNEL_SHARED, CHANNEL_SHARED_NOTE, coverageOf, cut, isMonth, journeyOf, PAID_RETURNS_NOTE,
   monthWindow, moveJson, stepJson, targetsOf, type Cut, type Scope,
@@ -333,7 +336,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   const denied = guarded(request); if (denied) return denied;
-  let body: { frozenBy?: string; note?: string; replace?: boolean; force?: boolean } = {};
+  let body: { frozenBy?: string; note?: string; replace?: boolean; force?: boolean; acknowledgeStale?: boolean } = {};
   try { body = await request.json(); } catch { /* every field is optional */ }
   const live = await liveMonth(request); if (live instanceof NextResponse) return live;
   const db = createAdminClient();
@@ -342,13 +345,31 @@ export async function POST(request: Request) {
   if (!body.force && !isClosedMonth(live.from, live.to, todayLocal())) {
     return NextResponse.json({ error: `Month ${live.periodKey} contains today (${todayLocal()}), so it is still open. Pass force: true to freeze it anyway.` }, { status: 422 });
   }
+
+  /* SECOND GATE: has the data arrived? Read from the payload being frozen, so
+     the guard and the record agree by construction. `force` does NOT open this.
+
+     Measured against the month's own last day. list-periods is stricter — it
+     also waits for a round anchored here that runs PAST the month end — so a
+     month can pass this guard and still read `incomplete` there. Deliberate:
+     this gate costs no extra query on a write path, and it closes the failure
+     that was actually observed. */
+  const gap = freezeRefusal(live.to, reachOf(live.payload));
+  if (gap && !body.acknowledgeStale) {
+    return refuse("period_not_final",
+      `Month ${live.periodKey} ended ${live.to}, but ${gap.reason}. Freezing now would store a reading of a window the data does not cover.`,
+      { periodKey: live.periodKey, ...gap, override: "acknowledgeStale" });
+  }
   try {
     const rows = await snapshotsFor(db, clientId, "month", live.periodKey);
     const current = chosenSnapshot(rows, "prefer", null);
     if (current && !body.replace) return NextResponse.json({ ok: false, periodKey: live.periodKey, version: current.version, frozenAt: current.frozen_at }, { status: 409 });
-    const note = body.force
-      ? [body.note, `Forced while month ${live.periodKey} was still open.`].filter(Boolean).join(" ")
-      : body.note ?? null;
+    // See the round endpoint: an acknowledged gap is recorded, not just allowed.
+    const note = [
+      body.note,
+      body.force ? `Forced while month ${live.periodKey} was still open.` : null,
+      gap ? `Frozen with an acknowledged gap: ${gap.reason}.` : null,
+    ].filter(Boolean).join(" ") || null;
     const { data, error } = await db.rpc("freeze_period_insight", {
       p_client_id: clientId, p_period_kind: "month", p_period_key: live.periodKey,
       p_payload: live.payload, p_frozen_by: body.frozenBy ?? null, p_note: note,

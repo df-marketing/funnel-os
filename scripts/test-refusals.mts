@@ -36,6 +36,13 @@ const FROZEN: Record<string, { status: number; recover: string }> = {
   source_holds_other: { status: 409, recover: "use-held-handle" },
   handle_not_claimed: { status: 404, recover: "claim-first" },
   handle_mismatch:    { status: 409, recover: "mint-new-handle" },
+  /* Added 15 Sep 2026 alongside the freeze guard. Additive: AcqOS was told the
+     shape before it shipped, and a caller that has never heard of it still
+     handles every code it knew. CONTRACT_VERSION stays 1.
+
+     This line is the deliberate edit the mechanism exists to force. The test
+     failed until it was written, which is the point. */
+  period_not_final:   { status: 409, recover: "import-first" },
 };
 
 console.log("\nevery frozen code still exists, unchanged");
@@ -81,9 +88,12 @@ console.log("\nthe two 409s are still distinguishable");
 }
 
 console.log("\nrecover is a closed set a caller can switch on");
-eq("every recover value is one of three",
+/* Enumerated, not counted. A new recover value is a real change for a caller
+   switching on it with no default, so it fails here and has to be added by
+   hand — even though the CODE that carries it is additive. */
+eq("the recovery vocabulary is exactly these four",
   [...new Set(REFUSAL_CODES.map((c) => REFUSALS[c].recover))].sort(),
-  ["claim-first", "mint-new-handle", "use-held-handle"]);
+  ["claim-first", "import-first", "mint-new-handle", "use-held-handle"]);
 
 console.log("\nthe helper cannot drift from the table");
 for (const code of REFUSAL_CODES) {

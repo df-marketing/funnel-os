@@ -17,7 +17,7 @@
  * 2026. 0826-01 and 0926-01 are the two that straddle a month boundary and are
  * the reason the anchor exists at all.
  */
-import { classifyPeriods, monthEnd, type RoundPeriodRow } from "../lib/integration/periods";
+import { classifyPeriods, freezeRefusal, monthEnd, type RoundPeriodRow } from "../lib/integration/periods";
 
 let pass = 0, fail = 0;
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -137,6 +137,65 @@ eq("reach exactly on the last ending is final",
 eq("today exactly on the last ending is still open",
   classifyPeriods([r("x", "2026-09-01", "2026-09-15", "2026-09")], "2026-09-30", "2026-09-15")[0].status,
   "open");
+
+console.log("\nthe freeze guard — the 0926-02 case, which is why it exists");
+{
+  /* GU froze 0926-02 at 01:19 on 2026-09-08, the FIRST day of its own window,
+     six days before it ended, with every step reporting no reading — and stored
+     a weak stage anyway. Those rows are GU's, not GT's; GT's period_insights
+     held only two healthy May freezes. But GT had the same hole: `force`
+     bypassed the is-it-over guard and nothing asked whether the data arrived.
+
+     Two questions, deliberately separate. `force` answers "I know it is not
+     over". acknowledgeStale answers "I know the data is short". Conflating them
+     is the defect. */
+  eq("a round frozen before its own window closed, with data far behind",
+    freezeRefusal("2026-09-14", "2026-09-02")?.reason,
+    "imported data stops 2026-09-02, before this period ends 2026-09-14");
+
+  eq("the period being OVER is not enough — August ended, the files did not reach it",
+    freezeRefusal("2026-08-31", "2026-08-10")?.reason,
+    "imported data stops 2026-08-10, before this period ends 2026-08-31");
+
+  eq("coverage exactly on the last day is enough",
+    freezeRefusal("2026-08-31", "2026-08-31"), null);
+  eq("coverage past the end is enough",
+    freezeRefusal("2026-05-31", "2026-09-02"), null);
+  eq("one day short is short",
+    freezeRefusal("2026-08-31", "2026-08-30")?.completeThrough, "2026-08-31");
+
+  /* Blank is never zero, and it is never permission either. */
+  eq("an unknown reach refuses rather than assuming",
+    freezeRefusal("2026-08-31", null)?.reason,
+    "no source reports a coverage end, so there is no way to tell whether the data reaches this period");
+
+  eq("the refusal carries both dates so a caller can act",
+    freezeRefusal("2026-09-14", "2026-09-02"),
+    { reason: "imported data stops 2026-09-02, before this period ends 2026-09-14",
+      completeThrough: "2026-09-14", reach: "2026-09-02" });
+}
+
+console.log("\nfreeze guard agrees with list-periods");
+{
+  /* The two must not disagree about the same period, or a caller is told a
+     month is final and then refused permission to freeze it. */
+  const periods = classifyPeriods(SHELY, "2026-09-02", "2026-09-15");
+  for (const p of periods) {
+    if (p.status === "final") {
+      eq(`${p.period} is final, so the freeze guard allows it`,
+        freezeRefusal(p.completeThrough, "2026-09-02"), null);
+    }
+    if (p.status === "incomplete") {
+      eq(`${p.period} is incomplete, so the freeze guard refuses it`,
+        freezeRefusal(p.completeThrough, "2026-09-02") !== null, true);
+    }
+  }
+  const short = classifyPeriods(SHELY, "2026-08-10", "2026-09-15");
+  const aug = short[3];
+  eq("August incomplete in list-periods is August refused at freeze",
+    [aug.status, freezeRefusal(aug.completeThrough, "2026-08-10") !== null],
+    ["incomplete", true]);
+}
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

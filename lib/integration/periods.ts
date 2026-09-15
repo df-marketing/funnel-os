@@ -25,6 +25,41 @@ export type Period = {
   completeThrough: string;
 };
 
+/**
+ * Should this freeze be refused because the data has not reached the period?
+ *
+ * Returns null when the freeze is safe, or the reason when it is not. Pure, and
+ * separate from the routes, so one rule covers rounds and months and a test can
+ * pin it.
+ *
+ * THE TWO QUESTIONS ARE NOT THE SAME. `isClosedDay`/`isClosedMonth` ask whether
+ * the period is OVER. This asks whether the data ARRIVED. A period can be long
+ * finished and still have an import that stops halfway through it — that is the
+ * `incomplete` state in list-periods, and it is the one that never fixes itself.
+ *
+ * `reach` is the EARLIEST coverage_end across sources, never the latest. One
+ * short file makes the whole period short: a close rate whose numerator stopped
+ * before its denominator did is not a slightly-old number, it is a wrong one.
+ * A null reach means no source can say how far it goes, and not knowing is not
+ * permission — it refuses too.
+ */
+export function freezeRefusal(
+  completeThrough: string,
+  reach: string | null,
+): { reason: string; completeThrough: string; reach: string | null } | null {
+  if (reach === null) {
+    return {
+      reason: "no source reports a coverage end, so there is no way to tell whether the data reaches this period",
+      completeThrough, reach,
+    };
+  }
+  if (reach >= completeThrough) return null;
+  return {
+    reason: `imported data stops ${reach}, before this period ends ${completeThrough}`,
+    completeThrough, reach,
+  };
+}
+
 /** Last calendar day of a YYYY-MM. Day 0 of the next month is the last of this one. */
 export function monthEnd(period: string): string {
   const [y, m] = period.split("-").map(Number);

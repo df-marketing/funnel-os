@@ -34,7 +34,7 @@ import { NextResponse } from "next/server";
  * - `use-held-handle` — stop. You already have one; it is in `heldHandle`.
  * - `claim-first`     — the handle does not exist here yet. POST client-handle.
  */
-export type Recovery = "mint-new-handle" | "use-held-handle" | "claim-first";
+export type Recovery = "mint-new-handle" | "use-held-handle" | "claim-first" | "import-first";
 
 /**
  * THE CONTRACT IS ADDITIVE-ONLY, AND THIS IS WHAT MAKES THAT TRUE.
@@ -83,6 +83,28 @@ export const REFUSALS = {
     recover: "mint-new-handle",
     retry: "mint a different handle, claim it, then call this again",
     means: "the handle exists but belongs to a different AcqOS client",
+  },
+  /**
+   * Added 15 Sep 2026, at contractVersion 1, because it is additive.
+   *
+   * The period has ended but the imports have not reached the end of it, so a
+   * reading taken now is built on a window the data does not cover. Freezing it
+   * writes that gap into a record whose whole purpose is to outlive the
+   * calculation.
+   *
+   * NOT the same question as `force`. `force` says "I know the period is not
+   * over." This says "I know the data is short." Conflating them is how a round
+   * gets frozen on the first day of its own window with every step reporting no
+   * reading — and a weak stage named anyway.
+   *
+   * So `force` does NOT override this. `acknowledgeStale: true` does, and it
+   * has to be passed on purpose.
+   */
+  period_not_final: {
+    status: 409,
+    recover: "import-first",
+    retry: "import the missing data, then freeze — or pass acknowledgeStale: true to freeze the gap deliberately",
+    means: "the period has ended but the imported data stops before it does",
   },
 } as const satisfies Record<string, {
   status: number;

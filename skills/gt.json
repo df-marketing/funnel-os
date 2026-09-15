@@ -107,6 +107,20 @@
       "401": "Wrong or missing key.",
       "503": "GT is missing a key or its service-role key. GT's problem, not the caller's. Retrying will not help.",
       "500": "GT fault. Safe to retry once."
+    },
+    "period_not_final": {
+      "status": 409,
+      "recover": "import-first",
+      "meaning": "The period has ended but the imported data stops before it does.",
+      "action": "Import the missing data and retry. Read GET /api/integration/periods first — finalPeriods is the list that will not be refused.",
+      "extra_fields": [
+        "periodKey",
+        "reason",
+        "completeThrough",
+        "reach",
+        "override"
+      ],
+      "override": "acknowledgeStale: true — for a deliberate human decision, never an automated retry."
     }
   },
   "enums": {
@@ -662,7 +676,10 @@
       ],
       "caveats": [
         "Stamps attribution_model and rule_version, so an old report can still explain itself after the rules change.",
-        "Nothing is overwritten; each freeze is a new version."
+        "Nothing is overwritten; each freeze is a new version.",
+        "Two gates, and they ask different questions. force:true says 'I know the period is not over'. acknowledgeStale:true says 'I know the data is short'. force does NOT open the staleness gate.",
+        "Refuses with 409 period_not_final when imported data stops before the period ends. Call list-periods first; finalPeriods will not be refused.",
+        "An acknowledged gap is written into the frozen record's note, so it stays legible later."
       ],
       "evidence": "app/api/integration/round-insight/route.ts:268,286,289"
     },
@@ -721,7 +738,10 @@
         }
       ],
       "caveats": [
-        "Same closure rule as freeze-round."
+        "Same closure rule as freeze-round.",
+        "Two gates, and they ask different questions. force:true says 'I know the period is not over'. acknowledgeStale:true says 'I know the data is short'. force does NOT open the staleness gate.",
+        "Refuses with 409 period_not_final when imported data stops before the period ends. Call list-periods first; finalPeriods will not be refused.",
+        "An acknowledged gap is written into the frozen record's note, so it stays legible later."
       ],
       "evidence": "app/api/integration/month-insight/route.ts:271"
     },

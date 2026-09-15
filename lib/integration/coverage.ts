@@ -46,6 +46,25 @@ export function lastImported(sources: ImportStatusRow[]): string | null {
 }
 
 /**
+ * How far the data reached, read back out of an insight payload.
+ *
+ * Taken from the payload rather than queried again on purpose: the freeze guard
+ * and the record it is guarding then describe the same moment. A second query
+ * could return a different answer if an import lands between the two, and the
+ * guard would be judging a payload that no longer exists.
+ *
+ * Checks the top level first, then `coverage`. Both are populated today;
+ * payloads frozen before staleness was hoisted only have the nested one.
+ */
+export function reachOf(payload: Record<string, unknown> | null | undefined): string | null {
+  if (!payload) return null;
+  const top = payload.lastObservationDate;
+  if (typeof top === "string") return top;
+  const nested = (payload.coverage as { lastObservationDate?: unknown } | undefined)?.lastObservationDate;
+  return typeof nested === "string" ? nested : null;
+}
+
+/**
  * The caveat, at the top level of every read.
  *
  * These two fields already existed, nested inside `coverage`. That was enough

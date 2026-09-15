@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { checkIntegrationKey, MISSING_INTEGRATION_KEY_MESSAGE } from "@/lib/integration/auth";
 import { createAdminClient, MISSING_KEY_MESSAGE } from "@/lib/supabase/admin";
+import { refuse } from "@/lib/integration/codes";
+import { freezeRefusal } from "@/lib/integration/periods";
+import { reachOf } from "@/lib/integration/coverage";
 import {
   coverageOf, cut, journeyOf, moveJson, PAID_RETURNS_NOTE, stepJson, targetsOf, type Cut, type Scope,
 } from "@/lib/integration/insight";
@@ -266,7 +269,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   const denied = guarded(request); if (denied) return denied;
-  let body: { frozenBy?: string; note?: string; replace?: boolean; force?: boolean } = {};
+  let body: { frozenBy?: string; note?: string; replace?: boolean; force?: boolean; acknowledgeStale?: boolean } = {};
   try { body = await request.json(); } catch { /* every field is optional */ }
   const live = await liveRound(request); if (live instanceof NextResponse) return live;
   const db = createAdminClient();
@@ -288,12 +291,28 @@ export async function POST(request: Request) {
       }, { status: 422 });
     }
 
+    /* SECOND GATE: has the data arrived?
+       Read from the payload being frozen, not queried again, so the guard and
+       the record can never disagree about how far the data reached.
+       `force` does NOT open this — see period_not_final in codes.ts. */
+    const gap = freezeRefusal(endDate, reachOf(live.payload));
+    if (gap && !body.acknowledgeStale) {
+      return refuse("period_not_final",
+        `Round ${live.periodKey} ended ${endDate}, but ${gap.reason}. Freezing now would store a reading of a window the data does not cover.`,
+        { periodKey: live.periodKey, ...gap, override: "acknowledgeStale" });
+    }
+
     const rows = await snapshotsFor(db, clientId, "round", live.periodKey);
     const current = chosenSnapshot(rows, "prefer", null);
     if (current && !body.replace) return NextResponse.json({ ok: false, periodKey: live.periodKey, version: current.version, frozenAt: current.frozen_at }, { status: 409 });
-    const note = body.force
-      ? [body.note, `Forced while round was still open (ends ${endDate}, forced ${todayLocal()}).`].filter(Boolean).join(" ")
-      : body.note ?? null;
+    /* A frozen record says how it came to be frozen. An acknowledged gap is
+       still a gap, and the person reading this in three months is entitled to
+       know the numbers were short when they were written down. */
+    const note = [
+      body.note,
+      body.force ? `Forced while round was still open (ends ${endDate}, forced ${todayLocal()}).` : null,
+      gap ? `Frozen with an acknowledged gap: ${gap.reason}.` : null,
+    ].filter(Boolean).join(" ") || null;
     const { data, error } = await db.rpc("freeze_period_insight", {
       p_client_id: clientId, p_period_kind: "round", p_period_key: live.periodKey,
       p_payload: live.payload, p_frozen_by: body.frozenBy ?? null, p_note: note,
