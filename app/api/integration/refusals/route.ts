@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { checkIntegrationKey, MISSING_INTEGRATION_KEY_MESSAGE } from "@/lib/integration/auth";
-import { REFUSALS } from "@/lib/integration/codes";
+import { CONTRACT_VERSION, REFUSALS } from "@/lib/integration/codes";
 
 export const runtime = "nodejs";
 
@@ -23,10 +23,20 @@ export async function GET(request: Request) {
   if (key !== "ok") return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   return NextResponse.json({
+    /* Assert on this. It changes ONLY for a breaking change — a rename, a
+       removal, or a moved status/recover. New codes appear without bumping it,
+       because a caller that has never heard of a new code still handles every
+       code it already knew, which is what additive means. */
+    contractVersion: CONTRACT_VERSION,
+    stability: "additive-only",
     note:
       "Branch on `code`, or on `recover`. Never on the HTTP status: handle_taken and " +
       "source_holds_other are both 409 and want opposite responses, and a caller that " +
       "cannot tell them apart mints handles in a loop.",
+    guarantee:
+      "Every code, status and recover value below is pinned by a frozen literal copy in " +
+      "scripts/test-refusals.mts. A rename or a changed status fails that test before it " +
+      "can reach you. Codes may be ADDED at contractVersion 1 without notice.",
     refusals: REFUSALS,
   });
 }

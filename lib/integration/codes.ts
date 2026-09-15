@@ -36,6 +36,29 @@ import { NextResponse } from "next/server";
  */
 export type Recovery = "mint-new-handle" | "use-held-handle" | "claim-first";
 
+/**
+ * THE CONTRACT IS ADDITIVE-ONLY, AND THIS IS WHAT MAKES THAT TRUE.
+ *
+ * AcqOS asked the right question: serving the contract is worth nothing if a
+ * rename can ship. TypeScript does not save us — renaming a key here and its
+ * call site together typechecks perfectly and breaks AcqOS silently, which is
+ * the original bug one level up.
+ *
+ * So scripts/test-refusals.mts holds a FROZEN LITERAL COPY of every code, its
+ * status and its recover value. Adding a code passes. Renaming, removing, or
+ * changing the status or recover of an existing one FAILS THE TEST. The only
+ * way to ship a breaking change is to edit the frozen copy, which is a visible,
+ * deliberate line in a diff rather than a rename nobody notices.
+ *
+ * Bump CONTRACT_VERSION only for a breaking change. AcqOS asserts on it:
+ * if it still reads 1, nothing they match on has moved.
+ *
+ * ADDING A CODE. Append to REFUSALS and to the frozen copy in the test. Do not
+ * bump the version — a caller that has never heard of the new code still
+ * handles every code it knew about, which is what additive means.
+ */
+export const CONTRACT_VERSION = 1;
+
 export const REFUSALS = {
   handle_taken: {
     status: 409,

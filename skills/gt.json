@@ -1263,7 +1263,7 @@
         "additionalProperties": false,
         "properties": {}
       },
-      "returns": "The four refusal codes with status, recover, retry and means. Served from the same constant the routes throw, so it cannot drift from behaviour.",
+      "returns": "{contractVersion, stability:'additive-only', refusals:{code:{status,recover,retry,means}}}. Served from the same constant the routes throw.",
       "errors": [
         {
           "status": 401,
@@ -1271,10 +1271,11 @@
         }
       ],
       "caveats": [
-        "Branch on code or recover, NEVER on the HTTP status: handle_taken and source_holds_other are both 409 and want opposite responses.",
-        "recover is the machine-readable field. retry is an English sentence for a log; do not match on it."
+        "Branch on `recover` or `code`, NEVER the HTTP status: handle_taken and source_holds_other are both 409 and want opposite responses.",
+        "ASSERT ON contractVersion. It changes only for a breaking change — a rename, a removal, or a moved status/recover. New codes may appear at the same version, because a caller that never heard of a new code still handles every code it knew.",
+        "The guarantee is enforced, not promised: scripts/test-refusals.mts holds a frozen literal copy of every code, status and recover. A rename typechecks fine and fails that test. Verified by simulating a rename on 15 Sep 2026 — tsc passed, the test failed."
       ],
-      "evidence": "app/api/integration/refusals/route.ts, lib/integration/codes.ts"
+      "evidence": "app/api/integration/refusals/route.ts; lib/integration/codes.ts; scripts/test-refusals.mts"
     }
   ],
   "blocked_reasons": {
