@@ -1,7 +1,14 @@
 # The slug is not an identity — GroundTruth's half
 
-**Status: ON HOLD, 15 September 2026. Nothing in this document has been shipped.**
-No migration has been run, no column added, no route changed.
+**Status: the FIX is on hold. The ALARM is shipped. 15 September 2026.**
+
+| | state |
+|---|---|
+| §5–§6 — the fix: stable identity, `stage_ref`, preservation keyed on it | **not built.** No column, no constraint, no change to how preservation works |
+| §8.2 — the alarm: `slugsMoved[]` in the push response | **shipped and live.** Migration `20260915120000` applied, `test:slugmoved` passing |
+
+**The alarm does not reduce the risk.** The wrong value is still written. It is now *announced*
+instead of silent, which is the most that can be done without an identity nobody has yet.
 
 > **§7's first question came back NO.** AcqOS has no stable per-stage identity to send.
 > `stage_index` breaks on reorder; `stage_key` is `slugify(label)` and breaks on rename. So §5.1 —
@@ -14,7 +21,8 @@ No migration has been run, no column added, no route changed.
 > **Two things this changes, both in §8.**
 
 **The bug is unfixed and still live.** Holding is a decision about cost, not about risk — §3 happens
-on the next funnel edit that moves a stage, and it will not announce itself.
+on the next funnel edit that moves a stage. It now announces itself in the response; it still
+happens.
 
 **Read off the code on 15 September 2026.** Every claim below cites a file and line, or is marked
 as unverified.
