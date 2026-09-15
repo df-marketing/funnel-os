@@ -204,6 +204,7 @@
 - Requirement 4's render half was never closed — it was documented as closed but was not actually closed in code.
 - Hand GroundStream the reasoning, not just the schema — the commit message suggests a code/pattern is being applied by hand rather than generated, or that reasoning steps should be explicitly captured.
 - rename failure should trigger a test failure, not a client-facing error — indicates a testing philosophy shift toward catching misconfigurations early.
+- the slug fix is blocked (not merely unstarted)
 
 ## Notes
 
