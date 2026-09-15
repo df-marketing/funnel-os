@@ -85,6 +85,8 @@
 - Source no longer proposes campaign prefixes — this functionality was removed.
 - AcqOS is a caller/consumer — it calls something else (likely the import pipeline or a data API). Success would be proven by a concrete test or observable outcome (e.g., a successful dry-run or data refresh).
 - A read-only API key was added for the four GET routes, restricting them to read-only access.
+- GT can only be asked to do things that are in its enumerated set of 14 calls; 18 other possible calls are explicitly forbidden.
+- GT's capabilities and restrictions have been explicitly enumerated — an agent can make 14 calls, and cannot make 18 others.
 
 ## Architecture
 
