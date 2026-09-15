@@ -1,8 +1,20 @@
 # The slug is not an identity — GroundTruth's half
 
-**Status: PROPOSAL. Nothing in this document has been shipped.**
-No migration has been run, no column added, no route changed. AcqOS is writing its half in
-parallel; this exists so the two halves can be compared before either is built.
+**Status: ON HOLD, 15 September 2026. Nothing in this document has been shipped.**
+No migration has been run, no column added, no route changed.
+
+> **§7's first question came back NO.** AcqOS has no stable per-stage identity to send.
+> `stage_index` breaks on reorder; `stage_key` is `slugify(label)` and breaks on rename. So §5.1 —
+> "AcqOS sends a stable identity" — rests on a field that does not exist.
+>
+> **That turns this from a payload change into a scope decision: somebody has to mint an identity
+> that has never existed.** The contract below is still correct about *what* is needed and *why*;
+> it is wrong only in assuming the identity was already there to be sent.
+>
+> **Two things this changes, both in §8.**
+
+**The bug is unfixed and still live.** Holding is a decision about cost, not about risk — §3 happens
+on the next funnel edit that moves a stage, and it will not announce itself.
 
 **Read off the code on 15 September 2026.** Every claim below cites a file and line, or is marked
 as unverified.
@@ -242,3 +254,74 @@ other four.
    reasoned about.
 
 Nothing is built on our side pending answers to 1 and 2.
+
+---
+
+## 8 · After AcqOS's answer — two inputs to the scope decision
+
+Neither is a request to build. Both change what the decision is choosing between.
+
+### 8.1 · Who mints the identity is an open question, and GroundTruth may be the cheaper answer
+
+§5.1 assumed AcqOS mints it because AcqOS owns the funnel. That was an assumption, not a
+requirement, and it is the expensive reading: it asks AcqOS to add an identity to a model that has
+never had one, and to keep it stable through every edit path a user can reach.
+
+**The inverse costs less, and there is precedent for it in this integration.** GroundTruth already
+mints a permanent identity that AcqOS stores and echoes back — the handle. `client_flags.client_id`
+is reserved by GT, held forever, and AcqOS carries it on every subsequent call. A stage ref is the
+same shape of thing one level down.
+
+```
+ push 1   AcqOS sends stages with no refs
+          GT mints one per stage, stores it, returns  stageRefs: { "preview": "st_7f3a…" }
+ push 2+  AcqOS echoes each stage's ref back
+          GT keys preservation on the ref; the slug is decoration
+```
+
+What each side actually has to do:
+
+| | AcqOS | GroundTruth |
+|---|---|---|
+| mint a stable id | **no** | yes — one `gen_random_uuid()` at insert |
+| keep it stable across edits | **no** — GT holds it | yes, by not deleting the row |
+| store one opaque string per stage | yes, one column | yes, `stage_ref` |
+| echo it on the next push | yes | — |
+
+AcqOS's side becomes *store this string and send it back*, which is a column and a passthrough, not
+an identity model. **The first push still has to be a no-op push** — §5.3's constraint survives
+unchanged, because minting still has to bind to existing rows by slug exactly once.
+
+**What this does not solve.** A stage created in AcqOS between two pushes arrives with no ref and
+gets a fresh one, which is correct. A stage *deleted* and an unrelated one *created* in the same
+edit are indistinguishable from a rename — GT sees one ref vanish and one appear. That is a real
+limit of minting from the outside and it does not exist if AcqOS mints. It is the trade the scope
+decision is actually between.
+
+### 8.2 · Detection needs no identity at all, and is nearly free
+
+While the fix is on hold, the failure can at least stop being silent. `0040` already computes the
+at-risk set before the delete:
+
+```sql
+-- Which incoming stages will be taking a value they did not send.
+select ... into v_kept from jsonb_array_elements(p_stages) as stage
+ where nullif(stage->>'unitPrice','') is null and v_prices ? (stage->>'slug');
+```
+
+Every slug in `v_kept` is about to inherit a price from whatever held that slug last time. The
+prior `stage_name` for each is one column away, in a table the function has already read and not
+yet deleted. Comparing it to the incoming `name` answers the dangerous question directly:
+
+> **the slug stayed, but the stage under it changed.**
+
+Returned as `slugsMoved[]`, that is additive — a new response field, no refusal, no behaviour
+change, one-sided and safe to ship without AcqOS.
+
+**Its limits, stated rather than discovered later.** It compares names, so a stage genuinely renamed
+in place reports a false positive, and a reorder that happens to keep names aligned with slugs
+reports nothing. It is a smoke alarm, not a lock. It does not make a push safe; it makes a bad push
+**visible on the day it happens** instead of whenever somebody next questions a revenue line.
+
+**Not built.** Noted here because the cost of holding is measured in silent wrong answers, and this
+changes it to noisy ones for roughly an hour of work.

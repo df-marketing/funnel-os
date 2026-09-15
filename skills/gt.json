@@ -937,7 +937,7 @@
         "WHOLESALE REPLACE. client_journey_config is deleted and rewritten for this client.",
         "THREE FIELDS SURVIVE, keyed by stage_slug: unit_price, compare_dimension, stage_rate_label. Renaming a slug silently drops that stage's price and comparison dimension.",
         "The response names what was preserved. Read it — the stored funnel is not exactly what you sent.",
-        "KNOWN BUG, unfixed: the three preserved fields (unitPrice, compareDimension, rateLabel) are re-applied by SLUG, and AcqOS assigns slugs BY POSITION. A funnel edit that moves a stage moves its price onto a different stage. Both pushes return written:true and pricesPreserved is unchanged. See docs/SLUG-IDENTITY-PROPOSAL.md. Do not treat a successful push as proof the values landed correctly."
+        "KNOWN BUG, UNFIXED AND ON HOLD: the three preserved fields (unitPrice, compareDimension, rateLabel) are re-applied by SLUG, and AcqOS assigns slugs by POSITION. A funnel edit that moves a stage moves its price onto a different stage; the push returns written:true and pricesPreserved is unchanged either way. The fix is blocked: AcqOS has no stable per-stage identity to key on (stage_index breaks on reorder, stage_key is slugify(label) and breaks on rename), so minting one is a scope decision, not a payload change. See docs/SLUG-IDENTITY-PROPOSAL.md. DO NOT treat a successful push as proof the preserved values landed on the right stages."
       ],
       "evidence": "app/api/integration/funnel-schema/route.ts:144,161; supabase/migrations/0040_a_push_keeps_the_breakdown_and_the_label.sql:84,112"
     },
