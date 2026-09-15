@@ -94,9 +94,29 @@ Separately, jobs 2 and 3 fail quietly in their own way: a slug that has moved ou
 recognises it and the tab reads the wrong view. A slug that changes at all invalidates every
 bookmarked URL.
 
-**What we could not verify:** we have not reproduced this against a live push, because doing so
-means pushing a deliberately-shifted funnel at a real client. The mechanism is read off the SQL, not
-observed. If AcqOS can push a shifted funnel at a throwaway handle, that would settle it.
+### Reproduced, 15 September 2026 — this is no longer inference
+
+This section originally said the mechanism was read off the SQL and not observed. It has since been
+run. `scripts/test-slugmoved.mts` pushes shely's exact funnel to a **throwaway client**, then pushes
+it again with one stage inserted above position 4, and asserts the outcome in the table rather than
+in the response:
+
+```
+ok   preview was the purchase stage       — "Paid Workshop Purchase ($297)"
+ok   preview is now the attendance stage  — "Live Webinar Attendance"
+ok   the attendance stage really did take the 297
+ok   and the purchase stage really did lose it
+ok   the push still reports success
+ok   and pricesPreserved still says preview — which is exactly the problem
+```
+
+15 assertions, all passing, against the live function. The client is deleted afterwards and shely is
+never touched — verified after the run: shely still has six stages with `preview` holding 297.
+
+**The last two lines are the finding.** `written: true` and `pricesPreserved: ["preview"]` are both
+returned, and both are true statements about a push that just moved $297 from the purchase stage to
+the attendance stage. Nothing in the pre-existing response distinguishes this from a correct push.
+That is why §8.2's alarm exists and why an empty `slugsMoved` still is not a guarantee.
 
 ---
 
@@ -323,5 +343,9 @@ in place reports a false positive, and a reorder that happens to keep names alig
 reports nothing. It is a smoke alarm, not a lock. It does not make a push safe; it makes a bad push
 **visible on the day it happens** instead of whenever somebody next questions a revenue line.
 
-**Not built.** Noted here because the cost of holding is measured in silent wrong answers, and this
-changes it to noisy ones for roughly an hour of work.
+**Built and applied 15 September 2026.** The migration is
+`20260915120000_a_push_says_when_a_slug_changed_hands.sql`; the response carries `slugsMoved[]`
+and a `slugWarning` sentence. `npm run test:slugmoved` — 15 assertions — proves it fires on the
+§3 case and, deliberately, that it false-positives on a rename in place.
+
+It changes nothing about the risk. The wrong value is still written; it is now **announced**.
