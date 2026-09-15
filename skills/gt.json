@@ -5,11 +5,12 @@
   "description": "Reporting and attribution for DriveFunnels clients. Four exports arrive — ads spend, leads, attendance, sales — plus Microsoft Clarity scroll curves, and GT answers what the money did, in many cuts.",
   "source": {
     "repo": "df-marketing/funnel-os",
-    "branch": "feat/readonly-integration-key",
-    "commit": "99cfbf5",
-    "deployed_commit": "892d5ac",
+    "branch": "main",
+    "commit": "see GET /api/health — pinning a hash here goes stale on the next deploy",
+    "deployed_commit": "see GET /api/health",
     "generated_from": "SKILLTREE-GT-2026-09-15.md",
-    "verified_against": "production, 15 Sep 2026"
+    "verified_against": "production, 15 Sep 2026",
+    "merged_to_main": "2026-09-15"
   },
   "base_url": "https://funnel-os-red.vercel.app",
   "auth": {

@@ -1,10 +1,13 @@
 # GT (GroundTruth / "Funnel OS") — skill tree
 
-**Read from the codebase on 15 Sep 2026** — checkout `funnel-os`, branch
-`feat/readonly-integration-key`, HEAD `99cfbf5`, **not yet merged**; production runs `origin/main`
-`892d5ac`, which does **not** include the two newest leaves or the top-level staleness fields. Every
-leaf points at a route file, a page, or the loader behind one. Nothing here is from a handover doc
-or from memory.
+**Read from the codebase on 15 Sep 2026**, checkout `funnel-os`, and **merged to `main` the same
+day** — so everything below is on the production branch. No commit hash is pinned here on purpose:
+it would be stale by the next deploy. **`GET /api/health` returns the live `commit`** — that is the
+authoritative answer to what production is actually serving. Every leaf points at a route file, a
+page, or the loader behind one. Nothing here is from a handover doc or from memory.
+
+⚠️ **One leaf needs a migration that has not been run.** `list-periods` answers `503` naming
+`20260915090000_a_period_can_say_whether_it_is_finished.sql` until someone applies it by hand.
 
 **`<OTHER>` = GU (GroundUp / "AcqOS").** I have read GU's *skill tree file*
 (`SKILLTREE-GU-2026-09-14.md`), **not GU's repository**. So every overlap below is confirmed or
