@@ -7,6 +7,16 @@ import { FUNNEL_TAG } from "@/lib/supabase/read";
 
 export const runtime = "nodejs";
 
+/** One slug that changed hands between pushes. See slugsMoved in the response. */
+type SlugMoved = {
+  slug: string;
+  order: number;
+  wasName: string | null;
+  nowName: string | null;
+  /** Which preserved fields this stage took without sending them. The dangerous set. */
+  inherited: Array<"unitPrice" | "compareDimension" | "rateLabel">;
+};
+
 /** AcqOS owns funnel shape; Funnel OS atomically replaces one known client's stages. */
 export async function POST(request: Request) {
   const key = checkIntegrationKey(request);
@@ -155,6 +165,7 @@ export async function POST(request: Request) {
     written?: boolean; created?: boolean; pricesPreserved?: string[];
     dimensionsPreserved?: string[]; rateLabelsPreserved?: string[];
     reason?: string; storedGeneratedAt?: string; incomingGeneratedAt?: string;
+    slugsMoved?: SlugMoved[];
   } | null;
 
   // Refused, not failed: a newer funnel is already stored. Nothing was written,
@@ -191,6 +202,22 @@ export async function POST(request: Request) {
     pricesPreserved: outcome?.pricesPreserved ?? [],
     dimensionsPreserved: outcome?.dimensionsPreserved ?? [],
     rateLabelsPreserved: outcome?.rateLabelsPreserved ?? [],
+    /* THE SMOKE ALARM. A slug that survived this push but is now attached to a
+       differently-named stage — which, when `inherited` is non-empty, means a
+       preserved value has just been written onto a stage it did not come from.
+
+       Empty is the normal case and is NOT a guarantee: this compares names, so
+       a reorder that keeps names aligned with slugs reports nothing, and a
+       stage genuinely renamed in place reports a move that did not happen.
+
+       Reported rather than refused, deliberately. The real fix needs a stable
+       stage identity that AcqOS does not have; until somebody mints one, the
+       most this can honestly do is stop the failure being silent. See
+       docs/SLUG-IDENTITY-PROPOSAL.md. */
+    slugsMoved: outcome?.slugsMoved ?? [],
+    slugWarning: (outcome?.slugsMoved ?? []).some((m) => m.inherited.length > 0)
+      ? "A preserved value landed on a stage with a different name than the one it came from. Check slugsMoved before trusting unitPrice, compareDimension or rateLabel on those stages."
+      : null,
     syncedAt: new Date().toISOString(),
     currency: schema.currency,
   });

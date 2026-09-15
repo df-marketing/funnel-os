@@ -29,6 +29,30 @@ The same hole in both systems, found by neither alone.
 
 ---
 
+## 1b · Two stores, two guards — read this before §3
+
+**AcqOS does not call GroundTruth's freeze endpoints.** AcqOS freezes into its own `round_insights`;
+GroundTruth freezes into `period_insights`. They are separate stores and neither writes to the
+other.
+
+So the guard in §2–§4 protects **GroundTruth's** records. It is not what stops the `0926-02` class of
+failure on AcqOS's side — nothing GroundTruth ships can, because GroundTruth is never called.
+
+| | writes to | gated by |
+|---|---|---|
+| GroundTruth | `period_insights` | the two gates below, enforced in-process |
+| AcqOS | `round_insights` | **`GET /api/integration/periods`**, checked before freezing |
+
+**AcqOS's half is the `/periods` call, not the 409.** `finalPeriods` is the list that is safe to
+freeze; `incomplete` means import first; `open` means wait for the calendar. The `period_not_final`
+refusal documented below will simply never be seen by AcqOS in normal operation — it is the
+belt-and-braces for anything that does call the write path.
+
+Written down because it is not obvious from either codebase alone, and both sides re-derived it once
+already.
+
+---
+
 ## 2 · The two gates, and why they are two
 
 | gate | question | override |
@@ -144,10 +168,11 @@ gate and the record can never disagree about how far the data reached.
 
 ## 7 · What you should do
 
-1. **Call `GET /api/integration/periods?clientId=…` before freezing.** `finalPeriods` is the list
-   that will not be refused. This is the cheap path — no 409 round-trip.
-2. **Handle `period_not_final`** on both freeze endpoints. Treat it as *import, then retry*, not as
-   an error to surface.
+1. **Call `GET /api/integration/periods?clientId=…` before freezing into `round_insights`.**
+   `finalPeriods` is the safe list. This is your actual gate — see §1b — not a way to avoid a 409
+   you will never see.
+2. **Handle `period_not_final`** only if something of yours ever does call GT's freeze endpoints.
+   Treat it as *import, then retry*, not as an error to surface.
 3. **Do not reach for `acknowledgeStale` as a retry.** It is for a deliberate decision by a person
    who knows the month will never fill. An automated loop that sets it has reintroduced the bug.
 4. **Check whether your own frozen payloads carry `anySourceStale`.** GT's do, which is how a stale
