@@ -44,3 +44,40 @@ export function lastImported(sources: ImportStatusRow[]): string | null {
     null,
   );
 }
+
+/**
+ * The caveat, at the top level of every read.
+ *
+ * These two fields already existed, nested inside `coverage`. That was enough
+ * to be correct and not enough to be noticed: a caller writing
+ * `data.metrics.roas` gets a number, and nothing about the expression it is
+ * written in suggests there is a second field deciding whether the number means
+ * anything. The one that got missed is the one that matters — a stale ROAS is
+ * not a slightly-old ROAS, it is a ratio whose numerator stopped before its
+ * denominator did.
+ *
+ * So it is hoisted. Same values, same source, spread beside the payload rather
+ * than under it, so `anySourceStale` sits at the same depth as the numbers it
+ * qualifies and a caller has to step over it rather than down into it.
+ *
+ * `coverage` keeps both fields as well. This is additive on purpose — AcqOS
+ * reads `coverage.lastObservationDate` today, and a contract change that
+ * silently moves a field is how the caveat gets lost a second time.
+ */
+export function staleness(sources: ImportStatusRow[]) {
+  return {
+    /** True if ANY source is behind. One short file makes the whole read partial. */
+    anySourceStale: sources.some((source) => source.is_stale),
+    /** Where coverage runs out — the EARLIEST end, per the note above. */
+    lastObservationDate: coverageEnds(sources),
+    /** The worst gap, so a caller can decide how stale is too stale. */
+    daysBehind: sources.reduce<number | null>(
+      (worst, source) =>
+        source.days_behind === null || !source.is_stale ? worst
+          : worst === null || source.days_behind > worst ? source.days_behind : worst,
+      null,
+    ),
+    /** Which sources are short, named. An empty array reads as "none are". */
+    staleSources: sources.filter((source) => source.is_stale).map((source) => source.source),
+  };
+}

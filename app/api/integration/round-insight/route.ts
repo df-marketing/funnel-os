@@ -183,7 +183,8 @@ async function liveRound(request: Request): Promise<LiveRound | NextResponse> {
         producedButUntracked: candidates.untracked,
         notMeasured: candidates.unavailable,
       },
-      coverage,
+      coverage: coverage.coverage,
+      ...coverage.top,
       // Carried on the payload rather than documented elsewhere: the caller
       // renders cpa and roas, and the caveat has to travel with the figure.
       notes: { paidReturns: PAID_RETURNS_NOTE },

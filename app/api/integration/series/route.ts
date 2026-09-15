@@ -124,7 +124,8 @@ export async function GET(request: Request) {
           : {}),
         metrics: c.m ?? {},
       })),
-      coverage,
+      coverage: coverage.coverage,
+      ...coverage.top,
       /**
        * What these numbers cannot say. Carried on every response rather than
        * documented elsewhere, because the caller renders them and the caveat has

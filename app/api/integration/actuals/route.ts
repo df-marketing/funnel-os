@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { checkIntegrationKey, MISSING_INTEGRATION_KEY_MESSAGE } from "@/lib/integration/auth";
-import { coverageEnds, lastImported, type ImportStatusRow } from "@/lib/integration/coverage";
+import { coverageEnds, lastImported, staleness, type ImportStatusRow } from "@/lib/integration/coverage";
 import { isIsoDay, JOURNEY_METRIC_KEYS, type SourceType } from "@/lib/integration/schema";
 import type { Metrics } from "@/lib/funnel/spine";
 import { createAdminClient, MISSING_KEY_MESSAGE } from "@/lib/supabase/admin";
@@ -95,6 +95,8 @@ export async function GET(request: Request) {
     clientId,
     from,
     to,
+    // Beside the numbers, not under them. See staleness() for why.
+    ...staleness(sources),
     filters: { product, channel },
     coverage: {
       lastImportedAt: lastImported(sources),

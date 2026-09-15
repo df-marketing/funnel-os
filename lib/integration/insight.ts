@@ -17,7 +17,7 @@ import type { Metrics } from "@/lib/funnel/spine";
 import type { Move } from "@/lib/funnel/analysis";
 import type { Diagnosis, StageRef } from "@/lib/funnel/diagnose";
 import { explainStep } from "@/lib/funnel/diagnose";
-import { coverageEnds, lastImported, type ImportStatusRow } from "./coverage";
+import { coverageEnds, lastImported, staleness, type ImportStatusRow } from "./coverage";
 import { isTransientMessage, retryRead } from "@/lib/supabase/transient";
 
 /** One column out of fo_cut. Same shape the dashboard reads. */
@@ -149,18 +149,25 @@ export async function coverageOf(db: SupabaseClient, clientId: string) {
     .order("source");
   if (error) throw new Error(`v_import_status: ${error.message}`);
   const sources = (data ?? []) as ImportStatusRow[];
+  /* Two objects out of one query. `coverage` is the detail block, unchanged and
+     still carrying both headline fields so nothing that reads it today breaks.
+     `top` is the same caveat hoisted to the top level of the response — see the
+     note on staleness() for why being correct-but-nested was not enough. */
   return {
-    lastImportedAt: lastImported(sources),
-    lastObservationDate: coverageEnds(sources),
-    anySourceStale: sources.some((s) => s.is_stale),
-    sources: sources.map((s) => ({
-      source: s.source,
-      importedAt: s.imported_at,
-      coverageStart: s.coverage_start,
-      coverageEnd: s.coverage_end,
-      isStale: s.is_stale,
-      daysBehind: s.days_behind,
-    })),
+    coverage: {
+      lastImportedAt: lastImported(sources),
+      lastObservationDate: coverageEnds(sources),
+      anySourceStale: sources.some((s) => s.is_stale),
+      sources: sources.map((s) => ({
+        source: s.source,
+        importedAt: s.imported_at,
+        coverageStart: s.coverage_start,
+        coverageEnd: s.coverage_end,
+        isStale: s.is_stale,
+        daysBehind: s.days_behind,
+      })),
+    },
+    top: staleness(sources),
   };
 }
 
