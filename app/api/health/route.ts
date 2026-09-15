@@ -18,6 +18,10 @@ export const dynamic = "force-dynamic";
  * single page — answered this endpoint with `{"status":"ok"}`. Two deployments,
  * both claiming health, one of them unable to do anything at all.
  *
+ * fo-main was deleted on 15 September 2026. The `checks` and `commit` fields
+ * below are what made the difference visible, and they are why this shape is
+ * kept: the next duplicate will not announce itself either.
+ *
  * That is worse than the bug it replaced. Until an hour ago the login gate was
  * catching this route and returning a redirect to /login, which tells a monitor
  * nothing. A hardcoded ok tells a monitor something false, and false beats

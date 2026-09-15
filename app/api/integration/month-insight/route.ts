@@ -255,7 +255,8 @@ async function liveMonth(request: Request): Promise<LiveMonth | NextResponse> {
       // Level 5 — which step of the funnel broke, month over month.
       steps: steps.map(stepJson),
       brokenSteps: brokenSteps(steps).map(stepJson),
-      coverage,
+      coverage: coverage.coverage,
+      ...coverage.top,
       // Carried on the payload rather than documented elsewhere: the caller
       // renders cpa and roas, and the caveat has to travel with the figure.
       notes: { paidReturns: PAID_RETURNS_NOTE },

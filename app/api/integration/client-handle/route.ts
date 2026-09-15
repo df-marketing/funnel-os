@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { checkIntegrationKey, MISSING_INTEGRATION_KEY_MESSAGE } from "@/lib/integration/auth";
 import { createAdminClient, MISSING_KEY_MESSAGE } from "@/lib/supabase/admin";
 import { decideClaim } from "@/lib/integration/claim";
+import { refuse } from "@/lib/integration/codes";
 
 export const runtime = "nodejs";
 
@@ -107,22 +108,14 @@ export async function POST(request: Request) {
   const decision = decideClaim(rows ?? [], clientId, sourceClientId);
 
   if (decision.kind === "handle-taken") {
-    return NextResponse.json({
-      ok: false,
-      code: "handle_taken",
-      error: `handle '${clientId}' is already claimed by a different AcqOS client`,
-      retry: "mint a different handle and claim again",
-    }, { status: 409 });
+    return refuse("handle_taken",
+      `handle '${clientId}' is already claimed by a different AcqOS client`);
   }
 
   if (decision.kind === "source-holds-other") {
-    return NextResponse.json({
-      ok: false,
-      code: "source_holds_other",
-      error: `this AcqOS client already holds the handle '${decision.heldHandle}'`,
-      heldHandle: decision.heldHandle,
-      retry: "none — use the handle you already hold",
-    }, { status: 409 });
+    return refuse("source_holds_other",
+      `this AcqOS client already holds the handle '${decision.heldHandle}'`,
+      { heldHandle: decision.heldHandle });
   }
 
   if (decision.kind === "already-yours") {
