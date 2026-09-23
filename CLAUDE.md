@@ -314,3 +314,4 @@
 - A key can be checked without an outage — the latest commit adds the ability to check a key without causing downtime.
 - A page that warmed nothing does not ask to be called again (commit message - likely a UX fix where a lazy-loaded or cached page no longer re-triggers a load on revisit).
 - A prior document incorrectly stated AcqOS does not call us; the recent commit corrects that AcqOS does call us.
+- Rounding logic: a round is closed on its own last day, not the month's last day.
