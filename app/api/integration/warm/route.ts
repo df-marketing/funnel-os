@@ -211,10 +211,20 @@ export async function POST(request: Request) {
       failure,
       warmed: done.length,
       offset,
-      /* Present only when there is more to do AND it is safe to continue.
-         Absent on error, so a caller looping on it cannot turn one failure into
-         a retry storm against a database that just told us it was struggling. */
-      nextOffset: stoppedBy === "budget" && reached < work.length ? reached : undefined,
+      /* Present only when there is more to do, it is safe to continue, AND this
+         call actually got somewhere.
+         
+         `done.length > 0` is the one that matters and it was missing: a budget
+         too small to finish a single combination warms nothing, leaves `reached`
+         equal to `offset`, and hands the caller back the offset it just sent.
+         The loop then repeats the same call forever — bounded only by the page
+         cap, so the symptom is twelve identical no-op pages rather than an
+         obvious hang. Caught by the verify run, which uses a 1s budget and so
+         hits this every time.
+
+         Absent on error too, so a caller looping on it cannot turn one failure
+         into a retry storm against a database that just said it is struggling. */
+      nextOffset: stoppedBy === "budget" && done.length > 0 && reached < work.length ? reached : undefined,
       // Named, not just counted — "skipped 40" is a number, and which 40 is the
       // question somebody will actually have.
       remaining: work.length - reached,
