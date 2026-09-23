@@ -1245,7 +1245,7 @@
           }
         }
       },
-      "returns": "Every month the client has rounds in, each classified final | incomplete | open, with the reason and the round codes. Plus finalPeriods, the short list of months safe to report.",
+      "returns": "{finalPeriods[] (MONTHS safe to report), finalRounds[] (ROUNDS safe to close), periods[{period,status,reason,roundCodes,roundStatus[{code,start,end,status,reason}],completeThrough}]}",
       "errors": [
         {
           "status": 400,
@@ -1261,11 +1261,13 @@
         }
       ],
       "caveats": [
+        "finalPeriods and finalRounds answer DIFFERENT questions and are not interchangeable. finalPeriods holds MONTHS; a round code is never in it. Gating a nightly round-close on finalPeriods refuses every round in the current month, permanently.",
         "GT has NO finalised flag. The status is derived from round end dates and import coverage, so it can change when someone imports — a re-read of a closed period is allowed on purpose.",
         "final means nothing is MISSING, not that nothing will ever change.",
         "incomplete and open both mean do-not-report and are not interchangeable: incomplete waits on an import, open waits on the calendar.",
         "A month is never final before its own last day, however complete the imports look.",
-        "Which month a round belongs to is the anchor rule, not the start date: 0826-01 runs 31 Jul - 6 Aug and is August's, all of it."
+        "Which month a round belongs to is the anchor rule, not the start date: 0826-01 runs 31 Jul - 6 Aug and is August's, all of it.",
+        "A month can be `open` while its rounds are `final`: the month waits on the calendar, a round waits only on its own end date and the imports reaching it."
       ],
       "evidence": "app/api/integration/periods/route.ts, lib/integration/periods.ts, scripts/test-finalised.mts"
     },

@@ -197,5 +197,54 @@ console.log("\nfreeze guard agrees with list-periods");
     ["incomplete", true]);
 }
 
+console.log("\nper-round status — the question finalPeriods cannot answer");
+{
+  const got = classifyPeriods(SHELY, "2026-09-02", "2026-09-15");
+  const all = got.flatMap((p) => p.roundStatus);
+  eq("every round is accounted for", all.length, SHELY.length);
+
+  /* Shely as she actually stands: the month is open because September has not
+     ended, AND both its rounds are incomplete because the imports stop on the
+     2nd — one day before 0926-01 even finished. Two different reasons, and a
+     caller needs to be told which. */
+  const sep = got.find((p) => p.period === "2026-09")!;
+  eq("the month is open — the calendar", sep.status, "open");
+  eq("its rounds are incomplete — the imports",
+    sep.roundStatus.map((r) => [r.code, r.status]),
+    [["0926-01", "incomplete"], ["0926-02", "incomplete"]]);
+
+  /* THE POINT, with the imports caught up. The month is STILL open — September
+     has not ended — but both rounds finished and the data reached them, so as
+     rounds they are safe to close. Gating a nightly close on finalPeriods would
+     refuse these two for the rest of the month, which is the category error
+     this field exists to prevent. */
+  const caught = classifyPeriods(SHELY, "2026-09-20", "2026-09-25")
+    .find((p) => p.period === "2026-09")!;
+  eq("month still open", caught.status, "open");
+  eq("rounds final anyway", caught.roundStatus.map((r) => r.status), ["final", "final"]);
+  eq("and a final round gives no reason", caught.roundStatus[0].reason, null);
+
+  eq("a round still running says so, and blames the calendar",
+    classifyPeriods(SHELY, "2026-09-02", "2026-09-10")
+      .find((p) => p.period === "2026-09")!.roundStatus
+      .find((r) => r.code === "0926-02")!,
+    { code: "0926-02", start: "2026-09-08", end: "2026-09-14", status: "open",
+      reason: "still running — it ends 2026-09-14" });
+
+  /* A round that ended before the data reached it. Waiting on an import, not
+     on the calendar — the distinction the whole endpoint exists for. */
+  const short = classifyPeriods(SHELY, "2026-08-10", "2026-09-15");
+  const aug = short.find((p) => p.period === "2026-08")!;
+  eq("a round the imports did not reach is incomplete",
+    aug.roundStatus.map((r) => r.status), ["final", "incomplete", "incomplete"]);
+  eq("and names both dates",
+    aug.roundStatus.find((r) => r.code === "0826-03")!.reason,
+    "imported data stops 2026-08-10, before this period ends 2026-08-27");
+
+  eq("an unknown reach refuses every ended round",
+    classifyPeriods(SHELY, null, "2026-09-15").flatMap((p) => p.roundStatus)
+      .filter((r) => r.status === "final").length, 0);
+}
+
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

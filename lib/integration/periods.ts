@@ -14,6 +14,27 @@ export type RoundPeriodRow = {
 
 export type PeriodStatus = "final" | "incomplete" | "open";
 
+/**
+ * One round, answered the same way a period is.
+ *
+ * AcqOS closes ROUNDS nightly and reports on MONTHS monthly, and until now this
+ * endpoint only answered the second question. Their first attempt at the first
+ * one was going to be "refuse unless the round is in finalPeriods" — but
+ * finalPeriods holds months, so a round code is never in it and every round in
+ * the current month would be refused forever.
+ *
+ * That was our gap, not theirs. A round has its own end date and its own
+ * answer, and deriving it on their side would be the inference they were right
+ * to reject. So it is computed here.
+ */
+export type RoundStatus = {
+  code: string;
+  start: string;
+  end: string;
+  status: PeriodStatus;
+  reason: string | null;
+};
+
 export type Period = {
   period: string;
   start: string;
@@ -21,7 +42,10 @@ export type Period = {
   status: PeriodStatus;
   reason: string | null;
   rounds: number;
+  /** Kept for callers that already read it. `roundStatus` is the useful one. */
   roundCodes: string[];
+  /** Per round, because a round is closed on its own last day, not the month's. */
+  roundStatus: RoundStatus[];
   completeThrough: string;
 };
 
@@ -107,6 +131,28 @@ export function classifyPeriods(
             : reach >= lastEnding ? "final"
               : "incomplete";
 
+      /* Each round judged on its own dates. Same three words as a period, and
+         they mean the same things: open is waiting on the calendar, incomplete
+         is waiting on an import, final is safe to close. */
+      const roundStatus: RoundStatus[] = list
+        .slice()
+        .sort((a, b) => a.start_date.localeCompare(b.start_date))
+        .map((r) => {
+          const stillRunning = r.end_date >= today;
+          const gap = stillRunning ? null : freezeRefusal(r.end_date, reach);
+          return {
+            code: r.code,
+            start: r.start_date,
+            end: r.end_date,
+            status: (stillRunning ? "open" : gap ? "incomplete" : "final") as PeriodStatus,
+            reason: stillRunning
+              ? `still running — it ends ${r.end_date}`
+              : gap
+                ? gap.reason
+                : null,
+          };
+        });
+
       return {
         period,
         start: `${period}-01`,
@@ -127,6 +173,7 @@ export function classifyPeriods(
                 : `imported data stops ${reach}, before this period ends ${lastEnding}`,
         rounds: list.length,
         roundCodes: list.map((r) => r.code),
+        roundStatus,
         completeThrough: lastEnding,
       };
     });

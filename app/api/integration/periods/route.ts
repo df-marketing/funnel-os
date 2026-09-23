@@ -104,8 +104,18 @@ export async function GET(request: Request) {
     asOf: today,
     // At the top, like every other read.
     ...top,
-    // The short answer, so a caller does not have to filter the array to get it.
+    /* The two short answers, so a caller does not have to filter the array.
+       They answer DIFFERENT questions and are not interchangeable:
+
+         finalPeriods   MONTHS safe to report on   — the monthly report loop
+         finalRounds    ROUNDS safe to close       — the nightly close loop
+
+       A round code is never in finalPeriods. A month is not final until it
+       ends, so gating a nightly round-close on finalPeriods would refuse every
+       round in the current month, permanently — which is every round anyone
+       would want to close on the day it closes. */
     finalPeriods: periods.filter((p) => p.status === "final").map((p) => p.period),
+    finalRounds: periods.flatMap((p) => p.roundStatus).filter((r) => r.status === "final").map((r) => r.code),
     periods,
   });
 }
