@@ -1,0 +1,67 @@
+# Fill GroundTruth's cache before anybody waits on it.
+#
+# WHY NOT A VERCEL CRON. Hobby allows one cron per day, +/-59 minutes. The cache
+# window is six hours, so a single nightly run is cold again by mid-morning —
+# exactly when people start work. GitHub's scheduler has no such limit and is
+# free on a public repo, so the schedule lives here and Vercel stays untouched.
+#
+# SAFE BY CONSTRUCTION. All this does is POST to an endpoint that reads. The
+# serial-one-at-a-time, budget and stop-on-error rules are enforced INSIDE the
+# route, not here, so a mistake in this file cannot make the database busy —
+# the worst it can do is call a bounded endpoint more often than intended.
+#
+# Set INTEGRATION_SHARED_KEY in repo Settings -> Secrets -> Actions. Until it
+# exists the job skips cleanly rather than failing every morning.
+
+name: Warm GroundTruth cache
+
+on:
+  schedule:
+    # 08:30 and 14:30 Malaysia time (UTC+8), weekdays. Two runs cover a working
+    # day at a six-hour window; the second exists because the first has expired
+    # by early afternoon.
+    - cron: "30 0 * * 1-5"
+    - cron: "30 6 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      rounds:
+        description: "How many recent rounds per client"
+        required: false
+        default: "3"
+
+permissions:
+  contents: read
+
+concurrency:
+  # Never two warms in flight. The route refuses a concurrent call anyway; this
+  # stops us making it say so.
+  group: warm-groundtruth
+  cancel-in-progress: false
+
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Warm the common filter combinations
+        env:
+          KEY: ${{ secrets.INTEGRATION_SHARED_KEY }}
+          ROUNDS: ${{ github.event.inputs.rounds || '3' }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "INTEGRATION_SHARED_KEY is not set — skipping."
+            echo "Add it in Settings > Secrets and variables > Actions to enable warming."
+            exit 0
+          fi
+          body="{\"budgetMs\":120000,\"rounds\":${ROUNDS}}"
+          out=$(curl -sS --max-time 180 -X POST \
+            -H "x-integration-key: $KEY" \
+            -H 'content-type: application/json' \
+            -d "$body" \
+            https://funnel-os-red.vercel.app/api/integration/warm)
+          echo "$out" | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)
+          print(f\"warmed {d.get('warmed')}/{d.get('plannedTotal')}  stoppedBy={d.get('stoppedBy')}  {d.get('elapsedMs')}ms\")
+          if d.get('failure'): print('failure:', d['failure'])
+          sys.exit(0 if d.get('ok') else 1)"

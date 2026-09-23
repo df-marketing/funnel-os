@@ -103,7 +103,7 @@ Three levels. Not deeper — a fourth would only re-split verbs.
 - **The deployment**
   - check-health
 - **The read cache**
-  - refresh-cache
+  - refresh-cache · warm-cache
 
 ---
 
@@ -165,6 +165,7 @@ for half this table.
 | gt.governance.login.revoke-login | "Take away jane@acme.com's access to acme_fitness" | R auth users / W `client_users` (delete) | **D** | yes — integration key | `email`,`clientId` | `{revoked}` | **Auth user survives on purpose** — AcqOS owns existence, GT owns what they may read | `client-user/route.ts:183` |
 | gt.governance.deployment.check-health | "Is GroundTruth up, and which commit is live?" | R env + one Supabase probe / none | R | yes — **no key needed** | none | `{status, checks{supabase,integrationKey,integrationReadonlyKey}, commit, loginRequired}` | Open path by design, so a monitor that cannot sign in can use it | `health/route.ts:51,77,84`; `middleware.ts:73` |
 | gt.governance.cache.refresh-cache | "Drop the cache, I just changed something in the database" | none / W Next cache (`FUNNEL_TAG`, `/`) | W | **no** — staff session | none | `{ok}` | Needed after any direct SQL edit; 30-min TTL otherwise | `app/api/revalidate/route.ts:31,42` |
+| gt.governance.cache.warm-cache | "Fill the cache before anybody waits on it" | R `client_journey_config`,`rounds`, then getDashboard per combination / none | R | yes — integration key | `clientId?`,`budgetMs?`,`rounds?` | `{warmed, skipped, stoppedBy, slowest[]}` | **Does not make anything faster** — moves the slow read to when nobody is watching (cold 4.14s → warm 0.027s). Serial and budgeted on purpose: nano has timed out on three concurrent reads. `stoppedBy:budget` is normal | `app/api/integration/warm/route.ts` |
 
 ---
 
@@ -295,15 +296,15 @@ account holding a real staff session. `requireStaff()` also **passes everyone** 
 
 ---
 
-**Total leaf count: 34.** — Ingest 11 · Meaning 5 · Read 9 · Record 3 · Governance 6.
-**Machine-reachable: 16. Blocked: 18.**
+**Total leaf count: 35.** — Ingest 11 · Meaning 5 · Read 9 · Record 3 · Governance 7.
+**Machine-reachable: 17. Blocked: 18.**
 
 > Two leaves added on 15 Sep, both callable: `read.account.list-periods` (which months may be
 > reported on) and `governance.contract.read-refusals` (the four refusal codes, served from the
 > constant the routes throw rather than described in prose). The blocked count did not move.
 
-⚠️ **18 of 34 are not machine-reachable.** For a skill tree, that is the headline number rather
-than the 34: over half of GT's capability is behind a browser session or has no route at all. GU
-reported 83 leaves with `blocked` empty; GT reports 34 with `blocked` at 18. **The asymmetry is
+⚠️ **18 of 35 are not machine-reachable.** For a skill tree, that is the headline number rather
+than the 35: over half of GT's capability is behind a browser session or has no route at all. GU
+reported 83 leaves with `blocked` empty; GT reports 35 with `blocked` at 18. **The asymmetry is
 real, not a difference in how carefully we each looked** — GU's operator surface is key- or
 cron-reachable, and GT's is not.

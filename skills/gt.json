@@ -1297,6 +1297,58 @@
         "The guarantee is enforced, not promised: scripts/test-refusals.mts holds a frozen literal copy of every code, status and recover. A rename typechecks fine and fails that test. Verified by simulating a rename on 15 Sep 2026 — tsc passed, the test failed."
       ],
       "evidence": "app/api/integration/refusals/route.ts; lib/integration/codes.ts; scripts/test-refusals.mts"
+    },
+    {
+      "id": "gt.governance.cache.warm-cache",
+      "name": "warm-cache",
+      "ask": "Fill the cache for the common filter combinations before anybody waits on one.",
+      "callable": true,
+      "access": "write",
+      "auth": "integration_key",
+      "method": "POST",
+      "path": "/api/integration/warm",
+      "params": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {
+          "clientId": {
+            "type": "string",
+            "description": "One client, or omit for all."
+          },
+          "budgetMs": {
+            "type": "integer",
+            "description": "Stops after this long. Default 50000, max 120000."
+          },
+          "rounds": {
+            "type": "integer",
+            "description": "Recent rounds per client. Default 4, max 20."
+          }
+        }
+      },
+      "returns": "{ok, stoppedBy: 'complete'|'budget'|'error', warmed, skipped, plannedTotal, elapsedMs, slowest[], combinations[]}",
+      "errors": [
+        {
+          "status": 409,
+          "when": "a warm is already running on this instance — refused, not queued"
+        },
+        {
+          "status": 404,
+          "when": "unknown clientId"
+        },
+        {
+          "status": 500,
+          "when": "a read failed; it stops rather than retrying against a struggling database"
+        }
+      ],
+      "caveats": [
+        "Does NOT make anything faster. It moves a slow read to a time nobody is watching. Cold 4.14s -> warm 0.027s, measured 21 Sep 2026.",
+        "Takes the WRITE key deliberately: it generates real database load, and nothing holding the read-only key should be able to make the database busy.",
+        "Serial by design — one combination at a time with a gap. The database is a shared-CPU nano where three concurrent reads have already produced a statement timeout.",
+        "stoppedBy:'budget' is the NORMAL outcome, not a failure. Rounds x tabs x clients is more than any one run should do.",
+        "Warming calls getDashboard, the same function the page calls, so the keys cannot drift from what the page reads."
+      ],
+      "evidence": "app/api/integration/warm/route.ts; .github/workflows/warm-cache.yml"
     }
   ],
   "blocked_reasons": {
@@ -1304,8 +1356,8 @@
     "no_route": "The capability exists only in the UI, rendered from fo_cut inside a server component. No HTTP endpoint exposes it."
   },
   "counts": {
-    "total": 34,
-    "callable": 16,
+    "total": 35,
+    "callable": 17,
     "blocked": 18
   }
 }
