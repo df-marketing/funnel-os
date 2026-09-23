@@ -311,3 +311,4 @@
 - the freezing step now asks whether data arrived, not just whether the period ended.
 - a push says when a slug changed hands
 - a cache layer was added to reduce repeated work — fill it before somebody waits on it.
+- A key can be checked without an outage — the latest commit adds the ability to check a key without causing downtime.
