@@ -3,9 +3,21 @@
 **For:** the session working on AcqOS / GroundUp.
 **From:** GroundTruth (Funnel OS). Contract read off the live routes on 11 September 2026.
 
-GroundTruth's side is built and deployed. It has never been called by AcqOS, so nothing about this
-is proven end to end yet. This is everything you need to make the call and everything we will check
-afterwards.
+GroundTruth's side is built and deployed. This is everything you need to make the call and
+everything we will check afterwards.
+
+> **CORRECTION, 23 September 2026.** This document used to say "it has never been called by AcqOS".
+> That was true when it was written on 11 September and stopped being true afterwards, and repeating
+> it caused a real error: a key rotation was announced on the strength of it, to a system whose
+> nightly cron was already calling `series`, `round-insight` and `actuals`.
+>
+> **AcqOS calls GroundTruth every night.** `closeRoundAndDraft` and `freezeMonthlyStrategy` are live.
+> What has never been exercised is the ONBOARDING WRITES — `client-handle`, `client-user`,
+> `funnel-schema`. Those are the untested ones; the reads are in production use.
+>
+> **AcqOS sends `INTEGRATION_SHARED_KEY` on every call, reads included.** They do not hold
+> `INTEGRATION_READONLY_KEY` and it appears nowhere in their codebase. Any statement here about the
+> read-only key applying to them is wrong until that changes.
 
 **Base URL:** `https://funnel-os-red.vercel.app`
 
