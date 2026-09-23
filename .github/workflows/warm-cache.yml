@@ -1,14 +1,25 @@
 # Fill GroundTruth's cache before anybody waits on it.
 #
-# WHY NOT A VERCEL CRON. Hobby allows one cron per day, +/-59 minutes. The cache
-# window is six hours, so a single nightly run is cold again by mid-morning —
-# exactly when people start work. GitHub's scheduler has no such limit and is
-# free on a public repo, so the schedule lives here and Vercel stays untouched.
+# RUNS ONCE, OVERNIGHT, AND THAT IS NOT NEGOTIABLE. A live page took 27.5s while
+# a sweep was running (3.4s cold). Whatever gap it leaves, a warmer owns the one
+# shared core for seconds at a time. The cache window is eighteen hours so a
+# single 2am run covers the working day that follows.
 #
-# SAFE BY CONSTRUCTION. All this does is POST to an endpoint that reads. The
-# serial-one-at-a-time, budget and stop-on-error rules are enforced INSIDE the
-# route, not here, so a mistake in this file cannot make the database busy —
-# the worst it can do is call a bounded endpoint more often than intended.
+# WHY NOT A VERCEL CRON. Hobby allows one cron per day at +/-59 minutes, which
+# would be tolerable now that this runs daily — but GitHub's scheduler is tighter
+# and free on a public repo, and it can loop over the pages, which a single cron
+# invocation cannot.
+#
+# WHY IT LOOPS. A complete sweep is 179 combinations at ~2.8s each, about ten
+# minutes. No one function invocation should hold that open, so the endpoint
+# returns `nextOffset` when its budget runs out and this follows it until the
+# sweep is done.
+#
+# SAFE BY CONSTRUCTION. All this does is POST to an endpoint that reads. Serial
+# execution, the gap between reads, the budget and stop-on-error all live INSIDE
+# the route, not here, so a mistake in this file cannot make the database busy.
+# The loop bound below is a second belt: it stops after 12 pages whatever the
+# endpoint says, so a bug that always returned nextOffset could not spin.
 #
 # Set INTEGRATION_SHARED_KEY in repo Settings -> Secrets -> Actions. Until it
 # exists the job skips cleanly rather than failing every morning.
@@ -17,51 +28,67 @@ name: Warm GroundTruth cache
 
 on:
   schedule:
-    # 08:30 and 14:30 Malaysia time (UTC+8), weekdays. Two runs cover a working
-    # day at a six-hour window; the second exists because the first has expired
-    # by early afternoon.
-    - cron: "30 0 * * 1-5"
-    - cron: "30 6 * * 1-5"
+    # 02:00 Malaysia time, once. NOT every few hours, and never during the day.
+    #
+    # Measured 23 Sep: a live page took 27.5s while a sweep was running, against
+    # 3.4s cold. A serial warmer still owns the single shared core for seconds at
+    # a time, so running one at 11am is an outage, not an optimisation. The cache
+    # window is eighteen hours precisely so one overnight run covers the day.
+    - cron: "0 18 * * *"
   workflow_dispatch:
-    inputs:
-      rounds:
-        description: "How many recent rounds per client"
-        required: false
-        default: "3"
 
 permissions:
   contents: read
 
 concurrency:
-  # Never two warms in flight. The route refuses a concurrent call anyway; this
-  # stops us making it say so.
+  # Never two sweeps in flight. The route refuses a concurrent call anyway;
+  # this stops us making it say so.
   group: warm-groundtruth
   cancel-in-progress: false
 
 jobs:
   warm:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 35
     steps:
-      - name: Warm the common filter combinations
+      - name: Warm every combination, paging until done
         env:
           KEY: ${{ secrets.INTEGRATION_SHARED_KEY }}
-          ROUNDS: ${{ github.event.inputs.rounds || '3' }}
         run: |
-          if [ -z "$KEY" ]; then
+          set -euo pipefail
+          if [ -z "${KEY:-}" ]; then
             echo "INTEGRATION_SHARED_KEY is not set — skipping."
             echo "Add it in Settings > Secrets and variables > Actions to enable warming."
             exit 0
           fi
-          body="{\"budgetMs\":120000,\"rounds\":${ROUNDS}}"
-          out=$(curl -sS --max-time 180 -X POST \
-            -H "x-integration-key: $KEY" \
-            -H 'content-type: application/json' \
-            -d "$body" \
-            https://funnel-os-red.vercel.app/api/integration/warm)
-          echo "$out" | python3 -c "
+
+          offset=0
+          warmed=0
+          for page in $(seq 1 12); do
+            out=$(curl -sS --max-time 180 -X POST \
+              -H "x-integration-key: $KEY" \
+              -H 'content-type: application/json' \
+              -d "{\"budgetMs\":120000,\"rounds\":20,\"offset\":${offset}}" \
+              https://funnel-os-red.vercel.app/api/integration/warm)
+
+            read -r ok next did total remaining <<EOF
+          $(echo "$out" | python3 -c "
           import json,sys
           d=json.load(sys.stdin)
-          print(f\"warmed {d.get('warmed')}/{d.get('plannedTotal')}  stoppedBy={d.get('stoppedBy')}  {d.get('elapsedMs')}ms\")
-          if d.get('failure'): print('failure:', d['failure'])
-          sys.exit(0 if d.get('ok') else 1)"
+          print(d.get('ok'), d.get('nextOffset','none'), d.get('warmed',0), d.get('plannedTotal',0), d.get('remaining',0))")
+          EOF
+
+            warmed=$((warmed + did))
+            echo "page ${page}: warmed ${did} (running total ${warmed}/${total}), ${remaining} left"
+
+            if [ "$ok" != "True" ]; then
+              echo "$out" | python3 -c "import json,sys; print('FAILED:', json.load(sys.stdin).get('failure') or json.load(sys.stdin).get('error'))" || true
+              exit 1
+            fi
+            if [ "$next" = "none" ]; then
+              echo "sweep complete: ${warmed}/${total} combinations warm"
+              exit 0
+            fi
+            offset=$next
+          done
+          echo "stopped after 12 pages with work left — this is the loop bound, not an error"

@@ -32,6 +32,20 @@ export const dynamic = "force-dynamic";
  * that fetched "the same data" a different way would warm nothing and report
  * success, which is the one failure mode that would be invisible.
  *
+ * ── DO NOT RUN THIS DURING THE WORKING DAY ────────────────────────────────
+ *
+ * Measured 23 Sep 2026: while a sweep was running, a live page took 27.5s. The
+ * same page cold, with nothing else happening, is 3.4s. The warmer made the app
+ * EIGHT TIMES WORSE than the problem it exists to solve.
+ *
+ * Being serial and polite is not enough. On a shared-CPU instance there is one
+ * core, and a warmer holding it for five seconds at a time is a competitor
+ * whatever gap it leaves. So the schedule is a single overnight run and the
+ * cache window is eighteen hours to outlast the day that follows it.
+ *
+ * A manual call is fine for one client or a handful of rounds — that is why the
+ * defaults are small. A full sweep at 11am is an outage.
+ *
  * ── HOW IT IS KEPT FROM BREAKING THE THING IT IS HELPING ──────────────────
  *
  * The database is a shared-CPU nano instance where three concurrent reads have
@@ -48,12 +62,21 @@ export const dynamic = "force-dynamic";
  *                need a warmer retrying against it.
  *   READ ONLY.   getDashboard reads. There is no write path reachable here.
  *
- * ── WHAT IT DELIBERATELY DOES NOT DO ──────────────────────────────────────
+ * ── ONE CALL DOES NOT FINISH, AND THAT IS THE DESIGN ─────────────────────
  *
- * It does not warm every combination. Rounds times tabs times clients is
- * hundreds, most of which nobody opens. It warms the newest rounds against the
- * client's own tabs, newest first, because that is what a person opens on a
- * Monday. The budget running out is the normal case, not a failure.
+ * A complete sweep is 179 combinations — 4 clients, their own tabs, every round
+ * — at roughly 2.8s each. Ten minutes, which no single function invocation
+ * should hold open.
+ *
+ * So the budget running out is the NORMAL outcome, not a failure, and the
+ * response carries `nextOffset`. A caller loops until it stops coming back, and
+ * the sweep is spread over as many short invocations as it needs. Order is
+ * fixed — clients, tabs, rounds newest-first — so an offset means the same
+ * thing on the next call.
+ *
+ * `nextOffset` is deliberately absent after an error. A caller looping on it
+ * cannot turn one failure into a retry storm against a database that has just
+ * said it is struggling.
  */
 
 /** Never Promise.all in here. See the header. */
@@ -76,10 +99,21 @@ export async function POST(request: Request) {
   if (key === "unconfigured") return NextResponse.json({ ok: false, error: MISSING_INTEGRATION_KEY_MESSAGE }, { status: 503 });
   if (key !== "ok") return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
 
-  let body: { clientId?: unknown; budgetMs?: unknown; rounds?: unknown } = {};
+  let body: { clientId?: unknown; budgetMs?: unknown; rounds?: unknown; offset?: unknown } = {};
   try { body = await request.json(); } catch { /* every field is optional */ }
 
   const onlyClient = typeof body.clientId === "string" ? body.clientId : null;
+  /* Where to resume. A full sweep is 179 combinations at roughly 2.8s each —
+     about ten minutes, which no single function invocation should hold open.
+     So the caller pages: it gets `nextOffset` back whenever the budget ran out
+     with work left, and calls again with it until it stops coming.
+
+     The work list is built in a fixed order — clients, then their tabs, then
+     their rounds newest first — so an offset means the same thing on the next
+     call. It is a cursor into a deterministic list, not a promise that nothing
+     changed underneath; a round imported mid-sweep shifts later items by one,
+     which costs a repeat or a miss of ONE combination and nothing worse. */
+  const offset = typeof body.offset === "number" && body.offset > 0 ? Math.floor(body.offset) : 0;
   const budgetMs = Math.min(
     typeof body.budgetMs === "number" && body.budgetMs > 0 ? body.budgetMs : DEFAULT_BUDGET_MS,
     MAX_BUDGET_MS,
@@ -150,7 +184,12 @@ export async function POST(request: Request) {
       }
     }
 
-    for (const item of work) {
+    /* Everything before the offset was done by an earlier call in this sweep.
+       Sliced rather than skipped inside the loop so `plannedTotal` and
+       `nextOffset` both count from the same list. */
+    const remaining = work.slice(offset);
+
+    for (const item of remaining) {
       // Checked BEFORE the read, not after, so the budget bounds when this
       // returns rather than merely when it stops adding work.
       if (left() < 4_000) { stoppedBy = "budget"; break; }
@@ -165,15 +204,20 @@ export async function POST(request: Request) {
       await sleep(GAP_MS);
     }
 
-    const total = done.reduce((s, d) => s + d.ms, 0);
+    const reached = offset + done.length;
     return NextResponse.json({
       ok: stoppedBy !== "error",
       stoppedBy,
       failure,
       warmed: done.length,
+      offset,
+      /* Present only when there is more to do AND it is safe to continue.
+         Absent on error, so a caller looping on it cannot turn one failure into
+         a retry storm against a database that just told us it was struggling. */
+      nextOffset: stoppedBy === "budget" && reached < work.length ? reached : undefined,
       // Named, not just counted — "skipped 40" is a number, and which 40 is the
       // question somebody will actually have.
-      skipped: work.length - done.length,
+      remaining: work.length - reached,
       plannedTotal: work.length,
       elapsedMs: Date.now() - startedAt,
       slowest: [...done].sort((a, b) => b.ms - a.ms).slice(0, 5),

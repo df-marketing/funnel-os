@@ -1323,10 +1323,14 @@
           "rounds": {
             "type": "integer",
             "description": "Recent rounds per client. Default 4, max 20."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Resume point. Use nextOffset from the previous call."
           }
         }
       },
-      "returns": "{ok, stoppedBy: 'complete'|'budget'|'error', warmed, skipped, plannedTotal, elapsedMs, slowest[], combinations[]}",
+      "returns": "{ok, stoppedBy, warmed, offset, nextOffset?, remaining, plannedTotal, elapsedMs, slowest[]}",
       "errors": [
         {
           "status": 409,
@@ -1342,11 +1346,13 @@
         }
       ],
       "caveats": [
+        "DO NOT RUN A FULL SWEEP DURING THE WORKING DAY. Measured 23 Sep 2026: a live page took 27.5s while a sweep ran, against 3.4s cold — the warmer made the app EIGHT TIMES WORSE than the problem it solves. Serial and polite is not enough on a single shared core. Scheduled once at 02:00 MYT for this reason.",
         "Does NOT make anything faster. It moves a slow read to a time nobody is watching. Cold 4.14s -> warm 0.027s, measured 21 Sep 2026.",
         "Takes the WRITE key deliberately: it generates real database load, and nothing holding the read-only key should be able to make the database busy.",
-        "Serial by design — one combination at a time with a gap. The database is a shared-CPU nano where three concurrent reads have already produced a statement timeout.",
         "stoppedBy:'budget' is the NORMAL outcome, not a failure. Rounds x tabs x clients is more than any one run should do.",
-        "Warming calls getDashboard, the same function the page calls, so the keys cannot drift from what the page reads."
+        "Warming calls getDashboard, the same function the page calls, so the keys cannot drift from what the page reads.",
+        "One call does not finish. A full sweep is 179 combinations; the budget running out is NORMAL and the response carries nextOffset. Loop until it stops coming.",
+        "nextOffset is absent after an error, so a caller looping on it cannot turn one failure into a retry storm."
       ],
       "evidence": "app/api/integration/warm/route.ts; .github/workflows/warm-cache.yml"
     }

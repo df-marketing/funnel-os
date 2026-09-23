@@ -446,9 +446,14 @@ const loadStrip = unstable_cache(
    * reused, and between imports every figure is unchanged — that is the whole
    * point of a period that has been closed.
    *
-   * SIX HOURS, from 21 Sep. Thirty minutes was still shorter than a working
-   * session: the operator account reported 30s to a minute per filter on a
-   * Sunday, and a figure looked at in the morning was cold again by lunch.
+   * EIGHTEEN HOURS, from 23 Sep. Six hours was chosen before the warmer
+   * existed, and the warmer changed what the number is for.
+   *
+   * The warmer cannot run during the working day: measured 23 Sep, a live page
+   * loaded in 27.5s while a serial sweep was running, against 3.4s cold. On a
+   * shared-CPU instance even a polite warmer is a competitor. So it runs once,
+   * at 2am, and the window has to outlast a working day or the sweep is pointless
+   * by mid-morning. Eighteen hours covers 2am to 8pm.
    *
    * The reasoning above is what makes the length safe, and it has not changed —
    * the tag is what keeps this fresh, not the clock. Every write path calls it:
@@ -460,7 +465,7 @@ const loadStrip = unstable_cache(
    * has opened is still a cold read at the ~1s-per-query floor. This only stops
    * a warm one going cold while somebody is still working.
    */
-  { tags: [FUNNEL_TAG], revalidate: 21600 },
+  { tags: [FUNNEL_TAG], revalidate: 64800 },
 );
 
 /**
@@ -580,7 +585,7 @@ const loadMetrics = unstable_cache(
   // measured 21 Sep at 3.2s to 10.4s cold, and 0.044s warm. Which is the whole
   // argument for the longer window, and also the whole limit of it: it widens
   // the 0.044s case and does nothing whatever for the 10.4s one.
-  { tags: [FUNNEL_TAG], revalidate: 21600 },
+  { tags: [FUNNEL_TAG], revalidate: 64800 },
 );
 
 /**
@@ -733,7 +738,7 @@ const loadFilterOptions = unstable_cache(
      rounds — and they change only when an import adds one, which invalidates by
      tag anyway. The country list in particular has been a hotspot since it was
      built, and it is rebuilt on every page that misses this. */
-  { tags: [FUNNEL_TAG], revalidate: 21600 },
+  { tags: [FUNNEL_TAG], revalidate: 64800 },
 );
 
 /**
@@ -798,7 +803,7 @@ const loadRoundContext = unstable_cache(
   ["funnel-round-context"],
   // This round reads v_round_assets, the heaviest query left at ~3s. Worth
   // keeping warm for the same six hours, and the most worth it of the three.
-  { tags: [FUNNEL_TAG], revalidate: 21600 },
+  { tags: [FUNNEL_TAG], revalidate: 64800 },
 );
 
 /** The parked queue, only for the tab that shows it. */
