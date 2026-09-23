@@ -404,7 +404,10 @@ const loadChrome = unstable_cache(
     };
   },
   ["funnel-chrome"],
-  { tags: [FUNNEL_TAG], revalidate: 300 },
+  /* One hour, up from five minutes. The nav shell and the client's stages only
+     change when AcqOS pushes a funnel, and that path calls revalidateTag. Five
+     minutes was re-reading a stage list that changes a few times a year. */
+  { tags: [FUNNEL_TAG], revalidate: 3600 },
 );
 
 /**
@@ -442,8 +445,22 @@ const loadStrip = unstable_cache(
    * these at once. The window only governs how long an UNCHANGED figure may be
    * reused, and between imports every figure is unchanged — that is the whole
    * point of a period that has been closed.
+   *
+   * SIX HOURS, from 21 Sep. Thirty minutes was still shorter than a working
+   * session: the operator account reported 30s to a minute per filter on a
+   * Sunday, and a figure looked at in the morning was cold again by lunch.
+   *
+   * The reasoning above is what makes the length safe, and it has not changed —
+   * the tag is what keeps this fresh, not the clock. Every write path calls it:
+   * import commit, unmatched resolve, meta pull, schema push, rules, heatmap.
+   * The timer only bounds how long a change made OUTSIDE the app — SQL run by
+   * hand in the editor — can go unnoticed. That is what Refresh data is for.
+   *
+   * WHAT THIS DOES NOT DO: make anything faster. A filter combination nobody
+   * has opened is still a cold read at the ~1s-per-query floor. This only stops
+   * a warm one going cold while somebody is still working.
    */
-  { tags: [FUNNEL_TAG], revalidate: 1800 },
+  { tags: [FUNNEL_TAG], revalidate: 21600 },
 );
 
 /**
@@ -559,8 +576,11 @@ const loadMetrics = unstable_cache(
   },
   ["funnel-metrics"],
   // Same window and the same reason as funnel-strip above. This is the one a
-  // filter change actually re-reads, so it is the one the wait is felt on.
-  { tags: [FUNNEL_TAG], revalidate: 1800 },
+  // filter change actually re-reads, so it is the one the wait is felt on —
+  // measured 21 Sep at 3.2s to 10.4s cold, and 0.044s warm. Which is the whole
+  // argument for the longer window, and also the whole limit of it: it widens
+  // the 0.044s case and does nothing whatever for the 10.4s one.
+  { tags: [FUNNEL_TAG], revalidate: 21600 },
 );
 
 /**
@@ -709,7 +729,11 @@ const loadFilterOptions = unstable_cache(
     };
   },
   ["funnel-filter-options"],
-  { tags: [FUNNEL_TAG], revalidate: 3600 },
+  /* Six hours. These are the dropdown contents — countries, products, sources,
+     rounds — and they change only when an import adds one, which invalidates by
+     tag anyway. The country list in particular has been a hotspot since it was
+     built, and it is rebuilt on every page that misses this. */
+  { tags: [FUNNEL_TAG], revalidate: 21600 },
 );
 
 /**
@@ -773,8 +797,8 @@ const loadRoundContext = unstable_cache(
   },
   ["funnel-round-context"],
   // This round reads v_round_assets, the heaviest query left at ~3s. Worth
-  // keeping warm for the same thirty minutes.
-  { tags: [FUNNEL_TAG], revalidate: 1800 },
+  // keeping warm for the same six hours, and the most worth it of the three.
+  { tags: [FUNNEL_TAG], revalidate: 21600 },
 );
 
 /** The parked queue, only for the tab that shows it. */
