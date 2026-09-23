@@ -96,6 +96,7 @@
 - Health endpoint is now pointed at directly instead of relying on a hash that goes stale.
 - the middle pricing offer was intentionally removed from display/pricing.
 - Reading data no longer pays the cost of building an empty object on every row — likely a perf optimization in the import/query pipeline.
+- The warmer runs at 2am, because at 11am it is an outage.
 
 ## Architecture
 
