@@ -36,6 +36,13 @@ on:
     # window is eighteen hours precisely so one overnight run covers the day.
     - cron: "0 18 * * *"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "verify = one tiny call to prove the key works (safe any time). full = the whole sweep (NOT during working hours)."
+        required: true
+        default: verify
+        type: choice
+        options: [verify, full]
 
 permissions:
   contents: read
@@ -51,7 +58,32 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
+      - name: Verify the key only
+        # A single call with a one-second budget against a demo client. Proves
+        # the secret matches production without putting the database under load
+        # — which is the whole reason this mode exists: the full sweep cannot be
+        # run during the day to check a secret.
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'verify'
+        env:
+          KEY: ${{ secrets.INTEGRATION_SHARED_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEY:-}" ]; then echo "INTEGRATION_SHARED_KEY is not set."; exit 1; fi
+          code=$(curl -sS -o /tmp/out.json -w '%{http_code}' --max-time 60 -X POST \
+            -H "x-integration-key: $KEY" -H 'content-type: application/json' \
+            -d '{"clientId":"acme_fitness","budgetMs":1000,"rounds":1}' \
+            https://funnel-os-red.vercel.app/api/integration/warm)
+          echo "HTTP $code"
+          cat /tmp/out.json | head -c 400; echo
+          if [ "$code" = "401" ]; then
+            echo "::error::The GitHub secret does not match production's INTEGRATION_SHARED_KEY."
+            exit 1
+          fi
+          if [ "$code" != "200" ]; then echo "::error::Unexpected status $code"; exit 1; fi
+          echo "Key is correct. The nightly sweep will work."
+
       - name: Warm every combination, paging until done
+        if: github.event_name == 'schedule' || inputs.mode == 'full'
         env:
           KEY: ${{ secrets.INTEGRATION_SHARED_KEY }}
         run: |
