@@ -54,6 +54,9 @@ Three levels. Not deeper — a fourth would only re-split verbs.
 #### Ingest
 *Level 2 — which object?*
 
+- **A round**
+  - create-round
+
 - **An export file**
   - preview-import · commit-import · discard-staged-import · download-template
 - **A Meta ad account**
@@ -132,6 +135,7 @@ for half this table.
 | id | ask | reads / writes | access | machine | inputs | output | caveats | evidence |
 |---|---|---|---|---|---|---|---|---|
 | gt.ingest.file.preview-import | "Show me what this leads export would change before I commit it" | R `lib/import/pipeline.ts planImport` / W `import_batches` (staged) | W | **no** — staff session | multipart `file`, `clientId`, `source` ∈ ads/leads/attendance/sales/scroll | plan + diff, `batchId` | 15MB cap; staging discards any prior staged batch for that client+source | `app/api/import/preview/route.ts:21,36,45` |
+| gt.ingest.round.create-round | "Create the round an import will attach to" | R `rounds`,`v_products` / W `rounds` | W | **no** — staff session | `clientId`,`code`,`startDate`,`endDate`,`productId`,`market`,`sessionDate?` | `{ok, created, code}` | **Step 0 — a SQL insert until 2 Oct 2026.** The dates decide where ad spend lands, so a wrong window does not fail, it files money under the next round. Overlap refused within a market only; moving an existing round's dates refused outright | `app/api/rounds/route.ts`; `lib/funnel/rounds.ts` |
 | gt.ingest.file.commit-import | "Apply the import I just previewed" | R `import_batches.staged_payload` / W `contacts`,`events`,`ads_performance`,`unmatched_rows`,`scroll_runs`,`scroll_depths` | W | **no** — staff session | `batchId` | `{ok, invalidated[]}` | Commits **discard every other staged plan** for that client, by design | `app/api/import/commit/route.ts:40,53,71` |
 | gt.ingest.file.discard-staged-import | "Throw away that staged file, I'm not committing it" | R / W `import_batches.status='discarded'` | W | **no** — staff session | `batchId` | `{ok}` | none | `app/api/import/commit/route.ts:98` |
 | gt.ingest.file.download-template | "Give me the CSV template for attendance" | R `lib/import/sources.ts SOURCES` / none | R | **no** — staff session | `source` path param | CSV | Scroll has no template; Clarity exports it | `app/api/template/[source]/route.ts:15,20` |
@@ -296,15 +300,15 @@ account holding a real staff session. `requireStaff()` also **passes everyone** 
 
 ---
 
-**Total leaf count: 35.** — Ingest 11 · Meaning 5 · Read 9 · Record 3 · Governance 7.
-**Machine-reachable: 17. Blocked: 18.**
+**Total leaf count: 36.** — Ingest 12 · Meaning 5 · Read 9 · Record 3 · Governance 7.
+**Machine-reachable: 17. Blocked: 19.**
 
 > Two leaves added on 15 Sep, both callable: `read.account.list-periods` (which months may be
 > reported on) and `governance.contract.read-refusals` (the four refusal codes, served from the
 > constant the routes throw rather than described in prose). The blocked count did not move.
 
-⚠️ **18 of 35 are not machine-reachable.** For a skill tree, that is the headline number rather
-than the 35: over half of GT's capability is behind a browser session or has no route at all. GU
-reported 83 leaves with `blocked` empty; GT reports 35 with `blocked` at 18. **The asymmetry is
+⚠️ **19 of 36 are not machine-reachable.** For a skill tree, that is the headline number rather
+than the 36: over half of GT's capability is behind a browser session or has no route at all. GU
+reported 83 leaves with `blocked` empty; GT reports 36 with `blocked` at 19. **The asymmetry is
 real, not a difference in how carefully we each looked** — GU's operator surface is key- or
 cron-reachable, and GT's is not.

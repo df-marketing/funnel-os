@@ -1357,6 +1357,77 @@
         "nextOffset is absent after an error, so a caller looping on it cannot turn one failure into a retry storm."
       ],
       "evidence": "app/api/integration/warm/route.ts; .github/workflows/warm-cache.yml"
+    },
+    {
+      "id": "gt.ingest.round.create-round",
+      "name": "create-round",
+      "ask": "Create the round an import will attach to.",
+      "callable": false,
+      "access": "write",
+      "blocked_reason": "staff_session",
+      "method": "POST",
+      "path": "/api/rounds",
+      "params": {
+        "type": "object",
+        "required": [
+          "clientId",
+          "code",
+          "startDate",
+          "endDate",
+          "productId",
+          "market"
+        ],
+        "properties": {
+          "clientId": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}$"
+          },
+          "startDate": {
+            "type": "string"
+          },
+          "endDate": {
+            "type": "string"
+          },
+          "sessionDate": {
+            "type": "string"
+          },
+          "sessionLabel": {
+            "type": "string"
+          },
+          "productId": {
+            "type": "string"
+          },
+          "market": {
+            "type": "string"
+          }
+        }
+      },
+      "returns": "{ok, created, code} — created:false when the round already existed with the same dates",
+      "errors": [
+        {
+          "status": 400,
+          "when": "shape — every bad field is returned at once in errors[]"
+        },
+        {
+          "status": 409,
+          "when": "code_moved: the code exists with different dates"
+        },
+        {
+          "status": 409,
+          "when": "overlaps: another round of the same market covers one of these days"
+        }
+      ],
+      "caveats": [
+        "Step 0 of the import. Every other step had a screen; this was a SQL insert until 2 Oct 2026.",
+        "THE DATES DECIDE WHERE MONEY LANDS. Ad spend is filed to a round by market then date (pipeline.ts:733-738), so a wrong window does not fail — it files spend under the neighbouring round while the account total stays right.",
+        "Overlap is refused WITHIN a market only. MY and SG run their own schedules and overlap constantly; the ads importer resolves the market first precisely so that is allowed.",
+        "Moving an existing round's dates is refused, not offered — it silently re-files every row already imported against it.",
+        "AcqOS owns the cycle; this is its shadow and nothing pushes back. The day AcqOS gains a round-push endpoint there are two writers to this table."
+      ],
+      "evidence": "app/api/rounds/route.ts; lib/funnel/rounds.ts; components/NewRoundForm.tsx; scripts/test-rounds.mts"
     }
   ],
   "blocked_reasons": {
@@ -1364,8 +1435,8 @@
     "no_route": "The capability exists only in the UI, rendered from fo_cut inside a server component. No HTTP endpoint exposes it."
   },
   "counts": {
-    "total": 35,
+    "total": 36,
     "callable": 17,
-    "blocked": 18
+    "blocked": 19
   }
 }

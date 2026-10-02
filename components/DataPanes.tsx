@@ -4,6 +4,7 @@ import { MetaPullButton } from "./MetaPullButton";
 import { STAGE_PREFIX, stageSpec } from "@/lib/import/sources";
 import type { DeclaredMetric } from "@/lib/funnel/metrics";
 import { UnmatchedActions } from "./UnmatchedActions";
+import { NewRoundForm } from "./NewRoundForm";
 import { SOURCES, type SourceKey } from "@/lib/import/sources";
 
 const ORDER: SourceKey[] = ["ads", "leads", "attendance", "sales", "scroll"];
@@ -115,16 +116,7 @@ export function ImportPane({ imports, client, declared = [], currency }: {
         })}
       </ol>
 
-      <div className="notice">
-        <span className="ico">!</span>
-        <div>
-          <b>Step 0 has no screen yet.</b> An import is refused outright if the round it belongs to
-          doesn&rsquo;t exist — attendance names a <span className="num">round_id</span> like{" "}
-          <span className="num">0826-01</span>, and there has to be a row to attach it to. Rounds are
-          currently created by SQL insert, not in the app. That&rsquo;s the one gap left in the straight
-          line.
-        </div>
-      </div>
+      <NewRoundForm client={client} />
 
       <div className="sources">
         {ORDER.map((key, idx) => {
