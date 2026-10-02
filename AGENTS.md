@@ -126,6 +126,7 @@
 - Bucket instants by local day; drop stale plans on commit (duplicate of existing memory).
 - A source is a rule, like every other dimension — the concept of 'source' was unified with other dimensions in the data model.
 - slug ownership changes are tracked via a push mechanism (likely an event/trigger or notification)
+- ad rows keep the id Meta provided rather than generating a local id, preserving the external identity.
 
 ## Gotchas
 
