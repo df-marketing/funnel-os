@@ -1361,11 +1361,11 @@
     {
       "id": "gt.ingest.round.create-round",
       "name": "create-round",
-      "ask": "Create the round an import will attach to.",
+      "ask": "Create the round an import will attach to, or correct its dates.",
       "callable": false,
       "access": "write",
       "blocked_reason": "staff_session",
-      "method": "POST",
+      "method": "POST | PATCH",
       "path": "/api/rounds",
       "params": {
         "type": "object",
@@ -1418,14 +1418,18 @@
         {
           "status": 409,
           "when": "overlaps: another round of the same market covers one of these days"
+        },
+        {
+          "status": 409,
+          "when": "rows_left_outside (PATCH): rows already filed here fall outside the new window. Override with acknowledgeStrays:true"
         }
       ],
       "caveats": [
         "Step 0 of the import. Every other step had a screen; this was a SQL insert until 2 Oct 2026.",
         "THE DATES DECIDE WHERE MONEY LANDS. Ad spend is filed to a round by market then date (pipeline.ts:733-738), so a wrong window does not fail — it files spend under the neighbouring round while the account total stays right.",
         "Overlap is refused WITHIN a market only. MY and SG run their own schedules and overlap constantly; the ads importer resolves the market first precisely so that is allowed.",
-        "Moving an existing round's dates is refused, not offered — it silently re-files every row already imported against it.",
-        "AcqOS owns the cycle; this is its shadow and nothing pushes back. The day AcqOS gains a round-push endpoint there are two writers to this table."
+        "AcqOS owns the cycle; this is its shadow and nothing pushes back. The day AcqOS gains a round-push endpoint there are two writers to this table.",
+        "PATCH edits the dates. Moving a window does NOT re-file imported rows — round_id is a stored foreign key on ads_performance and events, so rows keep their round. It changes which round a FUTURE import files a day to, and it can leave existing rows outside the window, which is counted and refused until acknowledged."
       ],
       "evidence": "app/api/rounds/route.ts; lib/funnel/rounds.ts; components/NewRoundForm.tsx; scripts/test-rounds.mts"
     }

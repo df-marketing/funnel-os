@@ -3,7 +3,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { requireStaff } from "@/lib/auth/access";
 import { createAdminClient, MISSING_KEY_MESSAGE } from "@/lib/supabase/admin";
 import { FUNNEL_TAG } from "@/lib/supabase/read";
-import { checkRound, suggestNextCode, type ExistingRound } from "@/lib/funnel/rounds";
+import { checkRound, checkRoundEdit, suggestNextCode, type ExistingRound } from "@/lib/funnel/rounds";
 
 export const runtime = "nodejs";
 
@@ -157,4 +157,98 @@ export async function POST(request: Request) {
   revalidateTag(FUNNEL_TAG);
 
   return NextResponse.json({ ok: true, created: true, code: r.code }, { status: 201 });
+}
+
+
+/**
+ * PATCH /api/rounds — change one round's dates.
+ *
+ * Henry's rounds had the wrong dates and the create form told him to go and do
+ * it in SQL, on the strength of a claim I had not checked: that moving a round
+ * "re-files every row already imported against it". It does not. round_id is a
+ * stored foreign key on ads_performance and events, so rows keep the round they
+ * were filed to.
+ *
+ * WHAT IS ACTUALLY WORTH GUARDING is the thing that claim was standing in front
+ * of: moving a window can leave already-imported rows OUTSIDE it. An ad dated
+ * 22 September in a round that now ends on the 20th is not an error, is not
+ * re-filed, and nothing on any screen says so. So this counts them, names them
+ * by source, and refuses until somebody says they know.
+ *
+ * `acknowledgeStrays: true` is the override, and it is deliberately a different
+ * word from `force` — the same split as the freeze guard. One says "I know the
+ * dates are unusual"; this says "I know rows will be left outside".
+ */
+export async function PATCH(request: Request) {
+  const denied = await requireStaff();
+  if (denied) return denied;
+
+  const db = createAdminClient();
+  if (!db) return NextResponse.json({ ok: false, error: MISSING_KEY_MESSAGE }, { status: 503 });
+
+  let body: Record<string, unknown>;
+  try { body = await request.json(); }
+  catch { return NextResponse.json({ ok: false, error: "body must be JSON" }, { status: 400 }); }
+
+  const str = (k: string) => (typeof body[k] === "string" ? (body[k] as string).trim() : "");
+  const clientId = str("clientId");
+  if (!clientId) return NextResponse.json({ ok: false, error: "clientId is required" }, { status: 400 });
+
+  const { data: existing, error: readError } = await db
+    .from("rounds")
+    .select("round_id, code, start_date, end_date, market, product_id")
+    .eq("client_id", clientId);
+  if (readError) return NextResponse.json({ ok: false, error: readError.message }, { status: 500 });
+
+  const verdict = checkRoundEdit(
+    {
+      code: str("code"), startDate: str("startDate"), endDate: str("endDate"),
+      sessionDate: str("sessionDate"), sessionLabel: str("sessionLabel"),
+    },
+    (existing ?? []) as ExistingRound[],
+  );
+  if (verdict.kind === "invalid") return NextResponse.json({ ok: false, errors: verdict.errors }, { status: 400 });
+  if (verdict.kind === "conflict") return NextResponse.json({ ok: false, code: verdict.code, error: verdict.error }, { status: verdict.code === "not_found" ? 404 : 409 });
+
+  const e = verdict.edit;
+  const roundId = ((existing ?? []) as ExistingRound[]).find((r) => (r.code ?? r.round_id) === e.code)!.round_id;
+
+  /* Rows already filed here that the new window would not cover. Counted per
+     source because "11 rows" is a number and "11 ad rows on 21-22 Sep" is an
+     answer. Dates only — nothing here reads a person. */
+  const [adsOut, eventsOut] = await Promise.all([
+    db.from("ads_performance").select("date", { count: "exact" })
+      .eq("round_id", roundId).or(`date.lt.${e.startDate},date.gt.${e.endDate}`),
+    db.from("events").select("event_date", { count: "exact" })
+      .eq("round_id", roundId).or(`event_date.lt.${e.startDate},event_date.gt.${e.endDate}T23:59:59`),
+  ]);
+  const strays = {
+    ads: adsOut.count ?? 0,
+    events: eventsOut.count ?? 0,
+    adDates: [...new Set((adsOut.data ?? []).map((r) => r.date as string))].sort().slice(0, 6),
+  };
+  const total = strays.ads + strays.events;
+
+  if (total > 0 && body.acknowledgeStrays !== true) {
+    return NextResponse.json({
+      ok: false,
+      code: "rows_left_outside",
+      error: `${total} row(s) already filed to ${e.code} fall outside ${e.startDate} → ${e.endDate}: ${strays.ads} ad row(s)${strays.adDates.length ? ` on ${strays.adDates.join(", ")}` : ""}, ${strays.events} event row(s). They keep this round — nothing is re-filed — but they will sit outside the window it now claims.`,
+      strays,
+      override: "acknowledgeStrays",
+    }, { status: 409 });
+  }
+
+  const { error: writeError } = await db.from("rounds").update({
+    start_date: e.startDate,
+    end_date: e.endDate,
+    session_date: e.sessionDate || null,
+    session_label: e.sessionLabel || null,
+  }).eq("round_id", roundId).eq("client_id", clientId);
+  if (writeError) return NextResponse.json({ ok: false, error: writeError.message }, { status: 500 });
+
+  revalidatePath("/");
+  revalidateTag(FUNNEL_TAG);
+
+  return NextResponse.json({ ok: true, code: e.code, unchanged: verdict.unchanged, strays });
 }

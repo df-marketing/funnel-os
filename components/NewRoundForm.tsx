@@ -57,6 +57,12 @@ export function NewRoundForm({ client }: { client: string }) {
   const [productId, setProduct] = useState("");
   const [market, setMarket] = useState("");
 
+  /* Which round is being edited, or null when adding. Editing reuses the same
+     fields: it is the same six values, and two forms side by side would be two
+     places for the date rules to drift apart. */
+  const [editing, setEditing] = useState<string | null>(null);
+  const [strays, setStrays] = useState<{ ads: number; events: number; adDates: string[] } | null>(null);
+
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<FieldError[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
@@ -91,26 +97,54 @@ export function NewRoundForm({ client }: { client: string }) {
 
   const errorFor = (field: string) => errors.find((e) => e.field === field)?.message;
 
-  async function submit(e: React.FormEvent) {
+  function startEdit(r: Existing) {
+    setEditing(r.code ?? r.round_id);
+    setCode(r.code ?? r.round_id);
+    setStart(r.start_date);
+    setEnd(r.end_date);
+    setSession("");
+    setProduct(r.product_id ?? "");
+    setMarket((r.market ?? "").toUpperCase());
+    setErrors([]); setProblem(null); setDone(null); setStrays(null);
+  }
+
+  function reset() {
+    setEditing(null); setStrays(null); setErrors([]); setProblem(null); setDone(null);
+    setStart(""); setEnd(""); setSession("");
+  }
+
+  async function submit(e: React.FormEvent, acknowledgeStrays = false) {
     e.preventDefault();
     setBusy(true); setErrors([]); setProblem(null); setDone(null);
+    if (!acknowledgeStrays) setStrays(null);
     try {
       const res = await fetch("/api/rounds", {
-        method: "POST",
+        method: editing ? "PATCH" : "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           clientId: client, code, startDate, endDate, sessionDate,
           sessionLabel: sessionDate ? `Class ${pretty(sessionDate)}` : "",
           productId, market,
+          ...(acknowledgeStrays ? { acknowledgeStrays: true } : {}),
         }),
       });
       const data = await res.json().catch(() => null);
       if (!data) { setProblem("The server did not answer in a shape this screen can read."); return; }
       if (data.errors) { setErrors(data.errors); return; }
-      if (!data.ok) { setProblem(data.error ?? "That round was refused."); return; }
-      setDone(data.created
-        ? `${data.code} created. It can take imports now.`
-        : `${data.code} already existed with these dates — nothing changed.`);
+      if (!data.ok) {
+        /* Rows already filed here that the new window would not cover. Not an
+           error — a thing to be told before it happens, with the override in
+           the same place as the message. */
+        if (data.code === "rows_left_outside") setStrays(data.strays ?? null);
+        setProblem(data.error ?? "That round was refused.");
+        return;
+      }
+      setDone(editing
+        ? `${data.code} updated${data.unchanged ? " — the dates were already these" : ""}.`
+        : data.created
+          ? `${data.code} created. It can take imports now.`
+          : `${data.code} already existed with these dates — nothing changed.`);
+      reset();
       setLoaded(false);           // re-read, so the list and suggestion move on
       router.refresh();
     } catch {
@@ -139,26 +173,40 @@ export function NewRoundForm({ client }: { client: string }) {
   return (
     <div className="newround">
       <div className="nr-h">
-        <b>Add a round</b>
-        <button type="button" className="linkish" onClick={() => setOpen(false)}>Close</button>
+        <b>{editing ? `Edit ${editing}` : "Add a round"}</b>
+        <button type="button" className="linkish"
+          onClick={() => { if (editing) reset(); else setOpen(false); }}>
+          {editing ? "Cancel" : "Close"}
+        </button>
       </div>
 
       {rounds.length > 0 && (
-        <p className="nr-ctx">
-          Most recent: {rounds.slice(0, 3).map((r) => `${r.code ?? r.round_id} (${pretty(r.start_date)} → ${pretty(r.end_date)})`).join(" · ")}
-        </p>
+        <div className="nr-list">
+          {rounds.slice(0, 6).map((r) => {
+            const c = r.code ?? r.round_id;
+            return (
+              <span key={c} className={c === editing ? "nr-pill on" : "nr-pill"}>
+                <span className="nr-code">{c}</span>
+                <span className="nr-win">{pretty(r.start_date)} → {pretty(r.end_date)}</span>
+                <button type="button" className="linkish" onClick={() => startEdit(r)}>edit</button>
+              </span>
+            );
+          })}
+        </div>
       )}
 
       <form onSubmit={submit}>
         <div className="nr-grid">
           <label>
             <span>Round code</span>
-            <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="0926-05" />
+            <input value={code} onChange={(e) => setCode(e.target.value)}
+              placeholder="0926-05" readOnly={!!editing}
+              title={editing ? "A round's code is its identity — create a new one instead of renaming" : undefined} />
             {errorFor("code") && <em>{errorFor("code")}</em>}
           </label>
           <label>
             <span>Product</span>
-            <select value={productId} onChange={(e) => setProduct(e.target.value)}>
+            <select value={productId} onChange={(e) => setProduct(e.target.value)} disabled={!!editing}>
               <option value="">Choose…</option>
               {products.map((p) => <option key={p.product_id} value={p.product_id}>{p.product_name}</option>)}
             </select>
@@ -166,7 +214,7 @@ export function NewRoundForm({ client }: { client: string }) {
           </label>
           <label>
             <span>Market</span>
-            <select value={market} onChange={(e) => setMarket(e.target.value)}>
+            <select value={market} onChange={(e) => setMarket(e.target.value)} disabled={!!editing}>
               <option value="">Choose…</option>
               {markets.map((m) => <option key={m} value={m}>{m}</option>)}
             </select>
@@ -190,15 +238,27 @@ export function NewRoundForm({ client }: { client: string }) {
         </div>
 
         <p className="nr-why">
-          The dates decide which round a day of ad spend belongs to, so a wrong window doesn&rsquo;t
-          fail — it files the money under the round next door. Overlapping rounds in one market are
-          refused for the same reason.
+          {editing
+            ? "Changing the window does not move rows that are already imported — they keep this round. It changes which round a FUTURE import files a day to, and it can leave existing rows outside the window."
+            : "The dates decide which round a day of ad spend belongs to, so a wrong window doesn’t fail — it files the money under the round next door. Overlapping rounds in one market are refused for the same reason."}
         </p>
 
         {problem && <p className="nr-bad">{problem}</p>}
+        {strays && (
+          <p className="nr-warn">
+            Nothing is re-filed — those rows keep {code}. They will simply sit outside the window it
+            now claims.{" "}
+            <button type="button" className="linkish" disabled={busy}
+              onClick={(e) => submit(e, true)}>
+              Change the dates anyway
+            </button>
+          </p>
+        )}
         {done && <p className="nr-ok">{done}</p>}
 
-        <button type="submit" disabled={busy}>{busy ? "Creating…" : "Create round"}</button>
+        <button type="submit" disabled={busy}>
+          {busy ? (editing ? "Saving…" : "Creating…") : (editing ? "Save dates" : "Create round")}
+        </button>
       </form>
     </div>
   );

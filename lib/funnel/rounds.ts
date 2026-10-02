@@ -103,12 +103,19 @@ export function checkRound(input: RoundInput, existing: ExistingRound[]): Verdic
     if (same.start_date === input.startDate && same.end_date === input.endDate) {
       return { kind: "identical", round: input };
     }
-    /* Moving a round re-files everything already imported against it, silently
-       and in bulk. Not something a form should do on a Tuesday. */
+    /* CREATE refuses to move a round; EDIT is where that happens, with the
+       check that belongs to it. See checkRoundEdit.
+
+       An earlier version of this message said moving a round "re-files every
+       row already imported against it". That was asserted, not checked, and it
+       is wrong: round_id is a stored foreign key on ads_performance and events
+       (0001_schema.sql:70,91), so rows keep the round they were filed to. What
+       moving the window actually does is leave some of them OUTSIDE it, and
+       change which round a FUTURE import assigns a date to. */
     return {
       kind: "conflict",
       code: "code_moved",
-      error: `${input.code} already exists as ${same.start_date} → ${same.end_date}. Changing a round's dates re-files every row already imported against it, so it is not something this screen will do — move it in SQL, deliberately, if that is really the intent.`,
+      error: `${input.code} already exists as ${same.start_date} → ${same.end_date}. Use edit rather than create — it checks which already-imported rows would fall outside the new window.`,
     };
   }
 
@@ -151,4 +158,86 @@ export function suggestNextCode(existing: ExistingRound[], afterDate: string): s
     .filter((n) => Number.isInteger(n));
   const next = (used.length ? Math.max(...used) : 0) + 1;
   return `${prefix}-${String(next).padStart(2, "0")}`;
+}
+
+
+/**
+ * Whether a round's dates may be changed.
+ *
+ * WHAT MOVING A WINDOW ACTUALLY DOES, having checked rather than assumed:
+ *
+ *   it does NOT re-file imported rows. round_id is a stored foreign key on
+ *   ads_performance and events, so every row keeps the round it was filed to.
+ *
+ *   it DOES change which round a future import assigns a day to — which is
+ *   usually the whole point of correcting a date.
+ *
+ *   it CAN leave already-imported rows outside the round they belong to: an ad
+ *   row dated 22 Sep sitting in a round that now ends on the 20th. Nothing
+ *   breaks, and nothing says so either. That is the one worth surfacing, and
+ *   the route counts it because it needs the database to.
+ *
+ *   it CAN move the round between months, because fo_round_anchor reads the
+ *   dates. Only when the new window crosses the first of the named month.
+ */
+export type EditInput = {
+  code: string;
+  startDate: string;
+  endDate: string;
+  sessionDate: string;
+  sessionLabel: string;
+};
+
+export type EditVerdict =
+  | { kind: "ok"; edit: EditInput; unchanged: boolean }
+  | { kind: "invalid"; errors: Array<{ field: string; message: string }> }
+  | { kind: "conflict"; code: "not_found" | "overlaps"; error: string };
+
+export function checkRoundEdit(input: EditInput, existing: ExistingRound[]): EditVerdict {
+  const self = existing.find((r) => (r.code ?? r.round_id) === input.code);
+  if (!self) {
+    return { kind: "conflict", code: "not_found", error: `no round '${input.code}' for this client` };
+  }
+
+  const errors: Array<{ field: string; message: string }> = [];
+  for (const f of ["startDate", "endDate", "sessionDate"] as const) {
+    const v = input[f];
+    if (f !== "sessionDate" && !v) { errors.push({ field: f, message: "required" }); continue; }
+    if (v && !isRealDay(v)) errors.push({ field: f, message: `'${v}' is not a real date` });
+  }
+  if (!errors.length) {
+    if (input.endDate < input.startDate) {
+      errors.push({ field: "endDate", message: "the round ends before it starts" });
+    }
+    if (input.sessionDate && (input.sessionDate < input.startDate || input.sessionDate > input.endDate)) {
+      errors.push({
+        field: "sessionDate",
+        message: `the class is on ${input.sessionDate}, outside the round (${input.startDate} → ${input.endDate})`,
+      });
+    }
+    const span = (Date.parse(input.endDate) - Date.parse(input.startDate)) / 86_400_000 + 1;
+    if (span > 92) errors.push({ field: "endDate", message: `that is ${Math.round(span)} days — check the year` });
+  }
+  if (errors.length) return { kind: "invalid", errors };
+
+  // Itself excluded, or a round would always collide with where it already is.
+  const clash = existing.find((r) =>
+    (r.code ?? r.round_id) !== input.code &&
+    (r.market ?? "").toUpperCase() === (self.market ?? "").toUpperCase() &&
+    input.startDate <= r.end_date &&
+    input.endDate >= r.start_date,
+  );
+  if (clash) {
+    return {
+      kind: "conflict",
+      code: "overlaps",
+      error: `${input.startDate} → ${input.endDate} overlaps ${clash.code ?? clash.round_id} (${clash.start_date} → ${clash.end_date}) in ${self.market ?? "this market"}.`,
+    };
+  }
+
+  return {
+    kind: "ok",
+    edit: input,
+    unchanged: self.start_date === input.startDate && self.end_date === input.endDate,
+  };
 }

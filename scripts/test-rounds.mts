@@ -11,7 +11,7 @@
  * correct, and moves every per-round figure. Nothing on screen says so. That is
  * what these assertions are protecting.
  */
-import { checkRound, suggestNextCode, type ExistingRound } from "../lib/funnel/rounds";
+import { checkRound, checkRoundEdit, suggestNextCode, type ExistingRound } from "../lib/funnel/rounds";
 
 let pass = 0, fail = 0;
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -81,8 +81,14 @@ console.log("\nthe same code again");
   const moved = round({ code: "0926-04", startDate: "2026-09-25", endDate: "2026-10-01", sessionDate: "2026-09-30" });
   const v = checkRound(moved, SHELY);
   eq("moving its dates is refused", [v.kind, v.kind === "conflict" ? v.code : null], ["conflict", "code_moved"]);
-  eq("and says why — it re-files what is already imported",
-    v.kind === "conflict" ? v.error.includes("re-files") : false, true);
+  /* It used to claim moving a round "re-files every row already imported".
+     That was asserted, never checked, and wrong — round_id is a stored foreign
+     key, so rows keep their round. The message now points at edit, which does
+     the check that actually matters: which rows end up outside the window. */
+  eq("and points at edit rather than at SQL",
+    v.kind === "conflict" ? v.error.includes("Use edit") : false, true);
+  eq("and no longer claims rows are re-filed",
+    v.kind === "conflict" ? v.error.includes("re-files") : true, false);
 }
 
 console.log("\noverlap, which is per market");
@@ -110,6 +116,42 @@ eq("counts within the month", suggestNextCode(SHELY, "2026-09-28"), "0926-05");
 eq("a month with no rounds starts at 01", suggestNextCode(SHELY, "2026-11-02"), "1126-01");
 eq("August continues from 03", suggestNextCode(SHELY, "2026-08-29"), "0826-04");
 eq("nothing to count from gives nothing", suggestNextCode(SHELY, "not-a-date"), null);
+
+console.log("\nediting a round's dates");
+{
+  const edit = (over: Partial<Parameters<typeof checkRoundEdit>[0]> = {}) => ({
+    code: "0926-03", startDate: "2026-09-16", endDate: "2026-09-22",
+    sessionDate: "2026-09-22", sessionLabel: "Class 22 Sep 2026", ...over,
+  });
+
+  eq("a corrected window is allowed", checkRoundEdit(edit(), SHELY).kind, "ok");
+  eq("re-submitting the same dates is ok and says so",
+    (() => { const v = checkRoundEdit(edit({ startDate: "2026-09-15", endDate: "2026-09-21", sessionDate: "2026-09-21" }), SHELY);
+             return [v.kind, v.kind === "ok" ? v.unchanged : null]; })(),
+    ["ok", true]);
+
+  eq("a round that is not there", 
+    (() => { const v = checkRoundEdit(edit({ code: "0926-99" }), SHELY);
+             return [v.kind, v.kind === "conflict" ? v.code : null]; })(),
+    ["conflict", "not_found"]);
+
+  /* Itself must be excluded from the overlap test, or every round would
+     collide with where it already is. */
+  eq("a round does not overlap itself",
+    checkRoundEdit(edit({ startDate: "2026-09-15", endDate: "2026-09-21", sessionDate: "2026-09-21" }), SHELY).kind, "ok");
+  eq("but it does overlap its neighbour",
+    (() => { const v = checkRoundEdit(edit({ startDate: "2026-09-13", endDate: "2026-09-19", sessionDate: "2026-09-19" }), SHELY);
+             return [v.kind, v.kind === "conflict" ? v.code : null]; })(),
+    ["conflict", "overlaps"]);
+
+  eq("backwards dates", checkRoundEdit(edit({ startDate: "2026-09-22", endDate: "2026-09-16" }), SHELY).kind, "invalid");
+  eq("a class outside the new window",
+    checkRoundEdit(edit({ sessionDate: "2026-09-30" }), SHELY).kind, "invalid");
+  eq("a mistyped year is still refused",
+    checkRoundEdit(edit({ endDate: "2027-09-22", sessionDate: "2026-09-22" }), SHELY).kind, "invalid");
+  eq("dropping the class date is allowed",
+    checkRoundEdit(edit({ sessionDate: "", sessionLabel: "" }), SHELY).kind, "ok");
+}
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
