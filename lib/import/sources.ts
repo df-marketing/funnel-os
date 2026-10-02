@@ -81,6 +81,14 @@ export const SOURCES: Record<SourceKey, SourceSpec> = {
       f("campaign", false, "campaign name"),
       f("ad_set", false, "ad set name", "adset", "adset name", "ad set"),
       f("ad", false, "ad name"),
+      /* Meta's own id for the ad. Optional because a campaign-level export has
+         no ad rows at all, and because every export imported before 2 Oct 2026
+         was parsed without it — requiring it would refuse files that were fine.
+
+         One id per (campaign, ad_set, ad), NOT per creative name: Meta mints a
+         separate ad for each audience, so one name carries six ids. AcqOS
+         resolves a sale to a creative with this. */
+      f("ad_id", false, "ad id", "ad_id", "adid"),
       f("spend", true, "amount spent", "amount spent (sgd)", "amount spent sgd", "cost"),
       f("impressions", false, "impr", "impression"),
       f("reach", false, "people reached"),

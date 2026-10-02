@@ -27,7 +27,12 @@ export class MetaError extends Error {
 }
 
 const AD_FIELDS = [
-  "campaign_name", "adset_name", "ad_name",
+  // ad_id alongside ad_name because they are not interchangeable: Meta mints one
+  // ad per (campaign, adset, creative), so a single creative NAME carries one id
+  // per audience. AcqOS resolves a sale to a creative on the id, and a pull that
+  // returned only names would leave API-sourced rows unable to do what
+  // CSV-sourced rows can.
+  "campaign_name", "adset_name", "ad_name", "ad_id",
   "spend", "impressions", "clicks", "inline_link_clicks",
   "actions", "account_currency",
 ].join(",");

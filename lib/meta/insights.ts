@@ -27,6 +27,7 @@ export type MetaAdRow = {
   campaign_name?: string;
   adset_name?: string;
   ad_name?: string;
+  ad_id?: string;
   spend?: string;
   impressions?: string;
   clicks?: string;
@@ -49,6 +50,8 @@ export type AdRow = {
   campaign: string | null;
   ad_set: string | null;
   ad: string | null;
+  /** Meta's id for this ad. Null on a campaign-level row, which has no ad. */
+  ad_id: string | null;
   spend: number | null;
   impressions: number | null;
   reach: number | null;
@@ -243,6 +246,7 @@ export function toAdRows(
       campaign,
       ad_set: text(r.adset_name),
       ad: text(r.ad_name),
+      ad_id: text(r.ad_id),
       spend: num(r.spend),
       impressions: num(r.impressions),
       reach: null, // 0016 — never per ad
@@ -293,7 +297,7 @@ export function toReachRows(rows: MetaCampaignRow[], rounds: Round[]): Translati
     }
     out.push({
       round_id, date, campaign,
-      ad_set: null, ad: null,
+      ad_set: null, ad: null, ad_id: null,
       spend: null, impressions: null,
       reach: num(r.reach),
       clicks: null,

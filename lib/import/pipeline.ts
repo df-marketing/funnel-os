@@ -758,6 +758,13 @@ export async function planImport(
       plan.ops.ads.push({
         id: uuid(), round_id: round.round_id, date,
         campaign, ad_set: adSet, ad,
+        /* Carried, not keyed on. ad_id is functionally determined by
+           (round, date, campaign, ad_set, ad) — adsKey above — so it changes
+           nothing about which rows are distinct. Adding it to the key would
+           change something that matters: every row stored before this column
+           existed has a NULL id, so a re-import carrying ids would match none
+           of them and duplicate the lot. */
+        ad_id: val(r, "ad_id") || null,
         // spend is required, and Meta writes an explicit 0 for a day that spent
         // nothing — so 0 there is a measurement. The other three are optional:
         // a blank cell means the export didn't say, and storing that as 0 makes
