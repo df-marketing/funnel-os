@@ -97,6 +97,7 @@
 - the middle pricing offer was intentionally removed from display/pricing.
 - Reading data no longer pays the cost of building an empty object on every row — likely a perf optimization in the import/query pipeline.
 - The warmer runs at 2am, because at 11am it is an outage.
+- a round's dates can be corrected after creation.
 
 ## Architecture
 
@@ -317,3 +318,4 @@
 - A prior document incorrectly stated AcqOS does not call us; the recent commit corrects that AcqOS does call us.
 - Rounding logic: a round is closed on its own last day, not the month's last day.
 - the import flow now has a Step 0 screen that it previously admitted it did not have (recent commit).
+- a warning about round dates was made to state what is actually true (was previously misleading).
