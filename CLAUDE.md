@@ -212,6 +212,7 @@
 - the slug fix is blocked (not merely unstarted)
 - a slug bug was reproduced, not inferred — meaning the bug was confirmed via reproduction rather than assumed from logs/code.
 - Redeploy was needed solely because the integration key was rotated — indicates the key is baked in at deploy time, not fetched dynamically.
+- A Malaysian ad account had no spend column (edge case).
 
 ## Notes
 
