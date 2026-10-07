@@ -30,6 +30,10 @@ const joinParts = (parts: string[]) => parts.filter(Boolean).join(" · ");
 type State =
   | { phase: "idle" }
   | { phase: "reading" }
+  /* The file could be more than one source and guessing is the expensive
+     outcome, so it asks. The file is held so the answer costs one click rather
+     than another trip to the file picker. */
+  | { phase: "ambiguous"; file: File; message: string; candidates: Array<{ source: string; why: string }> }
   | { phase: "staged"; batchId: string; plan: Summary }
   | { phase: "committing"; batchId: string; plan: Summary }
   | { phase: "done"; plan: Summary }
@@ -45,16 +49,22 @@ export function ImportUploader({
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
-  async function upload(file: File) {
+  async function upload(file: File, override?: string) {
     setState({ phase: "reading" });
     const body = new FormData();
     body.append("file", file);
-    body.append("source", source);
+    // `auto` asks the server to read the columns and decide. An override is the
+    // operator answering after it said it could not tell.
+    body.append("source", override ?? source);
     body.append("client", client);
 
     try {
       const res = await fetch("/api/import/preview", { method: "POST", body });
       const json = await res.json();
+      if (res.status === 409 && json.ambiguous) {
+        setState({ phase: "ambiguous", file, message: json.error, candidates: json.ambiguous });
+        return;
+      }
       if (!res.ok) {
         setState({ phase: "error", message: json.error ?? "Import failed.", detail: json.detail ?? [] });
         return;
@@ -104,6 +114,26 @@ export function ImportUploader({
         <span className="kind">{kind}</span>
       </div>
       <div className="src-b">
+        {p === "ambiguous" && (
+          <div className="notice" style={{ marginBottom: 0 }}>
+            <span className="ico">?</span>
+            <div>
+              <b>{state.message}</b>
+              <div className="amb">
+                {state.candidates.map((c) => (
+                  <button key={c.source} type="button" className="amb-pick"
+                    onClick={() => upload(state.file, c.source)}>
+                    {c.source}
+                    <span>{c.why}</span>
+                  </button>
+                ))}
+              </div>
+              <button type="button" className="linkish"
+                onClick={() => setState({ phase: "idle" })}>Choose a different file</button>
+            </div>
+          </div>
+        )}
+
         {(p === "idle" || p === "error") && (
           <>
             <div
@@ -121,7 +151,7 @@ export function ImportUploader({
                 if (f) upload(f);
               }}
             >
-              <b>Drop the {label.toLowerCase()} export</b>
+              <b>{source === "auto" ? "Drop any export" : `Drop the ${label.toLowerCase()} export`}</b>
               Or click to choose a CSV
               <div className="cols">{expects}</div>
             </div>

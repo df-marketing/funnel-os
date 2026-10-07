@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { createAdminClient, MISSING_KEY_MESSAGE } from "@/lib/supabase/admin";
 import { planImport, ImportError, type Plan } from "@/lib/import/pipeline";
-import type { ImportSourceKey } from "@/lib/import/sources";
+import { SOURCES, type ImportSourceKey } from "@/lib/import/sources";
+import { detectSource } from "@/lib/import/detect";
+import { parseCsv } from "@/lib/import/csv";
 import { requireStaff } from "@/lib/auth/access";
 
 export const runtime = "nodejs";
@@ -27,7 +29,7 @@ export async function POST(request: Request) {
   try {
     const form = await request.formData();
     const file = form.get("file");
-    const source = String(form.get("source") ?? "") as ImportSourceKey;
+    const source = String(form.get("source") ?? "");
     const clientId = String(form.get("client") ?? "");
 
     if (!(file instanceof File)) return NextResponse.json({ error: "No file was uploaded." }, { status: 400 });
@@ -37,16 +39,52 @@ export async function POST(request: Request) {
     }
 
     const text = await file.text();
-    const plan = await planImport(db, { source, clientId, fileName: file.name, text });
+
+    /* `auto` is what the single drop zone sends: the file's own columns say
+       which source it is, so the operator is not asked a question the file
+       already answers.
+
+       Detected HERE rather than in the browser, because the server is already
+       parsing this text — detecting anywhere else means a second parse and a
+       second chance for detection and import to disagree about what the
+       columns were. */
+    let resolved = source as ImportSourceKey;
+    if (source === "auto" || !source) {
+      const { headers, rows } = parseCsv(text);
+      /* Clarity's scroll-depth label sits in the FIRST COLUMN partway down the
+         file, not in the header row — so the first column is read too. */
+      const first = headers[0];
+      const firstColumn = first ? rows.map((r) => String(r[first] ?? "")) : [];
+      const found = detectSource(headers, firstColumn);
+
+      if (found.kind === "unknown") {
+        return NextResponse.json({ error: found.why, headers: headers.slice(0, 24) }, { status: 400 });
+      }
+      if (found.kind === "unsure") {
+        /* It could be more than one thing and guessing is the expensive
+           outcome — a sales file read as leads files revenue as opt-ins and
+           the totals still add up. So it asks, and names what it saw. */
+        return NextResponse.json({
+          error: `This could be ${found.candidates.map((c) => SOURCES[c.source].label).join(" or ")}. Choose which it is.`,
+          ambiguous: found.candidates,
+          headers: headers.slice(0, 24),
+        }, { status: 409 });
+      }
+      resolved = found.source as ImportSourceKey;
+    }
+
+    const plan = await planImport(db, { source: resolved, clientId, fileName: file.name, text });
 
     // Park any previously staged batch for this source — one pending diff at a time,
     // otherwise two half-approved imports can interleave.
     await db.from("import_batches")
       .update({ status: "discarded", staged_payload: null })
-      .eq("client_id", clientId).eq("source", source).eq("status", "staged");
+      .eq("client_id", clientId).eq("source", resolved).eq("status", "staged");
 
     const { data: batch, error } = await db.from("import_batches").insert({
-      source, client_id: clientId, status: "staged",
+      // `resolved`, never `source` — the latter may still read "auto",
+      // which import_batches has a check constraint against for good reason.
+      source: resolved, client_id: clientId, status: "staged",
       file_name: plan.fileName, row_count: plan.rowCount,
       coverage_start: plan.coverage.start, coverage_end: plan.coverage.end,
       column_map: plan.columnMap,
