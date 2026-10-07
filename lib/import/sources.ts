@@ -14,6 +14,8 @@ export type FieldSpec = {
   field: string;
   required: boolean;
   aliases: string[];   // matched case/space/punctuation-insensitively
+  /** Canonicalised prefixes, for headings that carry a currency or a window. */
+  prefixes?: string[];
 };
 
 export type SourceSpec = {
@@ -53,6 +55,26 @@ const f = (field: string, required: boolean, ...aliases: string[]): FieldSpec =>
 });
 
 /**
+ * A field whose heading carries something the exporter chose — a currency, a
+ * window, an account name — and which therefore cannot be enumerated.
+ *
+ * Meta writes "Amount spent (SGD)" for one client and "Amount spent (MYR)" for
+ * the next, so an alias list is a list of the currencies we happen to have seen.
+ * Shely's is SGD and FWD i-Care's is MYR, and the MYR file was refused outright
+ * for having no spend column — the one field the ads import requires.
+ *
+ * Matched as a PREFIX, after canonicalisation. "amountspent" cannot collide
+ * with another heading in these exports, and a new currency needs nobody to
+ * notice.
+ */
+const fp = (field: string, required: boolean, prefixes: string[], ...aliases: string[]): FieldSpec => ({
+  field,
+  required,
+  aliases: [field, ...aliases],
+  prefixes,
+});
+
+/**
  * email is required on the three people sources and phone is not, deliberately:
  * an export with no email column is almost certainly the wrong export, while a
  * payments or webinar file that carries a phone and no address is ordinary. A
@@ -89,7 +111,7 @@ export const SOURCES: Record<SourceKey, SourceSpec> = {
          separate ad for each audience, so one name carries six ids. AcqOS
          resolves a sale to a creative with this. */
       f("ad_id", false, "ad id", "ad_id", "adid"),
-      f("spend", true, "amount spent", "amount spent (sgd)", "amount spent sgd", "cost"),
+      fp("spend", true, ["amount spent"], "cost"),
       f("impressions", false, "impr", "impression"),
       f("reach", false, "people reached"),
       f("clicks", false, "outbound clicks", "link clicks", "clicks (all)"),
@@ -304,7 +326,14 @@ export function mapColumns(
       map[fieldSpec.field] = byCanon.get(canon(prev))!;
       continue;
     }
-    const hit = fieldSpec.aliases.map(canon).find((a) => byCanon.has(a));
+    const hit =
+      fieldSpec.aliases.map(canon).find((a) => byCanon.has(a)) ??
+      /* Then by prefix, so "Amount spent (MYR)" resolves without MYR having
+         been listed anywhere. Exact aliases are tried first so an explicit
+         spelling always wins over a prefix that would also match it. */
+      (fieldSpec.prefixes?.length
+        ? [...byCanon.keys()].find((h) => fieldSpec.prefixes!.some((p) => h.startsWith(canon(p))))
+        : undefined);
     if (hit) {
       map[fieldSpec.field] = byCanon.get(hit)!;
       // it resolved, but not to the header we remembered — that's a rename

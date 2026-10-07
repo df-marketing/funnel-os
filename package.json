@@ -19,7 +19,8 @@
     "test:finalised": "npx --yes tsx@4 scripts/test-finalised.mts",
     "test:refusals": "npx --yes tsx@4 scripts/test-refusals.mts",
     "test:slugmoved": "npx --yes tsx@4 scripts/test-slugmoved.mts",
-    "test:rounds": "npx --yes tsx@4 scripts/test-rounds.mts"
+    "test:rounds": "npx --yes tsx@4 scripts/test-rounds.mts",
+    "test:detect": "npx --yes tsx@4 scripts/test-detect.mts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.0",
