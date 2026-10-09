@@ -15,7 +15,7 @@
  * Run: npx tsx scripts/test-import.ts
  */
 
-import { parseCsv, writeCsv, toNumber, toDate, toTimestamp, localDay } from "../lib/import/csv";
+import { parseCsv, writeCsv, toNumber, toDate, toTimestamp, localDay, inferDateOrder } from "../lib/import/csv";
 import { mapColumns, SOURCES } from "../lib/import/sources";
 import { buildTemplate } from "../lib/import/template";
 import { buildIndex, matchRow, normPhone, normEmail, stripPlus } from "../lib/import/identity";
@@ -1412,6 +1412,56 @@ console.log("\nAds — rounds that run concurrently");
       text: "date,campaign,ad_set,spend\n2026-05-14,DF_SG_Preview_Sprint1_0526_03,Cold_Broad,10" });
   eq("one round covers the day, so the date still decides",
      (shely.ops.ads[0] as any).round_id, "0526-02");
+}
+
+// ── which way round a column of slash dates is written ─────────────────────
+/*
+ * Slash order is decided ONCE from the whole column, which is the entire
+ * point. A single value only proves the order when one half exceeds 12, so
+ * judging values one at a time reads one column two different ways — and the
+ * value it reads wrongly is the ambiguous one, which by definition looks fine.
+ *
+ * SHELY'S ATTENDANCE, 9 Oct 2026. One column, four dates: 9/17, 9/24, 9/30
+ * and 10/6. The first three can only be month-first. The fourth fell to the
+ * day-first default and was stored as 10 June 2026. Forty attendances and six
+ * sales moved four months, round 1026-01 showed nobody at its class, and
+ * nothing threw.
+ */
+console.log("\nSlash dates are read one way per column, not per value");
+{
+  const SHELY_ATT = ["9/17/2026", "9/24/2026", "9/30/2026", "10/6/2026"];
+  eq("the column that caused this", inferDateOrder(SHELY_ATT), "mdy");
+  eq("and 10/6 now follows it", toDate("10/6/2026", inferDateOrder(SHELY_ATT)), "2026-10-06");
+  eq("which it did not before", toDate("10/6/2026"), "2026-06-10");
+
+  eq("a day above 12 proves day-first", inferDateOrder(["17/9/2026", "6/10/2026"]), "dmy");
+  eq("and 6/10 follows that instead", toDate("6/10/2026", inferDateOrder(["17/9/2026"])), "2026-10-06");
+
+  /* Nothing decisive in the column: the old default stands, because these are
+     SG exports and the built-in parser would silently pick US order. */
+  eq("nothing proves either way", inferDateOrder(["6/10/2026", "5/6/2026"]), "ambiguous");
+  eq("so day-first still wins", toDate("6/10/2026", "ambiguous"), "2026-10-06");
+  eq("unchanged with no column at all", toDate("05/06/2026"), "2026-06-05");
+
+  /* Both orders in one column is not something a single rule can fix. Say so
+     rather than pick, and read each value on its own terms. */
+  eq("two formats in one column", inferDateOrder(["17/9/2026", "9/17/2026"]), "conflict");
+  eq("a value that proves itself is still believed under conflict",
+    toDate("9/17/2026", "conflict"), "2026-09-17");
+
+  /* A row that contradicts its column is read on its own terms rather than
+     forced into an impossible month. */
+  eq("17/9 inside a month-first column", toDate("17/9/2026", "mdy"), "2026-09-17");
+
+  /* ISO is never ambiguous and must not be touched by any of this. */
+  eq("ISO ignores the column verdict", toDate("2026-10-06", "dmy"), "2026-10-06");
+  eq("inferDateOrder ignores ISO", inferDateOrder(["2026-10-06", "2026-09-17"]), "ambiguous");
+  eq("and ignores blanks", inferDateOrder([null, undefined, "", "9/17/2026"]), "mdy");
+
+  /* Timestamps take the same verdict — the sales file carries a time. */
+  eq("a timestamp follows its column too",
+    toTimestamp("10/6/2026 20:00", "mdy"), "2026-10-06T12:00:00.000Z");
+  eq("and without one it does not", toTimestamp("10/6/2026 20:00"), "2026-06-10T12:00:00.000Z");
 }
 
 // ── a round runs however many classes it runs ───────────────────────────────

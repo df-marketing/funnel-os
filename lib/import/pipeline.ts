@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAll } from "@/lib/supabase/admin";
-import { parseCsv, toNumber, toDate, toTimestamp, localDay, type Row } from "./csv";
+import { parseCsv, toNumber, toDate, toTimestamp, localDay, inferDateOrder, type Row, type DateOrder } from "./csv";
 import { SOURCES, mapColumns, stageMetricOf, stageSpec, type ImportSourceKey, type SourceKey, type SourceSpec } from "./sources";
 import { buildIndex, matchRow, normEmail, normPhone, type KnownContact, type ParkReason } from "./identity";
 import { attributeLead, closeRoundFor, resolveRoundRef, resolveProduct, roundFromCampaign, roundOwningCampaign, type Round, type AdSetRun } from "./attribute";
@@ -570,6 +570,34 @@ export async function planImport(
     return s ? s : null;
   };
 
+  /**
+   * WHICH WAY ROUND THIS FILE WRITES ITS SLASH DATES — decided once, here,
+   * from the whole column, and then used for every row of it.
+   *
+   * Reading each value on its own is how a single column gets read two ways.
+   * 9/17/2026 can only be month-first; 10/6/2026 proves nothing and used to
+   * fall to the day-first default. Shely's attendance for 1026-01 did exactly
+   * that: three dates in the column were 9/17, 9/24 and 9/30, the fourth was
+   * 10/6, and it was stored as 10 June 2026. Forty people moved four months,
+   * the October class showed nobody, and nothing failed.
+   *
+   * Every date field is pooled rather than judged separately, because they
+   * come out of one export written by one tool and a column too short to
+   * decide borrows the verdict of the ones that can.
+   */
+  const dateOrder: DateOrder = inferDateOrder(
+    rows.flatMap((r) => ["date", "date_end", "event_date", "refund_date"].map((f) => val(r, f))),
+  );
+  if (dateOrder === "conflict") {
+    warnings.push(
+      "This file's dates are written both ways round — it contains a date that can only be day-first AND one that can only be month-first. Each row has been read on its own terms, which is the best that can be done; check the dates after importing, or re-export with one format.",
+    );
+  } else if (dateOrder === "ambiguous" && rows.some((r) => /^\d{1,2}[/-]\d{1,2}[/-]\d{4}/.test(val(r, "event_date") ?? val(r, "date") ?? ""))) {
+    warnings.push(
+      "Every slash date in this file could be read either way round (no value has a day above 12), so they have been read day-first — 6/10/2026 as 6 October. If this export is month-first, re-export with ISO dates (2026-10-06) before committing.",
+    );
+  }
+
   // Ads can carry measurements beyond delivery's four fixed columns. Match
   // only this client's declarations (plus global ones), persist the exact
   // header mapping, and leave an omitted declared measure absent rather than 0.
@@ -699,12 +727,12 @@ export async function planImport(
     const seen = new Set(existing.map((e) => adsKey(e.round_id, e.date, e.campaign, e.ad_set, e.ad)));
 
     for (const r of rows) {
-      const date = toDate(val(r, "date"));
+      const date = toDate(val(r, "date"), dateOrder);
       if (!date) { unusable++; continue; }
       track(date);
       // a period-level export's window ends later than its start date, and the
       // batch's coverage should say so
-      track(toDate(val(r, "date_end")));
+      track(toDate(val(r, "date_end"), dateOrder));
 
       const adSet = normAsset(val(r, "ad_set"));
       const ad = normAsset(val(r, "ad"));
@@ -1066,7 +1094,7 @@ export async function planImport(
 
     // ── LEADS ──────────────────────────────────────────────────────────────
     if (source === "leads") {
-      const when = toTimestamp(val(r, "event_date"));
+      const when = toTimestamp(val(r, "event_date"), dateOrder);
       if (!contactId) {
         /**
          * WE DON'T KNOW WHO IS NOT THE SAME AS WE DON'T KNOW IF.
@@ -1245,7 +1273,7 @@ export async function planImport(
         const anonLast = anonRound.session_dates.length
           ? anonRound.session_dates.slice().sort().slice(-1)[0]
           : null;
-        const anonWhen = toTimestamp(val(r, "event_date"))
+        const anonWhen = toTimestamp(val(r, "event_date"), dateOrder)
           ?? new Date(`${dayOf(anonLast ?? anonRound.end_date)}T20:00:00+08:00`).toISOString();
         const key = eventKey(eventType, anon, roundId, anonWhen);
         if (seenEvents.has(key)) { plan.counts.duplicates++; continue; }
@@ -1275,7 +1303,7 @@ export async function planImport(
       const lastClass = round.session_dates.length
         ? round.session_dates.slice().sort().slice(-1)[0]
         : null;
-      const when = toTimestamp(val(r, "event_date"))
+      const when = toTimestamp(val(r, "event_date"), dateOrder)
         ?? new Date(`${dayOf(lastClass ?? round.end_date)}T20:00:00+08:00`).toISOString();
       track(sgDayOf(when));
 
@@ -1315,12 +1343,12 @@ export async function planImport(
 
     // ── SALES ──────────────────────────────────────────────────────────────
     if (source === "sales") {
-      const when = toTimestamp(val(r, "event_date"));
+      const when = toTimestamp(val(r, "event_date"), dateOrder);
       const amount = toNumber(val(r, "amount"));
       const productRaw = val(r, "product") ?? "";
       const product = resolveProduct(productRaw);
       const refund = toNumber(val(r, "refund_amount")) ?? 0;
-      const refundDate = toDate(val(r, "refund_date"));
+      const refundDate = toDate(val(r, "refund_date"), dateOrder);
 
       if (!when || amount === null) { park("incomplete_row", r, null, "missing date or amount", "none"); continue; }
       if (!product) {

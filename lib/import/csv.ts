@@ -129,22 +129,72 @@ export const localDay = (iso: string): string =>
   new Date(new Date(iso).getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
 
 /**
- * Y/M/D out of a date string, with ONE rule for dates and timestamps alike.
+ * WHICH WAY ROUND A COLUMN OF SLASH DATES IS WRITTEN.
  *
- * Slash order is genuinely ambiguous and the two conventions disagree by up to
- * eleven months. Where the numbers settle it — 05/19 has no nineteenth month —
- * the file tells us its own order and we believe it. Where they don't (05/06),
- * day-first wins: these are SG exports, and JavaScript's built-in parser would
- * silently pick US order and move a lead into the wrong round.
+ * Decided ONCE from every value in the column, not per value — which is the
+ * whole point, and what this is for.
+ *
+ * A single value can only prove the order when one of its halves exceeds 12.
+ * 9/17/2026 has no seventeenth month, so it is month-first; 10/6/2026 proves
+ * nothing on its own. Judging each value alone therefore reads one file two
+ * different ways, and the one it reads wrongly is the one nobody checks.
+ *
+ * That is not hypothetical. Shely's attendance for 1026-01 arrived as
+ * 10/6/2026 in a column whose other three dates were 9/17, 9/24 and 9/30 —
+ * month-first beyond doubt. Read alone it fell to the day-first default and
+ * became 10 June 2026, four months early, and the October class showed no
+ * attendance at all while June gained forty people. Nothing failed.
+ *
+ * `conflict` means the column contains both 17/9 and 9/17 — genuinely two
+ * formats in one column, which no single rule can resolve. The caller is told
+ * rather than guessed at.
  */
-function ymd(s: string): [string, string, string] | null {
+export type DateOrder = "dmy" | "mdy" | "ambiguous" | "conflict";
+
+const SLASH = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/;
+
+export function inferDateOrder(values: Iterable<string | undefined | null>): DateOrder {
+  let dmy = false, mdy = false;
+  for (const v of values) {
+    if (!v) continue;
+    const m = SLASH.exec(String(v).trim());
+    if (!m) continue;                       // ISO, or a name like "5 Jun 2026"
+    const a = Number(m[1]), b = Number(m[2]);
+    if (a > 12 && b <= 12) dmy = true;      // 17/9 — only day-first parses
+    else if (b > 12 && a <= 12) mdy = true; // 9/17 — only month-first parses
+  }
+  if (dmy && mdy) return "conflict";
+  if (dmy) return "dmy";
+  if (mdy) return "mdy";
+  return "ambiguous";
+}
+
+/**
+ * Y/M/D out of a date string.
+ *
+ * `order` is the column's verdict from inferDateOrder. Without it, or when the
+ * column could not decide, the old rule stands: a value that proves its own
+ * order is believed, and anything still ambiguous is read day-first, because
+ * these are SG exports and JavaScript's own parser would silently pick US
+ * order and move a lead into the wrong round.
+ *
+ * A value that CONTRADICTS the column — 17/9 in a column settled as
+ * month-first — is read on its own terms rather than forced into an
+ * impossible month. One odd row does not get to be wrong twice.
+ */
+function ymd(s: string, order?: DateOrder): [string, string, string] | null {
   const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (iso) return [iso[1], iso[2].padStart(2, "0"), iso[3].padStart(2, "0")];
 
-  const slash = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+  const slash = s.match(SLASH);
   if (slash) {
     const [, a, b, y] = slash;
-    const dayFirst = Number(a) > 12 ? true : Number(b) > 12 ? false : true;
+    const dayFirst =
+      Number(a) > 12 ? true
+      : Number(b) > 12 ? false
+      : order === "mdy" ? false
+      : order === "dmy" ? true
+      : true;
     const d = dayFirst ? a : b;
     const m = dayFirst ? b : a;
     if (Number(m) > 12 || Number(d) > 31) return null;
@@ -154,12 +204,12 @@ function ymd(s: string): [string, string, string] | null {
 }
 
 /** Dates arrive as ISO, DD/MM/YYYY, MM/DD/YYYY and "5 Jun 2026". */
-export function toDate(v: string | undefined | null): string | null {
+export function toDate(v: string | undefined | null, order?: DateOrder): string | null {
   if (!v) return null;
   const s = String(v).trim();
   if (!s) return null;
 
-  const p = ymd(s);
+  const p = ymd(s, order);
   if (p) return `${p[0]}-${p[1]}-${p[2]}`;
 
   const parsed = new Date(s);
@@ -182,14 +232,14 @@ export function toDate(v: string | undefined | null): string | null {
  * Timestamping such a sale at noon puts it before its own class, so the closing
  * credit silently vanishes and the class looks like it converted nobody.
  */
-export function toTimestamp(v: string | undefined | null): string | null {
+export function toTimestamp(v: string | undefined | null, order?: DateOrder): string | null {
   if (!v) return null;
   const s = String(v).trim();
   if (!s) return null;
 
   const time = s.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AaPp])?[Mm]?/);
   if (!time) {
-    const d = toDate(s);
+    const d = toDate(s, order);
     return d ? new Date(`${d}T23:59:59${LOCAL_OFFSET}`).toISOString() : null;
   }
 
@@ -198,7 +248,7 @@ export function toTimestamp(v: string | undefined | null): string | null {
     return Number.isNaN(direct.getTime()) ? null : direct.toISOString();
   }
 
-  const d = toDate(s);
+  const d = toDate(s, order);
   if (!d) return null;
 
   let h = Number(time[1]);
