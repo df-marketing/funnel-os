@@ -3,7 +3,7 @@ import { fetchAll } from "@/lib/supabase/admin";
 import { parseCsv, toNumber, toDate, toTimestamp, localDay, type Row } from "./csv";
 import { SOURCES, mapColumns, stageMetricOf, stageSpec, type ImportSourceKey, type SourceKey, type SourceSpec } from "./sources";
 import { buildIndex, matchRow, normEmail, normPhone, type KnownContact, type ParkReason } from "./identity";
-import { attributeLead, closeRoundFor, resolveRoundRef, resolveProduct, roundFromCampaign, type Round, type AdSetRun } from "./attribute";
+import { attributeLead, closeRoundFor, resolveRoundRef, resolveProduct, roundFromCampaign, roundOwningCampaign, type Round, type AdSetRun } from "./attribute";
 import { parseClarityScroll, ClarityError, sessionsFrom, pageKeyOf } from "./clarity";
 
 /**
@@ -258,6 +258,11 @@ function refuseIfNothingUsable(unusable: number, total: number, label: string) {
       `Nothing in that ${label} file could be used — all ${total} row${total === 1 ? "" : "s"} were skipped.`,
       [
         "Every row was missing a usable date, or fell outside every round's window.",
+        /* The third way for a row to be unusable, once rounds may overlap: the
+           date is covered by more than one round and no round claims the
+           campaign. The per-row warnings say which campaign; this is the
+           summary, and it should not send somebody to look at the dates. */
+        "Or — where rounds run at the same time — more than one round covers the date and none claims the campaign.",
         'An export with no rows in it — Meta writes "No data available." — looks like this.',
       ],
     );
@@ -275,7 +280,7 @@ function refuseIfNothingUsable(unusable: number, total: number, label: string) {
 async function loadRounds(db: SupabaseClient, clientId: string): Promise<Round[]> {
   const [roundRows, sessionRows] = await Promise.all([
     fetchAll<Omit<Round, "session_dates"> & { session_date: string | null }>(
-      db, "rounds", "round_id, client_id, start_date, end_date, country, market, code, session_date",
+      db, "rounds", "round_id, client_id, start_date, end_date, country, market, code, session_date, campaigns",
       (q) => q.eq("client_id", clientId)),
     fetchAll<{ round_id: string; session_date: string }>(
       db, "round_sessions", "round_id, session_date"),
@@ -292,6 +297,7 @@ async function loadRounds(db: SupabaseClient, clientId: string): Promise<Round[]
     country: r.country,
     market: r.market,
     code: r.code,
+    campaigns: r.campaigns ?? null,
     // fall back to the round's own column for a database that hasn't run 0025
     session_dates: sessionsByRound.get(r.round_id) ?? (r.session_date ? [r.session_date] : []),
   }));
@@ -726,7 +732,9 @@ export async function planImport(
        *
        * Putting the name first instead reverses that ruling and re-files
        * $7,500.26 across nine rounds the moment anything is re-imported — while
-       * the account total stays 20,474.78, so nothing on screen would say so.
+       * the account total stays 22,865.78, so nothing on screen would say so.
+       * Which is why the OWNED-CAMPAIGN step below sits after the date and not
+       * before it, even though it is the more direct answer when it applies.
        */
       const campaignRound = roundFromCampaign(campaign, rounds);
       const market = countryOf(campaign);
@@ -734,13 +742,28 @@ export async function planImport(
         (!market || !x.market || x.market.toUpperCase() === market) &&
         dayOf(x.start_date)! <= date && date <= dayOf(x.end_date)!,
       );
+      /**
+       * THE CAMPAIGN A ROUND OWNS — for rounds that run at the same time.
+       *
+       * Only consulted where the date has come back with more than one answer,
+       * which for consecutive weekly rounds is never. A client like FWD i-Care
+       * runs three experiments over one window, so every one of its days is
+       * ambiguous by date and this is the step that decides.
+       *
+       * Ahead of campaignRound because it is exact and explicit: a name the
+       * round was given, rather than a round code spotted inside a string.
+       */
+      const ownedRound = dateCandidates.length > 1
+        ? roundOwningCampaign(campaign, dateCandidates)
+        : null;
       const round =
-        (dateCandidates.length === 1 ? dateCandidates[0] : null) ?? campaignRound;
-      // Two rounds still covering one day after the market has narrowed them is
-      // a schedule the app cannot read. Say so rather than taking the first.
-      if (dateCandidates.length > 1 && !campaignRound) {
+        (dateCandidates.length === 1 ? dateCandidates[0] : null) ?? ownedRound ?? campaignRound;
+      // Two rounds still covering one day after the market has narrowed them,
+      // with nothing naming which, is a schedule the app cannot read. Say so
+      // rather than taking the first.
+      if (dateCandidates.length > 1 && !ownedRound && !campaignRound) {
         warnings.push(
-          `More than one round covers ${date}${market ? ` in ${market}` : ""}; the campaign names no unique round, so that ads row was not imported.`,
+          `More than one round covers ${date}${market ? ` in ${market}` : ""}, and no round claims "${campaign}" — so that ads row was not imported. Rounds that run at the same time have to name the campaigns they own.`,
         );
       }
       if (!round) {

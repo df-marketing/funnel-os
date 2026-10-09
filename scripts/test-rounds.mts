@@ -31,7 +31,7 @@ const SHELY: ExistingRound[] = [
 const round = (over: Partial<Parameters<typeof checkRound>[0]> = {}) => ({
   code: "0926-05", startDate: "2026-10-01", endDate: "2026-10-07",
   sessionDate: "2026-10-07", sessionLabel: "Class 7 Oct 2026",
-  productId: "shely-webinar", market: "SG", ...over,
+  productId: "shely-webinar", market: "SG", campaigns: [] as string[], ...over,
 });
 
 console.log("\nthe good case");
@@ -123,7 +123,8 @@ console.log("\nediting a round's dates");
 {
   const edit = (over: Partial<Parameters<typeof checkRoundEdit>[0]> = {}) => ({
     code: "0926-03", startDate: "2026-09-16", endDate: "2026-09-22",
-    sessionDate: "2026-09-22", sessionLabel: "Class 22 Sep 2026", ...over,
+    sessionDate: "2026-09-22", sessionLabel: "Class 22 Sep 2026",
+    campaigns: [] as string[], ...over,
   });
 
   eq("a corrected window is allowed", checkRoundEdit(edit(), SHELY).kind, "ok");
@@ -194,6 +195,136 @@ console.log("\nads and classes run on their own schedules — Henry's two cases"
   eq("and says to check the year",
     (() => { const v = checkRound(round({ sessionDate: "2027-10-07" }), SHELY);
              return v.kind === "invalid" && v.errors[0].message.includes("check the year"); })(), true);
+}
+
+console.log("\nhow long a window may be, and what that guard is for");
+{
+  /* The guard was 92 days — Shely's quarter — and it refused FWD i-Care's
+     first round, which is a genuine 98-day experiment. Measured before it was
+     moved: 92 never caught a mistyped MONTH anyway (a weekly round ending
+     2026-10-21 instead of 2026-09-21 spans 37 days and always passed), so the
+     only error it has ever caught is the year, and that is 372 days. */
+  const span = (start: string, end: string) =>
+    checkRound(round({ code: "1026-01", startDate: start, endDate: end, sessionDate: "" }), []).kind;
+
+  eq("i-Care's 98-day window is a window, not a typo", span("2026-07-01", "2026-10-06"), "ok");
+  eq("186 days is the limit", span("2026-01-01", "2026-07-05"), "ok");
+  eq("187 is not", span("2026-01-01", "2026-07-06"), "invalid");
+  eq("a mistyped year is still caught", span("2026-09-15", "2027-09-21"), "invalid");
+  eq("and still says to check the year",
+    (() => { const v = checkRound(round({ startDate: "2026-09-15", endDate: "2027-09-21", sessionDate: "" }), []);
+             return v.kind === "invalid" && v.errors.some((e) => e.message.includes("check the year")); })(), true);
+  /* The class-drift guard is a DISTANCE from the window, not a span, and keeps
+     its own number — three months. Unchanged by the above. */
+  eq("a class three months out is still a class",
+    checkRound(round({ sessionDate: "2026-12-20" }), []).kind, "ok");
+  eq("a class a year out is still a typo",
+    checkRound(round({ sessionDate: "2027-10-07" }), []).kind, "invalid");
+}
+
+console.log("\ntwo rounds may share a week, if they do not share a campaign");
+{
+  /* FWD i-Care handed over three files called Round 1, 2 and 3, and all three
+     report the SAME window — 2026-07-01 to 2026-10-06. They are not three
+     weeks; they are three experiments that ran concurrently, told apart only
+     by campaign name. The real names, from the three exports. */
+  const R1 = ["FWD_iCareChi_META_MOFU_Sales_2026", "FWD_iCareEng_META_MOFU_Sales_2026"];
+  const R2 = ["FWD_iCareChi_META_MOFU_Sales_2026_SingleAttribution",
+              "FWD_iCareEng_META_MOFU_Sales_2026_SingleAttribution",
+              "FWD_iCareChi_META_MOFU_Sales_2026_SingleAttribution_PurchaseOptimised",
+              "FWD_iCareEng_META_MOFU_Sales_2026_SingleAttribution_PurchaseOptimised"];
+  const R3 = ["FWD_iCareChi_META_MOFU_Sales_2026_40To49", "FWD_iCareEng_META_MOFU_Sales_2026_40To49",
+              "FWD_iCareChi_META_MOFU_Sales_2026_50To60", "FWD_iCareEng_META_MOFU_Sales_2026_50To60"];
+
+  const WINDOW = { startDate: "2026-07-01", endDate: "2026-10-06", sessionDate: "", sessionLabel: "",
+                   productId: "icare-insurance", market: "MY" };
+  const icare = (code: string, campaigns: string[]) => ({ code, ...WINDOW, campaigns });
+  const asExisting = (code: string, campaigns: string[] | null) => ({
+    round_id: code, code, start_date: WINDOW.startDate, end_date: WINDOW.endDate,
+    market: "MY", product_id: "icare-insurance", campaigns,
+  });
+
+  /* The whole point. Round 1 exists; Round 2 covers exactly the same days and
+     is allowed, because neither one is ambiguous any more. */
+  eq("a second round over the same window, both naming campaigns",
+    checkRound(icare("1026-02", R2), [asExisting("1026-01", R1)]).kind, "ok");
+  eq("and a third",
+    checkRound(icare("1026-03", R3), [asExisting("1026-01", R1), asExisting("1026-02", R2)]).kind, "ok");
+
+  /* Still refused when only ONE of them names anything, because the one that
+     names nothing claims every campaign in its window — so the day is as
+     ambiguous as it ever was. */
+  {
+    const v = checkRound(icare("1026-02", R2), [asExisting("1026-01", null)]);
+    eq("refused when the EXISTING round names none",
+      [v.kind, v.kind === "conflict" ? v.code : null], ["conflict", "overlaps"]);
+    eq("and says so rather than repeating the generic reason",
+      v.kind === "conflict" ? v.error.includes("names no campaigns") : false, true);
+  }
+  eq("refused when the NEW round names none",
+    checkRound(icare("1026-02", []), [asExisting("1026-01", R1)]).kind, "conflict");
+
+  /* And the generic refusal still names the way out. A message that says only
+     "refused" is the thing the refusal-code work was about. */
+  {
+    const v = checkRound(icare("1026-02", []), [asExisting("1026-01", null)]);
+    eq("neither names any, and the message offers the fix",
+      v.kind === "conflict" ? v.error.includes("name the campaigns each one owns") : false, true);
+  }
+
+  /* A campaign belongs to one round, dates or no dates. */
+  {
+    const v = checkRound(icare("1026-02", [R1[0], ...R2]), [asExisting("1026-01", R1)]);
+    eq("a campaign another round already owns",
+      [v.kind, v.kind === "conflict" ? v.code : null], ["conflict", "campaign_taken"]);
+    eq("and names which one", v.kind === "conflict" ? v.error.includes("1026-01") : false, true);
+  }
+  eq("case and padding are not what makes a name different",
+    checkRound(icare("1026-02", ["  fwd_icarechi_meta_mofu_sales_2026  "]), [asExisting("1026-01", R1)]).kind,
+    "conflict");
+
+  /* THE PREFIX TRAP, and the reason this is exact equality.
+     
+     Round 1's campaign name is a PREFIX of all eight of Rounds 2 and 3's. A
+     substring rule files everything to Round 1; "longest match wins" — the
+     tie-break roundFromCampaign uses for 0526-03 against 0526-031 — reverses
+     it, because Round 1's whole name is LONGER than the suffix that
+     distinguishes Round 2. Under equality, R1 and R2 are simply disjoint. */
+  eq("a name that is a prefix of another is not the same name",
+    checkRound(icare("1026-02", R2), [asExisting("1026-01", R1)]).kind, "ok");
+
+  /* Shely is untouched: naming campaigns is not required, and an overlap
+     between rounds that name none is refused exactly as before. */
+  eq("shely's rounds still overlap-check with no campaigns anywhere",
+    checkRound(round({ code: "0926-06", startDate: "2026-09-20", endDate: "2026-09-26" }), SHELY).kind,
+    "conflict");
+
+  /* Editing is the other half: one round is already created, so the fix for an
+     overlap has to be reachable from edit as well as create. */
+  {
+    const existing = [asExisting("1026-01", R1), asExisting("1026-02", R2)];
+    eq("naming campaigns on an existing round is allowed",
+      checkRoundEdit({ code: "1026-02", startDate: WINDOW.startDate, endDate: WINDOW.endDate,
+                       sessionDate: "", sessionLabel: "", campaigns: R2 }, existing).kind, "ok");
+    eq("taking a campaign another round owns is not",
+      (() => { const v = checkRoundEdit({ code: "1026-02", startDate: WINDOW.startDate,
+                 endDate: WINDOW.endDate, sessionDate: "", sessionLabel: "",
+                 campaigns: [R1[0]] }, existing);
+               return [v.kind, v.kind === "conflict" ? v.code : null]; })(),
+      ["conflict", "campaign_taken"]);
+    eq("a round does not collide with its own campaigns",
+      checkRoundEdit({ code: "1026-01", startDate: WINDOW.startDate, endDate: WINDOW.endDate,
+                       sessionDate: "", sessionLabel: "", campaigns: R1 }, existing).kind, "ok");
+    eq("dropping its campaigns re-opens the overlap it was hiding",
+      checkRoundEdit({ code: "1026-02", startDate: WINDOW.startDate, endDate: WINDOW.endDate,
+                       sessionDate: "", sessionLabel: "", campaigns: [] }, existing).kind, "conflict");
+    /* Naming a campaign moves no row, so there is nothing for the stray-row
+       check to count — which is what `unchanged` drives in the route. */
+    eq("naming campaigns leaves the window unchanged",
+      (() => { const v = checkRoundEdit({ code: "1026-02", startDate: WINDOW.startDate,
+                 endDate: WINDOW.endDate, sessionDate: "", sessionLabel: "", campaigns: R2 }, existing);
+               return v.kind === "ok" && v.unchanged; })(), true);
+  }
 }
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);

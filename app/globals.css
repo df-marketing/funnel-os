@@ -694,6 +694,15 @@ i.goal { font: 600 9px var(--mono); letter-spacing: .07em; text-transform: upper
   border:1px solid var(--line);background:var(--surface);color:inherit;font:inherit}
 /* The field's own message, under the field it is about. */
 .nr-grid em{font-style:normal;font-size:11px;color:var(--bad)}
+/* Campaigns this round owns. Full width and outside the grid, because the
+   names are long enough that a 170px column would wrap every one of them. */
+.nr-wide{display:flex;flex-direction:column;gap:4px;font-size:12px;margin-top:12px}
+.nr-wide>span{opacity:.75}
+.nr-wide>span i{opacity:.5;font-style:normal}
+.nr-wide textarea{padding:6px 8px;border-radius:6px;resize:vertical;
+  border:1px solid var(--line);background:var(--surface);color:inherit;
+  font:inherit;font-family:var(--mono,ui-monospace,monospace);font-size:11.5px}
+.nr-wide em{font-style:normal;font-size:11px;color:var(--bad)}
 .nr-why{margin:12px 0 0;font-size:11.5px;opacity:.6;max-width:62ch}
 .nr-bad{margin:10px 0 0;font-size:12.5px;color:var(--bad)}
 .nr-ok{margin:10px 0 0;font-size:12.5px;color:var(--good)}

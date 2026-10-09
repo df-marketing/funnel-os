@@ -19,7 +19,7 @@ import { parseCsv, writeCsv, toNumber, toDate, toTimestamp, localDay } from "../
 import { mapColumns, SOURCES } from "../lib/import/sources";
 import { buildTemplate } from "../lib/import/template";
 import { buildIndex, matchRow, normPhone, normEmail, stripPlus } from "../lib/import/identity";
-import { attributeLead, closeRoundFor, resolveProduct, roundFromCampaign, resolveRoundRef } from "../lib/import/attribute";
+import { attributeLead, closeRoundFor, resolveProduct, roundFromCampaign, roundOwningCampaign, resolveRoundRef } from "../lib/import/attribute";
 import { planImport, commitPlan, ImportError, roundForWindow } from "../lib/import/pipeline";
 import { parseClarityScroll, ClarityError, sessionsFrom, deviceFromName, pageKeyOf } from "../lib/import/clarity";
 import {
@@ -1304,6 +1304,114 @@ console.log("\nAds — period-level export");
   });
   eq("a date inside a round beats the round the campaign is named for",
      (dated.ops.ads[0] as any).round_id, "0526-02");
+}
+
+// ── rounds that run at the same time ───────────────────────────────────────
+/*
+ * FWD i-Care's three exports, called Round 1, 2 and 3, all report the window
+ * 2026-07-01 → 2026-10-06. They are not three weeks; they are three
+ * experiments that ran concurrently. Every day in that window is therefore
+ * covered by three rounds, so the DATE rule — which decides for every other
+ * client — comes back with three answers for all 148 rows.
+ *
+ * The importer has always refused rather than guessed there. What was missing
+ * was anything for it to decide WITH: roundFromCampaign only recognises a
+ * round code inside the name, and these campaigns carry none.
+ */
+console.log("\nAds — rounds that run concurrently");
+{
+  const WIN = { client_id: "icare", start_date: "2026-07-01", end_date: "2026-10-06", session_dates: [], market: "MY" };
+  const ICARE = [
+    { ...WIN, round_id: "1026-01", code: "1026-01",
+      campaigns: ["FWD_iCareChi_META_MOFU_Sales_2026", "FWD_iCareEng_META_MOFU_Sales_2026"] },
+    { ...WIN, round_id: "1026-02", code: "1026-02",
+      campaigns: ["FWD_iCareChi_META_MOFU_Sales_2026_SingleAttribution",
+                  "FWD_iCareEng_META_MOFU_Sales_2026_SingleAttribution_PurchaseOptimised"] },
+    { ...WIN, round_id: "1026-03", code: "1026-03",
+      campaigns: ["FWD_iCareChi_META_MOFU_Sales_2026_40To49", "FWD_iCareEng_META_MOFU_Sales_2026_50To60"] },
+  ];
+
+  eq("the round that owns a campaign",
+     roundOwningCampaign("FWD_iCareChi_META_MOFU_Sales_2026_40To49", ICARE)?.round_id, "1026-03");
+  eq("case and padding are not part of the name",
+     roundOwningCampaign("  fwd_icareeng_meta_mofu_sales_2026  ", ICARE)?.round_id, "1026-01");
+  ok("a campaign nobody claims resolves to nothing",
+     roundOwningCampaign("FWD_iCareEng_META_MOFU_Sales_2026_70Plus", ICARE) === null);
+  ok("no campaign, no round", roundOwningCampaign(null, ICARE) === null);
+  ok("a blank campaign is not a name", roundOwningCampaign("   ", ICARE) === null);
+
+  /* THE PREFIX TRAP, which is why this is exact equality and not a match.
+     Round 1's name is a prefix of all four of the others. A substring rule
+     files everything to Round 1; longest-match — the tie-break
+     roundFromCampaign uses for 0526-03 against 0526-031 — reverses it, because
+     Round 1's whole name is LONGER than the suffix that distinguishes Round 2. */
+  eq("a longer name is not the name it starts with",
+     roundOwningCampaign("FWD_iCareChi_META_MOFU_Sales_2026_SingleAttribution", ICARE)?.round_id, "1026-02");
+  eq("and the short one is still itself",
+     roundOwningCampaign("FWD_iCareChi_META_MOFU_Sales_2026", ICARE)?.round_id, "1026-01");
+
+  /* Two rounds claiming one name is refused at creation and by a trigger on
+     the table. If it is there anyway, resolve to nothing — the caller warns and
+     leaves the row out, which is what this path does with every ambiguity. */
+  const clashing = [ICARE[0], { ...ICARE[1], campaigns: ["FWD_iCareChi_META_MOFU_Sales_2026"] }];
+  ok("two rounds claiming one campaign resolves to neither",
+     roundOwningCampaign("FWD_iCareChi_META_MOFU_Sales_2026", clashing) === null);
+
+  // The whole chain, through planImport, on rows shaped like the real export.
+  const rows = [
+    "Reporting starts,Reporting ends,Campaign name,Ad set name,Ad name,Amount spent (MYR),Impressions,Reach",
+    "2026-07-01,2026-10-06,FWD_iCareChi_META_MOFU_Sales_2026,Broad,Creative_A,391.83,12000,9000",
+    "2026-07-01,2026-10-06,FWD_iCareEng_META_MOFU_Sales_2026_SingleAttribution_PurchaseOptimised,Broad,Creative_B,288.00,8000,6000",
+    "2026-07-01,2026-10-06,FWD_iCareChi_META_MOFU_Sales_2026_40To49,Age40,Creative_C,200.04,5000,4100",
+  ].join("\n");
+  const plan = await planImport(
+    fakeDb({ rounds: ICARE, contacts: [], events: [], ads_performance: [], v_column_map: [] }),
+    { source: "ads", clientId: "icare", fileName: "icare.csv", text: rows });
+
+  eq("all three rows land", plan.ops.ads.length, 3);
+  eq("round 1's campaign goes to round 1", (plan.ops.ads[0] as any).round_id, "1026-01");
+  eq("round 2's goes to round 2", (plan.ops.ads[1] as any).round_id, "1026-02");
+  eq("round 3's goes to round 3", (plan.ops.ads[2] as any).round_id, "1026-03");
+  eq("and nothing was refused for being ambiguous",
+     plan.warnings.filter((w) => w.includes("More than one round covers")).length, 0);
+
+  /* A campaign no round claims is still refused — the row is left out and the
+     warning says what to do about it, rather than only that it happened. Two
+     rows, because a file where EVERY row is unusable is refused outright by
+     refuseIfNothingUsable and there would be no plan to look at. */
+  const orphan = await planImport(
+    fakeDb({ rounds: ICARE, contacts: [], events: [], ads_performance: [], v_column_map: [] }),
+    { source: "ads", clientId: "icare", fileName: "icare.csv",
+      text: ["Reporting starts,Reporting ends,Campaign name,Ad set name,Amount spent (MYR),Impressions,Reach",
+             "2026-07-01,2026-10-06,FWD_iCareChi_META_MOFU_Sales_2026,Broad,391.83,12000,9000",
+             "2026-07-01,2026-10-06,FWD_iCareEng_META_MOFU_Sales_2026_70Plus,Broad,12.00,100,90"].join("\n") });
+  eq("the claimed row lands and the unclaimed one does not", orphan.ops.ads.length, 1);
+  eq("and it is the claimed one", (orphan.ops.ads[0] as any).round_id, "1026-01");
+  ok("the warning names the campaign and the fix",
+     orphan.warnings.some((w) => w.includes("70Plus") && w.includes("name the campaigns they own")));
+
+  /* And a file in which NOTHING can be placed is still refused outright rather
+     than staged as a commit that would write zero rows. */
+  let refused = "";
+  try {
+    await planImport(
+      fakeDb({ rounds: ICARE, contacts: [], events: [], ads_performance: [], v_column_map: [] }),
+      { source: "ads", clientId: "icare", fileName: "icare.csv",
+        text: ["Reporting starts,Reporting ends,Campaign name,Ad set name,Amount spent (MYR),Impressions,Reach",
+               "2026-07-01,2026-10-06,FWD_iCareEng_META_MOFU_Sales_2026_70Plus,Broad,12.00,100,90"].join("\n") });
+  } catch (e) { refused = e instanceof Error ? e.message : String(e); }
+  ok("a file where no row can be placed is refused, not staged",
+     refused.includes("could be used"));
+
+  /* SHELY IS UNAFFECTED. Her rounds are consecutive weeks, so the date returns
+     exactly one answer and this step is never reached — which is what keeps
+     "a day of spend belongs to the round it was spent during" intact. */
+  const shely = await planImport(
+    fakeDb({ rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [] }),
+    { source: "ads", clientId: "shely", fileName: "ads.csv",
+      text: "date,campaign,ad_set,spend\n2026-05-14,DF_SG_Preview_Sprint1_0526_03,Cold_Broad,10" });
+  eq("one round covers the day, so the date still decides",
+     (shely.ops.ads[0] as any).round_id, "0526-02");
 }
 
 // ── a round runs however many classes it runs ───────────────────────────────

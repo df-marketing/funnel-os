@@ -14,8 +14,20 @@
  * fail an import, it files the spend under the neighbouring round and the
  * account total stays right while every per-round figure moves.
  *
- * That is why two rounds may not overlap within a market, and why changing an
- * existing round's dates is refused rather than offered.
+ * That is why an overlap within one market is guarded, and why changing an
+ * existing round's dates goes through checkRoundEdit rather than create.
+ *
+ * WHAT THE OVERLAP RULE IS ACTUALLY ABOUT, corrected 9 Oct 2026.
+ *
+ * It used to refuse any two rounds of one market covering a day. That was a
+ * rule about DATES standing in for a rule about AMBIGUITY, and the two came
+ * apart as soon as a client arrived whose rounds are concurrent experiments
+ * rather than consecutive weeks. The importer never had the stricter rule:
+ * pipeline.ts falls through to the campaign name when more than one round
+ * covers a day, and refuses the row when that settles nothing. So this file
+ * was stricter than the thing it was written to protect.
+ *
+ * An overlap is now refused only when the campaigns do not separate the rounds.
  */
 
 export type RoundInput = {
@@ -26,6 +38,13 @@ export type RoundInput = {
   sessionLabel: string;
   productId: string;
   market: string;
+  /**
+   * The exact Meta campaign names this round owns, or empty.
+   *
+   * Only ever consulted to tell two rounds of one market apart when they cover
+   * the same day. A client whose rounds are consecutive weeks never needs it.
+   */
+  campaigns: string[];
 };
 
 export type ExistingRound = {
@@ -35,16 +54,43 @@ export type ExistingRound = {
   end_date: string;
   market: string | null;
   product_id: string | null;
+  campaigns?: string[] | null;
 };
 
 export type Verdict =
   | { kind: "ok"; round: RoundInput }
   | { kind: "identical"; round: RoundInput }
   | { kind: "invalid"; errors: Array<{ field: string; message: string }> }
-  | { kind: "conflict"; code: "code_moved" | "overlaps"; error: string };
+  | { kind: "conflict"; code: "code_moved" | "overlaps" | "campaign_taken"; error: string };
 
 /** The shape every existing round code uses: MMYY-NN. */
 const CODE = /^\d{4}-\d{2}$/;
+
+/**
+ * The longest ads window that is not a mistyped year.
+ *
+ * This guard has one job, and it is worth being exact about which: a round
+ * whose end date carries the wrong YEAR spans about 372 days and would swallow
+ * every neighbouring round's spend, silently, because spend is filed by date.
+ *
+ * It was 92 days, which was Shely's quarter and nobody else's. FWD i-Care's
+ * first round runs 2026-07-01 to 2026-10-06 — 98 days, because it is a
+ * continuous experiment rather than a week — and was refused as a typo.
+ *
+ * Measured before moving it: 92 does not catch a mistyped MONTH either. The
+ * same weekly round ending 2026-10-21 instead of 2026-09-21 spans 37 days and
+ * passes today. So nothing is given up by raising this to half a year; the
+ * only error it ever caught is the one a year typo makes, and that is 372.
+ */
+const MAX_WINDOW_DAYS = 186;
+
+/**
+ * How far a class may sit from the ads that paid for it before it reads as a
+ * mistyped year. A different quantity from the window's length — this is a
+ * DISTANCE from the window, not a span — so it keeps its own number. Three
+ * months is already generous for a class, and a year typo puts it at 365.
+ */
+const CLASS_DRIFT_DAYS = 92;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** A real calendar day, not just four-two-two digits. 2026-02-30 is not a date. */
@@ -52,6 +98,43 @@ function isRealDay(value: string): boolean {
   if (!DAY.test(value)) return false;
   const d = new Date(`${value}T00:00:00Z`);
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
+}
+
+/**
+ * WHETHER TWO ROUNDS COVERING ONE DAY CAN STILL BE TOLD APART.
+ *
+ * Meta writes the campaign name verbatim, so the comparison is trimmed and
+ * case-folded and nothing else. NOT a substring or prefix match, which is the
+ * one thing that cannot work here: FWD i-Care's Round 1 campaign name
+ *
+ *     FWD_iCareChi_META_MOFU_Sales_2026
+ *
+ * is a prefix of all six of the others —
+ *
+ *     FWD_iCareChi_META_MOFU_Sales_2026_SingleAttribution
+ *     FWD_iCareChi_META_MOFU_Sales_2026_40To49   ... and so on
+ *
+ * — so substring matching files all 148 rows to Round 1, and "longest match
+ * wins" (the tie-break roundFromCampaign uses to keep 0526-03 off 0526-031)
+ * gets it exactly backwards, because Round 1's whole name is longer than the
+ * suffix that distinguishes Round 2. Equality has no such failure mode.
+ *
+ * Empty on either side is NOT separable. A round that names no campaigns claims
+ * every campaign it covers by date, which is right for a weekly round and is
+ * why Shely needs none of this.
+ */
+const canonCampaign = (c: string) => c.trim().toLowerCase();
+
+function sharedCampaigns(a: string[] | null | undefined, b: string[] | null | undefined): string[] {
+  const left = new Set((a ?? []).map(canonCampaign).filter(Boolean));
+  return [...new Set((b ?? []).map(canonCampaign).filter(Boolean))].filter((c) => left.has(c));
+}
+
+function separable(a: string[] | null | undefined, b: string[] | null | undefined): boolean {
+  const left = (a ?? []).map(canonCampaign).filter(Boolean);
+  const right = (b ?? []).map(canonCampaign).filter(Boolean);
+  if (!left.length || !right.length) return false;
+  return sharedCampaigns(left, right).length === 0;
 }
 
 export function checkRound(input: RoundInput, existing: ExistingRound[]): Verdict {
@@ -99,7 +182,7 @@ export function checkRound(input: RoundInput, existing: ExistingRound[]): Verdic
         Math.abs(Date.parse(input.sessionDate) - Date.parse(input.startDate)),
         Math.abs(Date.parse(input.sessionDate) - Date.parse(input.endDate)),
       ) / 86_400_000;
-      if (away > 92) {
+      if (away > CLASS_DRIFT_DAYS) {
         errors.push({
           field: "sessionDate",
           message: `the class is ${Math.round(away)} days from the ads window — check the year`,
@@ -110,7 +193,7 @@ export function checkRound(input: RoundInput, existing: ExistingRound[]): Verdic
        would swallow every neighbouring round's spend. Warned about by refusing,
        because the failure it prevents is silent and this one is not. */
     const span = (Date.parse(input.endDate) - Date.parse(input.startDate)) / 86_400_000 + 1;
-    if (span > 92) {
+    if (span > MAX_WINDOW_DAYS) {
       errors.push({ field: "endDate", message: `that is ${Math.round(span)} days — check the year` });
     }
   }
@@ -138,21 +221,57 @@ export function checkRound(input: RoundInput, existing: ExistingRound[]): Verdic
     };
   }
 
-  /* Overlap, within the market only. Two markets running their own schedules
-     overlap constantly and that is fine — the ads importer resolves the market
-     first precisely so it can. Two rounds of the SAME market covering one day
-     is the case where "which round covers this?" has two answers and array
-     order picks the winner. */
-  const clash = existing.find((r) =>
+  /* A campaign belongs to one round. Checked before overlap, because naming a
+     campaign another round already owns is wrong whether or not the dates
+     touch — and because the database enforces it with a trigger, so catching
+     it here is the difference between a message and a 500. */
+  const taken = existing.find((r) => sharedCampaigns(r.campaigns, input.campaigns).length > 0);
+  if (taken) {
+    const shared = sharedCampaigns(taken.campaigns, input.campaigns);
+    return {
+      kind: "conflict",
+      code: "campaign_taken",
+      error: `${taken.code ?? taken.round_id} already owns ${shared.length > 1 ? "these campaigns" : "this campaign"}: ${shared.join(", ")}. A campaign belongs to one round, or a day of its spend has two homes.`,
+    };
+  }
+
+  /* OVERLAP, WITHIN THE MARKET, AND ONLY WHEN THE ROUNDS CANNOT BE TOLD APART.
+     
+     Two markets running their own schedules overlap constantly and that is
+     fine — the ads importer resolves the market first precisely so it can.
+     
+     Within one market, what is actually wrong with an overlap is AMBIGUITY:
+     "which round covers this day" having two answers. Dates are how that
+     question is normally answered, so two rounds covering one day used to be
+     refused outright. But the importer has never guessed — pipeline.ts falls
+     through to the campaign name when more than one round covers a day, and
+     refuses the row if that settles nothing either. So the overlap is only a
+     problem when the campaigns do not separate the rounds.
+     
+     They do for FWD i-Care, whose three "rounds" are three concurrent
+     experiments on one window — see
+     supabase/migrations/20261010090000_two_rounds_may_share_a_week.sql. They do
+     not for a client whose rounds are consecutive weeks and name no campaigns,
+     which is every round that existed when this rule was written. That is why
+     it read as a rule about rounds rather than about ambiguity. */
+  const overlapping = existing.filter((r) =>
     (r.market ?? "").toUpperCase() === input.market &&
     input.startDate <= r.end_date &&
     input.endDate >= r.start_date,
   );
+  const clash = overlapping.find((r) => !separable(r.campaigns, input.campaigns));
   if (clash) {
+    /* ?? [] because input crosses a JSON boundary — the route builds this from
+       a request body, and a caller that omits the field entirely should get
+       the old behaviour rather than a TypeError. */
+    const named = (clash.campaigns ?? []).length > 0 || (input.campaigns ?? []).length > 0;
     return {
       kind: "conflict",
       code: "overlaps",
-      error: `These ADS DATES (${input.startDate} → ${input.endDate}) overlap ${clash.code ?? clash.round_id}, whose ads ran ${clash.start_date} → ${clash.end_date} in ${input.market}. Only the ads windows are compared — a class date is never part of this and may fall anywhere, including inside another round. Two rounds of one market covering the same day of SPEND makes that day ambiguous, and the importer would file it by whichever came back first.`,
+      error: `These ADS DATES (${input.startDate} → ${input.endDate}) overlap ${clash.code ?? clash.round_id}, whose ads ran ${clash.start_date} → ${clash.end_date} in ${input.market}. Only the ads windows are compared — a class date is never part of this and may fall anywhere, including inside another round. ` +
+        (named
+          ? `${(clash.campaigns ?? []).length ? `This round names no campaigns, so it claims every one of those days` : `${clash.code ?? clash.round_id} names no campaigns, so it claims every campaign in its window`} — both rounds have to name theirs, or the day is still ambiguous.`
+          : `Two rounds of one market covering the same day of SPEND makes that day ambiguous. If they ran at the same time on purpose — separate experiments rather than separate weeks — name the campaigns each one owns and both may keep the window.`),
     };
   }
 
@@ -205,12 +324,18 @@ export type EditInput = {
   endDate: string;
   sessionDate: string;
   sessionLabel: string;
+  /**
+   * The campaigns this round owns. Editable because it is the fix for an
+   * overlap: a round refused for covering another's week is allowed the moment
+   * BOTH rounds name what they own, and one of those two is already created.
+   */
+  campaigns: string[];
 };
 
 export type EditVerdict =
   | { kind: "ok"; edit: EditInput; unchanged: boolean }
   | { kind: "invalid"; errors: Array<{ field: string; message: string }> }
-  | { kind: "conflict"; code: "not_found" | "overlaps"; error: string };
+  | { kind: "conflict"; code: "not_found" | "overlaps" | "campaign_taken"; error: string };
 
 export function checkRoundEdit(input: EditInput, existing: ExistingRound[]): EditVerdict {
   const self = existing.find((r) => (r.code ?? r.round_id) === input.code);
@@ -248,7 +373,7 @@ export function checkRoundEdit(input: EditInput, existing: ExistingRound[]): Edi
         Math.abs(Date.parse(input.sessionDate) - Date.parse(input.startDate)),
         Math.abs(Date.parse(input.sessionDate) - Date.parse(input.endDate)),
       ) / 86_400_000;
-      if (away > 92) {
+      if (away > CLASS_DRIFT_DAYS) {
         errors.push({
           field: "sessionDate",
           message: `the class is ${Math.round(away)} days from the ads window — check the year`,
@@ -256,28 +381,46 @@ export function checkRoundEdit(input: EditInput, existing: ExistingRound[]): Edi
       }
     }
     const span = (Date.parse(input.endDate) - Date.parse(input.startDate)) / 86_400_000 + 1;
-    if (span > 92) errors.push({ field: "endDate", message: `that is ${Math.round(span)} days — check the year` });
+    if (span > MAX_WINDOW_DAYS) errors.push({ field: "endDate", message: `that is ${Math.round(span)} days — check the year` });
   }
   if (errors.length) return { kind: "invalid", errors };
 
-  // Itself excluded, or a round would always collide with where it already is.
-  const clash = existing.find((r) =>
-    (r.code ?? r.round_id) !== input.code &&
+  // Itself excluded throughout, or a round would always collide with where it
+  // already is and always own its own campaigns.
+  const others = existing.filter((r) => (r.code ?? r.round_id) !== input.code);
+
+  const taken = others.find((r) => sharedCampaigns(r.campaigns, input.campaigns).length > 0);
+  if (taken) {
+    const shared = sharedCampaigns(taken.campaigns, input.campaigns);
+    return {
+      kind: "conflict",
+      code: "campaign_taken",
+      error: `${taken.code ?? taken.round_id} already owns ${shared.length > 1 ? "these campaigns" : "this campaign"}: ${shared.join(", ")}. A campaign belongs to one round.`,
+    };
+  }
+
+  /* Same rule as create: an overlap only matters when the campaigns do not
+     separate the two rounds. See checkRound. */
+  const overlapping = others.filter((r) =>
     (r.market ?? "").toUpperCase() === (self.market ?? "").toUpperCase() &&
     input.startDate <= r.end_date &&
     input.endDate >= r.start_date,
   );
+  const clash = overlapping.find((r) => !separable(r.campaigns, input.campaigns));
   if (clash) {
     return {
       kind: "conflict",
       code: "overlaps",
-      error: `These ADS DATES (${input.startDate} → ${input.endDate}) overlap ${clash.code ?? clash.round_id}, whose ads ran ${clash.start_date} → ${clash.end_date} in ${self.market ?? "this market"}. Only the ads windows are compared — class dates are ignored here.`,
+      error: `These ADS DATES (${input.startDate} → ${input.endDate}) overlap ${clash.code ?? clash.round_id}, whose ads ran ${clash.start_date} → ${clash.end_date} in ${self.market ?? "this market"}. Only the ads windows are compared — class dates are ignored here. Two rounds may share a window if BOTH name the campaigns they own.`,
     };
   }
 
   return {
     kind: "ok",
     edit: input,
+    /* Dates only, deliberately. This is what the route uses to decide whether
+       to count already-imported rows left outside the window, and that depends
+       on the window alone — naming a campaign moves no row. */
     unchanged: self.start_date === input.startDate && self.end_date === input.endDate,
   };
 }

@@ -36,6 +36,15 @@ export type Round = {
    * predictable — some rounds run one class, some several.
    */
   session_dates: string[];
+  /**
+   * The exact Meta campaign names this round owns, if it claims any.
+   *
+   * Set only by a client whose rounds run CONCURRENTLY — FWD i-Care's three
+   * are one window and three experiments — because it is the only thing that
+   * can tell two rounds covering one day apart. Null or empty for a client
+   * whose rounds are consecutive weeks, where the date already decides.
+   */
+  campaigns?: string[] | null;
 };
 
 export type AdSetRun = { ad_set: string; round_id: string; date: string };
@@ -140,6 +149,32 @@ export function roundFromCampaign(campaign: string | null, rounds: Round[]): Rou
   const candidates = [...(sameMarket.length ? sameMarket : rounds)]
     .sort((a, b) => (b.code ?? b.round_id).length - (a.code ?? a.round_id).length);
   return candidates.find((r) => hay.includes((r.code ?? r.round_id).toLowerCase().replace(/_/g, "-"))) ?? null;
+}
+
+/**
+ * The round that OWNS this campaign by name, exactly.
+ *
+ * Distinct from roundFromCampaign above in both what it matches and when it is
+ * asked. That one looks for a round CODE inside the name and is the fallback
+ * for a period-level export whose dates land in no round at all. This one is
+ * an exact equality against names a round explicitly claimed, and is consulted
+ * only where the DATE has already come back ambiguous.
+ *
+ * Exact, because substring matching cannot work on the names this exists for:
+ * FWD i-Care's Round 1 campaign name is a prefix of all six of Rounds 2 and
+ * 3's, so a substring rule files all 148 rows to Round 1, and longest-match
+ * reverses it. See lib/funnel/rounds.ts.
+ */
+export function roundOwningCampaign(campaign: string | null, rounds: Round[]): Round | null {
+  if (!campaign) return null;
+  const want = campaign.trim().toLowerCase();
+  if (!want) return null;
+  const owners = rounds.filter((r) =>
+    (r.campaigns ?? []).some((c) => c.trim().toLowerCase() === want));
+  // Two rounds claiming one name is refused at creation and by a trigger on
+  // the table. If it happens anyway, say nothing rather than pick: the caller
+  // warns and leaves the row out, which is the behaviour this whole path has.
+  return owners.length === 1 ? owners[0] : null;
 }
 
 /** Which round's class this attendance row belongs to, given a session label or id. */

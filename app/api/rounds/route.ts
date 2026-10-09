@@ -13,6 +13,34 @@ export const runtime = "nodejs";
 const ALL_MARKETS = ["SG", "MY"];
 
 /**
+ * The campaign names a round claims, from whatever the form sent.
+ *
+ * Accepts a newline-or-comma-separated string as well as an array, because the
+ * field is a textarea that an operator pastes a column of Meta campaign names
+ * into. Deduplicated, trimmed, blanks dropped, ORIGINAL CASE KEPT — the
+ * comparison folds case itself, and what is stored should still read like the
+ * name in the ad account.
+ *
+ * A comma is a separator and not part of a name: Meta's names use underscores.
+ */
+function campaignList(raw: unknown): string[] {
+  const parts = Array.isArray(raw)
+    ? raw.filter((x): x is string => typeof x === "string")
+    : typeof raw === "string" ? raw.split(/[\n,]/) : [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const p of parts) {
+    const name = p.trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  return out;
+}
+
+/**
  * POST /api/rounds — create one round.
  *
  * STEP 0 FINALLY HAS A SCREEN.
@@ -65,7 +93,7 @@ export async function GET(request: Request) {
 
   const [roundsResult, productsResult] = await Promise.all([
     db.from("rounds")
-      .select("round_id, code, start_date, end_date, market, product_id")
+      .select("round_id, code, start_date, end_date, market, product_id, campaigns")
       .eq("client_id", clientId).order("start_date", { ascending: false }),
     db.from("v_products").select("product_id, product_name").eq("client_id", clientId).order("product_name"),
   ]);
@@ -77,6 +105,11 @@ export async function GET(request: Request) {
   return NextResponse.json({
     ok: true,
     rounds: rounds.slice(0, 8),
+    /* Every campaign already claimed, and by which round. The form shows this
+       so an operator pasting a column of names can see the one that collides
+       before submitting, rather than being told by a 409. */
+    claimedCampaigns: rounds.flatMap((r) =>
+      (r.campaigns ?? []).map((c) => ({ campaign: c, code: r.code ?? r.round_id }))),
     products: productsResult.data ?? [],
     /* The markets this client has used, or every market the business runs in
        when it has no rounds yet. A new client would otherwise be offered only
@@ -111,7 +144,7 @@ export async function POST(request: Request) {
      round of its own is the thing a new round is most likely to collide with. */
   const { data: existing, error: readError } = await db
     .from("rounds")
-    .select("round_id, code, start_date, end_date, market, product_id")
+    .select("round_id, code, start_date, end_date, market, product_id, campaigns")
     .eq("client_id", clientId);
   if (readError) return NextResponse.json({ ok: false, error: readError.message }, { status: 500 });
 
@@ -124,6 +157,7 @@ export async function POST(request: Request) {
       sessionLabel: str("sessionLabel"),
       productId: str("productId"),
       market: str("market").toUpperCase(),
+      campaigns: campaignList(body.campaigns),
     },
     (existing ?? []) as ExistingRound[],
   );
@@ -157,6 +191,10 @@ export async function POST(request: Request) {
     session_label: r.sessionLabel,
     product_id: r.productId,
     market: r.market,
+    /* Null rather than an empty array when the round claims none, because an
+       empty array and null mean the same thing here and null is what every
+       existing round reads. Blank is never zero, and it is not [] either. */
+    campaigns: r.campaigns.length ? r.campaigns : null,
     /* NULL on purpose, matching every recent round. A round is in a country if
        it RAN there, which v_round_markets answers from the data; a column
        somebody typed is a declaration, and the two disagree the moment a round
@@ -208,7 +246,7 @@ export async function PATCH(request: Request) {
 
   const { data: existing, error: readError } = await db
     .from("rounds")
-    .select("round_id, code, start_date, end_date, market, product_id")
+    .select("round_id, code, start_date, end_date, market, product_id, campaigns")
     .eq("client_id", clientId);
   if (readError) return NextResponse.json({ ok: false, error: readError.message }, { status: 500 });
 
@@ -216,6 +254,7 @@ export async function PATCH(request: Request) {
     {
       code: str("code"), startDate: str("startDate"), endDate: str("endDate"),
       sessionDate: str("sessionDate"), sessionLabel: str("sessionLabel"),
+      campaigns: campaignList(body.campaigns),
     },
     (existing ?? []) as ExistingRound[],
   );
@@ -266,6 +305,7 @@ export async function PATCH(request: Request) {
     end_date: e.endDate,
     session_date: e.sessionDate || null,
     session_label: e.sessionLabel || null,
+    campaigns: e.campaigns.length ? e.campaigns : null,
   }).eq("round_id", roundId).eq("client_id", clientId);
   if (writeError) return NextResponse.json({ ok: false, error: writeError.message }, { status: 500 });
 

@@ -24,7 +24,9 @@ type Existing = {
   round_id: string; code: string | null;
   start_date: string; end_date: string;
   market: string | null; product_id: string | null;
+  campaigns: string[] | null;
 };
+type Claimed = { campaign: string; code: string };
 type Product = { product_id: string; product_name: string };
 type FieldError = { field: string; message: string };
 
@@ -56,6 +58,11 @@ export function NewRoundForm({ client }: { client: string }) {
   const [sessionDate, setSession] = useState("");
   const [productId, setProduct] = useState("");
   const [market, setMarket] = useState("");
+  /* The campaign names this round owns, as typed. One per line, because that
+     is how a column pastes out of Meta's export. Empty for a client whose
+     rounds are consecutive weeks, which is every client but FWD i-Care. */
+  const [campaigns, setCampaigns] = useState("");
+  const [claimed, setClaimed] = useState<Claimed[]>([]);
 
   /* Which round is being edited, or null when adding. Editing reuses the same
      fields: it is the same six values, and two forms side by side would be two
@@ -78,6 +85,7 @@ export function NewRoundForm({ client }: { client: string }) {
       setRounds(data.rounds ?? []);
       setProducts(data.products ?? []);
       setMarkets(data.markets ?? []);
+      setClaimed(data.claimedCampaigns ?? []);
       setCode(data.suggested ?? "");
       if (data.products?.length === 1) setProduct(data.products[0].product_id);
       if (data.markets?.length === 1) setMarket(data.markets[0]);
@@ -100,6 +108,24 @@ export function NewRoundForm({ client }: { client: string }) {
 
   const errorFor = (field: string) => errors.find((e) => e.field === field)?.message;
 
+  /* A campaign already owned by ANOTHER round, read as it is typed. The server
+     refuses this and so does a trigger on the table; this just means the
+     operator finds out while looking at the field rather than after submitting.
+     The round being edited is excluded, or it would collide with itself. */
+  const collisions = (() => {
+    const mine = new Set(campaigns.split(/[\n,]/).map((c) => c.trim().toLowerCase()).filter(Boolean));
+    if (!mine.size) return [] as Claimed[];
+    const out: Claimed[] = [];
+    const seen = new Set<string>();
+    for (const c of claimed) {
+      const key = c.campaign.trim().toLowerCase();
+      if (!mine.has(key) || c.code === editing || seen.has(key)) continue;
+      seen.add(key);
+      out.push(c);
+    }
+    return out;
+  })();
+
   function startEdit(r: Existing) {
     setEditing(r.code ?? r.round_id);
     setCode(r.code ?? r.round_id);
@@ -108,12 +134,13 @@ export function NewRoundForm({ client }: { client: string }) {
     setSession("");
     setProduct(r.product_id ?? "");
     setMarket((r.market ?? "").toUpperCase());
+    setCampaigns((r.campaigns ?? []).join("\n"));
     setErrors([]); setProblem(null); setDone(null); setStrays(null);
   }
 
   function reset() {
     setEditing(null); setStrays(null); setErrors([]); setProblem(null); setDone(null);
-    setStart(""); setEnd(""); setSession("");
+    setStart(""); setEnd(""); setSession(""); setCampaigns("");
   }
 
   async function submit(e: React.FormEvent, acknowledgeStrays = false) {
@@ -127,7 +154,7 @@ export function NewRoundForm({ client }: { client: string }) {
         body: JSON.stringify({
           clientId: client, code, startDate, endDate, sessionDate,
           sessionLabel: sessionDate ? `Class ${pretty(sessionDate)}` : "",
-          productId, market,
+          productId, market, campaigns,
           ...(acknowledgeStrays ? { acknowledgeStrays: true } : {}),
         }),
       });
@@ -240,11 +267,37 @@ export function NewRoundForm({ client }: { client: string }) {
           </label>
         </div>
 
+        {/* CAMPAIGNS THIS ROUND OWNS.
+            
+            Only needed by a client whose rounds run AT THE SAME TIME, so it is
+            last and it is optional. FWD i-Care's three rounds are three
+            concurrent experiments over one window — 1 Jul to 6 Oct, all three
+            — and the campaign name is the only thing that tells them apart.
+            Shely's rounds are consecutive weeks and need none of this.
+            
+            A textarea rather than a tag input because the names are long and
+            arrive as a pasted column. */}
+        <label className="nr-wide">
+          <span>Campaigns this round owns <i>only if rounds overlap</i></span>
+          <textarea rows={3} value={campaigns} spellCheck={false}
+            placeholder={"One campaign name per line, exactly as Meta writes it\nFWD_iCareChi_META_MOFU_Sales_2026_40To49"}
+            onChange={(e) => setCampaigns(e.target.value)} />
+          {errorFor("campaigns") && <em>{errorFor("campaigns")}</em>}
+        </label>
+        {collisions.length > 0 && (
+          <p className="nr-bad">
+            {collisions.length === 1 ? "That campaign is" : "Those campaigns are"} already owned by{" "}
+            {[...new Set(collisions.map((c) => c.code))].join(", ")}:{" "}
+            {collisions.map((c) => c.campaign).join(", ")}. A campaign belongs to one round.
+          </p>
+        )}
+
         <p className="nr-why">
           {editing
             ? "Changing the ads window does not move rows that are already imported — they keep this round. It changes which round a FUTURE import files a day to, and it can leave existing rows outside the window."
             : "The ads dates decide which round a day of spend belongs to, so a wrong window doesn’t fail — it files the money under the round next door. Only those two dates are checked for overlap."}
           {" "}The class runs on its own schedule: it can be after the ads stop, or on the same day the next round’s ads begin.
+          {" "}Two rounds may share a window only if both name the campaigns they own.
         </p>
 
         {problem && <p className="nr-bad">{problem}</p>}
