@@ -332,3 +332,4 @@
 - sprint 3 delta: the raw number of bugs found and fixed is five.
 - The dry-run stub supports the .is() filter, matching the real pipeline's filtering capability.
 - FWD i-Care's three rounds, and the column the insert forgot — likely a commit message about fixing a missing column in an import or insert for FWD i-Care data, referencing three rounds of data.
+- October spend belongs to an October round.
