@@ -325,3 +325,4 @@
 - the import flow now has a Step 0 screen that it previously admitted it did not have (recent commit).
 - a warning about round dates was made to state what is actually true (was previously misleading).
 - sprint 3 delta: the raw number of bugs found and fixed is five.
+- The dry-run stub supports the .is() filter, matching the real pipeline's filtering capability.
