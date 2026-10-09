@@ -100,6 +100,7 @@
 - a round's dates can be corrected after creation.
 - the drop zone was simplified to a single-zone design because the file already knows what it is.
 - phone is treated as an identity field across sales, attendance, and membership — not just membership.
+- a lead that arrives after the ads stop is not treated as a stray (it should be matched/handled normally, not land in the unmatched/stray bucket).
 
 ## Architecture
 
