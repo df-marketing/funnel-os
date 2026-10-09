@@ -222,6 +222,7 @@
 - A client with zero rounds should not be offered the markets of rounds it does not have — the UI logic was incorrectly showing empty market lists.
 - Two rounds may share a week, if they do not share a campaign — a scheduling edge case in the rounds/weeks model.
 - A round id is global; a round code is not — meaning the same round code could exist across different contexts but a round id uniquely identifies a round.
+- A column of slash dates is read one way, not one way per value — dates must be parsed consistently, not value-by-value.
 
 ## Notes
 
@@ -333,3 +334,4 @@
 - The dry-run stub supports the .is() filter, matching the real pipeline's filtering capability.
 - FWD i-Care's three rounds, and the column the insert forgot — likely a commit message about fixing a missing column in an import or insert for FWD i-Care data, referencing three rounds of data.
 - October spend belongs to an October round.
+- No objective is set — milestones lack a north star to guide priority.
