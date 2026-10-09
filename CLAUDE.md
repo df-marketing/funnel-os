@@ -218,6 +218,7 @@
 - Redeploy was needed solely because the integration key was rotated — indicates the key is baked in at deploy time, not fetched dynamically.
 - A Malaysian ad account had no spend column (edge case).
 - Postgres upserts: ON CONFLICT must name the index expression (e.g. the expression a unique index was built on), not just the column.
+- A client with zero rounds should not be offered the markets of rounds it does not have — the UI logic was incorrectly showing empty market lists.
 
 ## Notes
 
