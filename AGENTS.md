@@ -219,6 +219,7 @@
 - A Malaysian ad account had no spend column (edge case).
 - Postgres upserts: ON CONFLICT must name the index expression (e.g. the expression a unique index was built on), not just the column.
 - A client with zero rounds should not be offered the markets of rounds it does not have — the UI logic was incorrectly showing empty market lists.
+- Two rounds may share a week, if they do not share a campaign — a scheduling edge case in the rounds/weeks model.
 
 ## Notes
 
