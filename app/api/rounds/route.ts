@@ -213,27 +213,37 @@ export async function PATCH(request: Request) {
   const e = verdict.edit;
   const roundId = ((existing ?? []) as ExistingRound[]).find((r) => (r.code ?? r.round_id) === e.code)!.round_id;
 
-  /* Rows already filed here that the new window would not cover. Counted per
-     source because "11 rows" is a number and "11 ad rows on 21-22 Sep" is an
-     answer. Dates only — nothing here reads a person. */
-  const [adsOut, eventsOut] = await Promise.all([
-    db.from("ads_performance").select("date", { count: "exact" })
-      .eq("round_id", roundId).or(`date.lt.${e.startDate},date.gt.${e.endDate}`),
-    db.from("events").select("event_date", { count: "exact" })
-      .eq("round_id", roundId).or(`event_date.lt.${e.startDate},event_date.gt.${e.endDate}T23:59:59`),
-  ]);
-  const strays = {
-    ads: adsOut.count ?? 0,
-    events: eventsOut.count ?? 0,
-    adDates: [...new Set((adsOut.data ?? []).map((r) => r.date as string))].sort().slice(0, 6),
-  };
-  const total = strays.ads + strays.events;
+  /* AD ROWS ONLY, and only when the window is actually moving.
+     
+     This counted events too, and that was wrong for the same reason the class
+     rule was wrong: it treated the ads window as if it governed everything.
+     
+     An ad row's round is decided BY DATE, so one sitting outside the window
+     means the window is wrong. An EVENT's round is not: it comes from the
+     file's own round_id, or from attribution. A person opting in after the ads
+     stop is ordinary — measured on shely, 11 of her 15 rounds have events
+     dated outside their ads window, 161 events in all. Warning about that
+     meant warning on nearly every round, and a warning that fires every time
+     is one nobody reads.
+     
+     Skipped entirely when the dates are unchanged. Re-saving a round without
+     touching its window moves nothing, so there is nothing to be told. */
+  const strays = { ads: 0, events: 0, adDates: [] as string[] };
+  let total = 0;
+
+  if (!verdict.unchanged) {
+    const adsOut = await db.from("ads_performance").select("date", { count: "exact" })
+      .eq("round_id", roundId).or(`date.lt.${e.startDate},date.gt.${e.endDate}`);
+    strays.ads = adsOut.count ?? 0;
+    strays.adDates = [...new Set((adsOut.data ?? []).map((r) => r.date as string))].sort().slice(0, 6);
+    total = strays.ads;
+  }
 
   if (total > 0 && body.acknowledgeStrays !== true) {
     return NextResponse.json({
       ok: false,
       code: "rows_left_outside",
-      error: `${total} row(s) already filed to ${e.code} fall outside ${e.startDate} → ${e.endDate}: ${strays.ads} ad row(s)${strays.adDates.length ? ` on ${strays.adDates.join(", ")}` : ""}, ${strays.events} event row(s). They keep this round — nothing is re-filed — but they will sit outside the window it now claims.`,
+      error: `${total} ad row(s) already filed to ${e.code} fall outside ${e.startDate} → ${e.endDate}${strays.adDates.length ? ` — spend on ${strays.adDates.join(", ")}` : ""}. Spend is filed to a round BY DATE, so those days would sit outside the window this round now claims. Nothing is re-filed; they keep ${e.code}.`,
       strays,
       override: "acknowledgeStrays",
     }, { status: 409 });
