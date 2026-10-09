@@ -101,6 +101,7 @@
 - the drop zone was simplified to a single-zone design because the file already knows what it is.
 - phone is treated as an identity field across sales, attendance, and membership — not just membership.
 - a lead that arrives after the ads stop is not treated as a stray (it should be matched/handled normally, not land in the unmatched/stray bucket).
+- dry-run stub supports .is() filter, matching the real pipeline's filtering capability.
 
 ## Architecture
 
@@ -329,3 +330,4 @@
 - a warning about round dates was made to state what is actually true (was previously misleading).
 - sprint 3 delta: the raw number of bugs found and fixed is five.
 - The dry-run stub supports the .is() filter, matching the real pipeline's filtering capability.
+- FWD i-Care's three rounds, and the column the insert forgot — likely a commit message about fixing a missing column in an import or insert for FWD i-Care data, referencing three rounds of data.
