@@ -221,6 +221,7 @@
 - Postgres upserts: ON CONFLICT must name the index expression (e.g. the expression a unique index was built on), not just the column.
 - A client with zero rounds should not be offered the markets of rounds it does not have — the UI logic was incorrectly showing empty market lists.
 - Two rounds may share a week, if they do not share a campaign — a scheduling edge case in the rounds/weeks model.
+- A round id is global; a round code is not — meaning the same round code could exist across different contexts but a round id uniquely identifies a round.
 
 ## Notes
 
