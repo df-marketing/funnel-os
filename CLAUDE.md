@@ -99,6 +99,7 @@
 - The warmer runs at 2am, because at 11am it is an outage.
 - a round's dates can be corrected after creation.
 - the drop zone was simplified to a single-zone design because the file already knows what it is.
+- phone is treated as an identity field across sales, attendance, and membership — not just membership.
 
 ## Architecture
 
@@ -129,6 +130,7 @@
 - A source is a rule, like every other dimension — the concept of 'source' was unified with other dimensions in the data model.
 - slug ownership changes are tracked via a push mechanism (likely an event/trigger or notification)
 - ad rows keep the id Meta provided rather than generating a local id, preserving the external identity.
+- ads and classes keep their own calendars (separate bookkeeping for different entity types).
 
 ## Gotchas
 
