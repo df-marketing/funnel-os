@@ -62,8 +62,10 @@ eq("2028 is a leap year, so 29 Feb is real",
 console.log("\ndates that relate wrongly");
 eq("ends before it starts",
   checkRound(round({ startDate: "2026-10-07", endDate: "2026-10-01" }), SHELY).kind, "invalid");
-eq("the class is outside the round",
-  checkRound(round({ sessionDate: "2026-10-20" }), SHELY).kind, "invalid");
+/* A class outside the ads window is NORMAL, not an error. See the block below
+   for why this rule had to go. */
+eq("a class after the ads stop is fine",
+  checkRound(round({ sessionDate: "2026-10-20" }), SHELY).kind, "ok");
 {
   /* A mistyped year is the one that would do real damage: a round spanning
      months swallows every neighbouring round's spend, by date, in silence. */
@@ -145,12 +147,53 @@ console.log("\nediting a round's dates");
     ["conflict", "overlaps"]);
 
   eq("backwards dates", checkRoundEdit(edit({ startDate: "2026-09-22", endDate: "2026-09-16" }), SHELY).kind, "invalid");
-  eq("a class outside the new window",
-    checkRoundEdit(edit({ sessionDate: "2026-09-30" }), SHELY).kind, "invalid");
+  eq("a class outside the new ads window is fine",
+    checkRoundEdit(edit({ sessionDate: "2026-09-30" }), SHELY).kind, "ok");
   eq("a mistyped year is still refused",
     checkRoundEdit(edit({ endDate: "2027-09-22", sessionDate: "2026-09-22" }), SHELY).kind, "invalid");
   eq("dropping the class date is allowed",
     checkRoundEdit(edit({ sessionDate: "", sessionLabel: "" }), SHELY).kind, "ok");
+}
+
+console.log("\nads and classes run on their own schedules — Henry's two cases");
+{
+  /* CASE 1, reported 9 Oct. Ads 14-16 September, class on the 17th. The class
+     was refused for being "outside the round", which is not a thing a round
+     has an opinion about: the ads window is when money was spent, the class is
+     when people turned up. */
+  eq("ads 14-16 Sep with a class on the 17th",
+    checkRound(round({ code: "0926-09", startDate: "2026-09-14", endDate: "2026-09-16",
+                       sessionDate: "2026-09-17" }), []).kind, "ok");
+
+  /* CASE 2, the same bug wearing a different hat. To record that class an
+     operator had to stretch the ads window to the 17th — and the next round's
+     ads starting on the 17th were then refused as an overlap, by a date that
+     was only there to satisfy the rule above. Fixing the first fixes this. */
+  const prior = [{ round_id: "0926-02", code: "0926-02", start_date: "2026-09-14",
+                   end_date: "2026-09-16", market: "SG", product_id: "shely-webinar" }];
+  eq("the next round's ads may start the day of the previous class",
+    checkRound(round({ code: "0926-03", startDate: "2026-09-17", endDate: "2026-09-23",
+                       sessionDate: "2026-09-24" }), prior).kind, "ok");
+
+  /* And the thing that genuinely must still be refused: two rounds whose ADS
+     cover the same day. That is the ambiguity the rule exists for. */
+  eq("ads that really do overlap are still refused",
+    checkRound(round({ code: "0926-03", startDate: "2026-09-16", endDate: "2026-09-22",
+                       sessionDate: "2026-09-23" }), prior).kind, "conflict");
+
+  /* A class shared between two rounds is not an overlap. Nothing is filed to a
+     class date, so two rounds inviting people to the same session is a fact
+     about the business, not a collision. */
+  eq("two rounds may share a class date",
+    checkRound(round({ code: "0926-03", startDate: "2026-09-17", endDate: "2026-09-23",
+                       sessionDate: "2026-09-16" }), prior).kind, "ok");
+
+  /* The guard that is left is for typos only. */
+  eq("a class a year out is still caught",
+    checkRound(round({ sessionDate: "2027-10-07" }), SHELY).kind, "invalid");
+  eq("and says to check the year",
+    (() => { const v = checkRound(round({ sessionDate: "2027-10-07" }), SHELY);
+             return v.kind === "invalid" && v.errors[0].message.includes("check the year"); })(), true);
 }
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);

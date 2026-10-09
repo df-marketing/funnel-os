@@ -79,11 +79,30 @@ export function checkRound(input: RoundInput, existing: ExistingRound[]): Verdic
     if (input.endDate < input.startDate) {
       errors.push({ field: "endDate", message: "the round ends before it starts" });
     }
+    /* THE CLASS IS NOT PART OF THE ADS WINDOW.
+       
+       It used to be required to fall inside it, and that was wrong twice over.
+       Ads and classes run on their own schedules: ads for 0926-03 might run
+       14-16 September for a class on the 17th, and nothing about that is odd.
+       
+       Worse, the rule caused the bug next to it. To record a class on the 17th
+       an operator had to stretch the ads window to the 17th, and the NEXT
+       round's ads starting that day were then refused as an overlap — by a
+       date that was only there to satisfy this check. One wrong rule, two
+       symptoms, and the second one looked unrelated.
+       
+       What is left is a typo guard, and only that: a class more than three
+       months from the ads that paid for it is a mistyped year, not a schedule.
+       Anything inside that is the client's business. */
     if (input.sessionDate) {
-      if (input.sessionDate < input.startDate || input.sessionDate > input.endDate) {
+      const away = Math.min(
+        Math.abs(Date.parse(input.sessionDate) - Date.parse(input.startDate)),
+        Math.abs(Date.parse(input.sessionDate) - Date.parse(input.endDate)),
+      ) / 86_400_000;
+      if (away > 92) {
         errors.push({
           field: "sessionDate",
-          message: `the class is on ${input.sessionDate}, outside the round (${input.startDate} → ${input.endDate})`,
+          message: `the class is ${Math.round(away)} days from the ads window — check the year`,
         });
       }
     }
@@ -133,7 +152,7 @@ export function checkRound(input: RoundInput, existing: ExistingRound[]): Verdic
     return {
       kind: "conflict",
       code: "overlaps",
-      error: `${input.startDate} → ${input.endDate} overlaps ${clash.code ?? clash.round_id} (${clash.start_date} → ${clash.end_date}) in ${input.market}. Two rounds of one market covering the same day makes a day of spend ambiguous, and the importer would file it by whichever came back first.`,
+      error: `These ADS DATES (${input.startDate} → ${input.endDate}) overlap ${clash.code ?? clash.round_id}, whose ads ran ${clash.start_date} → ${clash.end_date} in ${input.market}. Only the ads windows are compared — a class date is never part of this and may fall anywhere, including inside another round. Two rounds of one market covering the same day of SPEND makes that day ambiguous, and the importer would file it by whichever came back first.`,
     };
   }
 
@@ -209,11 +228,32 @@ export function checkRoundEdit(input: EditInput, existing: ExistingRound[]): Edi
     if (input.endDate < input.startDate) {
       errors.push({ field: "endDate", message: "the round ends before it starts" });
     }
-    if (input.sessionDate && (input.sessionDate < input.startDate || input.sessionDate > input.endDate)) {
-      errors.push({
-        field: "sessionDate",
-        message: `the class is on ${input.sessionDate}, outside the round (${input.startDate} → ${input.endDate})`,
-      });
+    /* THE CLASS IS NOT PART OF THE ADS WINDOW.
+       
+       It used to be required to fall inside it, and that was wrong twice over.
+       Ads and classes run on their own schedules: ads for 0926-03 might run
+       14-16 September for a class on the 17th, and nothing about that is odd.
+       
+       Worse, the rule caused the bug next to it. To record a class on the 17th
+       an operator had to stretch the ads window to the 17th, and the NEXT
+       round's ads starting that day were then refused as an overlap — by a
+       date that was only there to satisfy this check. One wrong rule, two
+       symptoms, and the second one looked unrelated.
+       
+       What is left is a typo guard, and only that: a class more than three
+       months from the ads that paid for it is a mistyped year, not a schedule.
+       Anything inside that is the client's business. */
+    if (input.sessionDate) {
+      const away = Math.min(
+        Math.abs(Date.parse(input.sessionDate) - Date.parse(input.startDate)),
+        Math.abs(Date.parse(input.sessionDate) - Date.parse(input.endDate)),
+      ) / 86_400_000;
+      if (away > 92) {
+        errors.push({
+          field: "sessionDate",
+          message: `the class is ${Math.round(away)} days from the ads window — check the year`,
+        });
+      }
     }
     const span = (Date.parse(input.endDate) - Date.parse(input.startDate)) / 86_400_000 + 1;
     if (span > 92) errors.push({ field: "endDate", message: `that is ${Math.round(span)} days — check the year` });
@@ -231,7 +271,7 @@ export function checkRoundEdit(input: EditInput, existing: ExistingRound[]): Edi
     return {
       kind: "conflict",
       code: "overlaps",
-      error: `${input.startDate} → ${input.endDate} overlaps ${clash.code ?? clash.round_id} (${clash.start_date} → ${clash.end_date}) in ${self.market ?? "this market"}.`,
+      error: `These ADS DATES (${input.startDate} → ${input.endDate}) overlap ${clash.code ?? clash.round_id}, whose ads ran ${clash.start_date} → ${clash.end_date} in ${self.market ?? "this market"}. Only the ads windows are compared — class dates are ignored here.`,
     };
   }
 

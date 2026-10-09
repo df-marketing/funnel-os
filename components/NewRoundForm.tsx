@@ -93,6 +93,9 @@ export function NewRoundForm({ client }: { client: string }) {
     setStart(value);
     const end = weekFrom(value);
     if (end && !endDate) { setEnd(end); setSession(end); }
+    /* The class is left alone once touched. Defaulting it to the last ads day
+       is a guess that was right for Shely and wrong for anyone whose class is
+       the day after — and that guess used to be enforced. */
   }
 
   const errorFor = (field: string) => errors.find((e) => e.field === field)?.message;
@@ -221,17 +224,17 @@ export function NewRoundForm({ client }: { client: string }) {
             {errorFor("market") && <em>{errorFor("market")}</em>}
           </label>
           <label>
-            <span>Starts</span>
+            <span>Ads start</span>
             <input type="date" value={startDate} onChange={(e) => onStart(e.target.value)} />
             {errorFor("startDate") && <em>{errorFor("startDate")}</em>}
           </label>
           <label>
-            <span>Ends</span>
+            <span>Ads end</span>
             <input type="date" value={endDate} onChange={(e) => setEnd(e.target.value)} />
             {errorFor("endDate") && <em>{errorFor("endDate")}</em>}
           </label>
           <label>
-            <span>Class date <i>optional</i></span>
+            <span>Class date <i>any date</i></span>
             <input type="date" value={sessionDate} onChange={(e) => setSession(e.target.value)} />
             {errorFor("sessionDate") && <em>{errorFor("sessionDate")}</em>}
           </label>
@@ -239,8 +242,9 @@ export function NewRoundForm({ client }: { client: string }) {
 
         <p className="nr-why">
           {editing
-            ? "Changing the window does not move rows that are already imported — they keep this round. It changes which round a FUTURE import files a day to, and it can leave existing rows outside the window."
-            : "The dates decide which round a day of ad spend belongs to, so a wrong window doesn’t fail — it files the money under the round next door. Overlapping rounds in one market are refused for the same reason."}
+            ? "Changing the ads window does not move rows that are already imported — they keep this round. It changes which round a FUTURE import files a day to, and it can leave existing rows outside the window."
+            : "The ads dates decide which round a day of spend belongs to, so a wrong window doesn’t fail — it files the money under the round next door. Only those two dates are checked for overlap."}
+          {" "}The class runs on its own schedule: it can be after the ads stop, or on the same day the next round’s ads begin.
         </p>
 
         {problem && <p className="nr-bad">{problem}</p>}
