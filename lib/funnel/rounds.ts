@@ -279,6 +279,37 @@ export function checkRound(input: RoundInput, existing: ExistingRound[]): Verdic
 }
 
 /**
+ * THE ID TO STORE A NEW ROUND UNDER, given every id already taken.
+ *
+ * round_id is the PRIMARY KEY of rounds and it is GLOBAL. `code` is not:
+ * 20260909072904 made it unique per (client_id, product_id, market, code)
+ * precisely so two clients may each run an 0726-01, which is the whole point
+ * of market-scoped codes.
+ *
+ * The create route used the code AS the id. For one client that is identical
+ * and reads nicely, which is why it survived. For the second client to reuse a
+ * code it is a collision on the primary key — and a hand-written insert with
+ * `on conflict (round_id) do update` does not collide, it OVERWRITES. That is
+ * not hypothetical: i-Care's 0726-01, 0726-02 and 0726-03 took Shely's July
+ * rounds on 9 Oct 2026, moving three windows to 2026-07-01 → 2026-10-06, in
+ * SG to MY, onto the wrong product. No row of spend moved — round_id is a
+ * stored foreign key — but every July figure was wrong until it was restored.
+ *
+ * So the code is used when it is free, and qualified by the client when it is
+ * not. Existing rounds and every single-client case are unaffected.
+ *
+ * Returns null when even the qualified id is taken, rather than inventing a
+ * third form — the caller refuses, and somebody picks a code.
+ */
+export function roundIdFor(code: string, clientId: string, taken: Iterable<string>): string | null {
+  const used = new Set([...taken].map((t) => t.toLowerCase()));
+  for (const candidate of [code, `${clientId}-${code}`]) {
+    if (!used.has(candidate.toLowerCase())) return candidate;
+  }
+  return null;
+}
+
+/**
  * The next code after the newest round in a month, for prefilling the form.
  *
  * Convenience only — a wrong suggestion is corrected by typing over it, and the

@@ -11,7 +11,7 @@
  * correct, and moves every per-round figure. Nothing on screen says so. That is
  * what these assertions are protecting.
  */
-import { checkRound, checkRoundEdit, suggestNextCode, type ExistingRound } from "../lib/funnel/rounds";
+import { checkRound, checkRoundEdit, suggestNextCode, roundIdFor, type ExistingRound } from "../lib/funnel/rounds";
 
 let pass = 0, fail = 0;
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -325,6 +325,41 @@ console.log("\ntwo rounds may share a week, if they do not share a campaign");
                  endDate: WINDOW.endDate, sessionDate: "", sessionLabel: "", campaigns: R2 }, existing);
                return v.kind === "ok" && v.unchanged; })(), true);
   }
+}
+
+console.log("\nthe id is global, the code is not");
+{
+  /* WHAT THIS IS FOR, on 9 Oct 2026.
+     
+     The create route wrote `round_id: r.code`. round_id is the PRIMARY KEY of
+     rounds and is global; code is unique only per (client_id, product_id,
+     market, code), which is the entire point of market-scoped codes.
+     
+     i-Care's first three rounds were called 0726-01, 0726-02 and 0726-03, and
+     so were Shely's July rounds. A hand-written insert with `on conflict
+     (round_id) do update` does not collide — it overwrites. Three of Shely's
+     windows moved to 2026-07-01 → 2026-10-06, SG to MY, onto i-Care's
+     product. No spend moved, because round_id is a stored foreign key, but
+     every July figure was wrong until it was restored. */
+  const SHELY_IDS = SHELY.map((r) => r.round_id);
+
+  eq("a free code is used as the id", roundIdFor("1126-01", "icare", SHELY_IDS), "1126-01");
+  eq("a code another client already uses is qualified",
+    roundIdFor("0926-01", "icare", SHELY_IDS), "icare-0926-01");
+  eq("re-running for the same client qualifies too — it does not overwrite",
+    roundIdFor("0926-01", "shely", SHELY_IDS), "shely-0926-01");
+  eq("case is not what makes an id free",
+    roundIdFor("0926-01", "icare", ["0926-01".toUpperCase()]), "icare-0926-01");
+  eq("both forms taken is refused rather than invented around",
+    roundIdFor("0926-01", "icare", [...SHELY_IDS, "icare-0926-01"]), null);
+  eq("nothing taken at all", roundIdFor("0726-01", "icare", []), "0726-01");
+
+  /* The real case, in the order it actually happened: Shely's July rounds
+     exist, then i-Care is given the same three codes. */
+  const july = ["0726-01", "0726-02", "0726-03"];
+  eq("i-Care's three codes all land beside Shely's rather than on them",
+    july.map((c) => roundIdFor(c, "icare", [...SHELY_IDS, ...july])),
+    ["icare-0726-01", "icare-0726-02", "icare-0726-03"]);
 }
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);

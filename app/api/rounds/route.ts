@@ -3,7 +3,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { requireStaff } from "@/lib/auth/access";
 import { createAdminClient, MISSING_KEY_MESSAGE } from "@/lib/supabase/admin";
 import { FUNNEL_TAG } from "@/lib/supabase/read";
-import { checkRound, checkRoundEdit, suggestNextCode, type ExistingRound } from "@/lib/funnel/rounds";
+import { checkRound, checkRoundEdit, suggestNextCode, roundIdFor, type ExistingRound } from "@/lib/funnel/rounds";
 
 export const runtime = "nodejs";
 
@@ -181,8 +181,26 @@ export async function POST(request: Request) {
   }
 
   const r = verdict.round;
+
+  /* THE ID IS GLOBAL; THE CODE IS NOT.
+     
+     Every id already in the table, across every client — not just this one.
+     round_id is the primary key of rounds, while code is unique only per
+     (client_id, product_id, market, code), so a second client reusing 0726-01
+     is legitimate and its ID still has to be its own. This used to write
+     `round_id: r.code`, and i-Care's three rounds took Shely's July ones. */
+  const { data: allIds, error: idError } = await db.from("rounds").select("round_id");
+  if (idError) return NextResponse.json({ ok: false, error: idError.message }, { status: 500 });
+  const roundId = roundIdFor(r.code, clientId, (allIds ?? []).map((x) => x.round_id as string));
+  if (!roundId) {
+    return NextResponse.json({
+      ok: false, code: "id_taken",
+      error: `Both ${r.code} and ${clientId}-${r.code} are already used as round ids. Pick a different code.`,
+    }, { status: 409 });
+  }
+
   const { error: writeError } = await db.from("rounds").insert({
-    round_id: r.code,
+    round_id: roundId,
     client_id: clientId,
     code: r.code,
     start_date: r.startDate,
@@ -206,7 +224,7 @@ export async function POST(request: Request) {
   revalidatePath("/");
   revalidateTag(FUNNEL_TAG);
 
-  return NextResponse.json({ ok: true, created: true, code: r.code }, { status: 201 });
+  return NextResponse.json({ ok: true, created: true, code: r.code, roundId }, { status: 201 });
 }
 
 
