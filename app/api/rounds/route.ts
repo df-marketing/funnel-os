@@ -23,6 +23,49 @@ const ALL_MARKETS = ["SG", "MY"];
  *
  * A comma is a separator and not part of a name: Meta's names use underscores.
  */
+/**
+ * THE CLASS GOES IN TWO PLACES, AND ONLY ONE OF THEM IS READ.
+ *
+ * rounds.session_date is where a round's class is typed. v_round_sessions —
+ * which every metric view actually reads — is built from the round_sessions
+ * TABLE and does not look at rounds.session_date at all. 0025 split them when a
+ * round stopped being limited to one class, and backfilled every round that
+ * existed that day.
+ *
+ * Nothing has written round_sessions since. Every round created by hand after
+ * 0926-01 has a session_date and no session row, and v_metrics_by_round gates
+ * attendance on `coalesce(cls.sessions, 0) > 0` — so those rounds report their
+ * attendance as ABSENT. Shely's 0926-02, 0926-03, 0926-04 and 1026-01 hold 175
+ * attendance events between them and every one of them showed a dash.
+ *
+ * This screen was about to do the same thing to every round Henry creates.
+ *
+ * session_id follows 0025's convention, `<round>·1`, so a round written here
+ * and a round written by that migration are the same row.
+ */
+async function writeSession(
+  db: ReturnType<typeof createAdminClient>,
+  roundId: string,
+  sessionDate: string,
+  sessionLabel: string,
+): Promise<string | null> {
+  if (!db) return null;
+  if (!sessionDate) {
+    // The class was cleared. Remove the row rather than leave a stale date that
+    // the views would still count.
+    const { error } = await db.from("round_sessions").delete().eq("round_id", roundId);
+    return error ? error.message : null;
+  }
+  const { error } = await db.from("round_sessions").upsert({
+    session_id: `${roundId}\u00b71`,
+    round_id: roundId,
+    session_date: sessionDate,
+    session_label: sessionLabel || null,
+    ord: 1,
+  }, { onConflict: "session_id" });
+  return error ? error.message : null;
+}
+
 function campaignList(raw: unknown): string[] {
   const parts = Array.isArray(raw)
     ? raw.filter((x): x is string => typeof x === "string")
@@ -221,6 +264,16 @@ export async function POST(request: Request) {
   });
   if (writeError) return NextResponse.json({ ok: false, error: writeError.message }, { status: 500 });
 
+  /* The round exists now; its class has to exist too, or the views will report
+     this round's attendance as absent however many people turn up. */
+  const sessionError = await writeSession(db, roundId, r.sessionDate, r.sessionLabel);
+  if (sessionError) {
+    return NextResponse.json({
+      ok: false,
+      error: `The round was created, but its class date could not be recorded: ${sessionError}. Attendance for ${r.code} will read as absent until that is fixed.`,
+    }, { status: 500 });
+  }
+
   revalidatePath("/");
   revalidateTag(FUNNEL_TAG);
 
@@ -326,6 +379,14 @@ export async function PATCH(request: Request) {
     campaigns: e.campaigns.length ? e.campaigns : null,
   }).eq("round_id", roundId).eq("client_id", clientId);
   if (writeError) return NextResponse.json({ ok: false, error: writeError.message }, { status: 500 });
+
+  const sessionError = await writeSession(db, roundId, e.sessionDate, e.sessionLabel);
+  if (sessionError) {
+    return NextResponse.json({
+      ok: false,
+      error: `The dates were saved, but the class date could not be recorded: ${sessionError}. Attendance for ${e.code} will read as absent until that is fixed.`,
+    }, { status: 500 });
+  }
 
   revalidatePath("/");
   revalidateTag(FUNNEL_TAG);
