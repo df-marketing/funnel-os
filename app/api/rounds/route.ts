@@ -7,6 +7,11 @@ import { checkRound, checkRoundEdit, suggestNextCode, type ExistingRound } from 
 
 export const runtime = "nodejs";
 
+/* Offered to a client that has no rounds to infer from. Not a validation list
+   — checkRound takes whatever market a round declares — just what the dropdown
+   suggests before there is any history to read. */
+const ALL_MARKETS = ["SG", "MY"];
+
 /**
  * POST /api/rounds — create one round.
  *
@@ -73,7 +78,14 @@ export async function GET(request: Request) {
     ok: true,
     rounds: rounds.slice(0, 8),
     products: productsResult.data ?? [],
-    markets: [...new Set(rounds.map((r) => r.market).filter(Boolean))],
+    /* The markets this client has used, or every market the business runs in
+       when it has no rounds yet. A new client would otherwise be offered only
+       the markets of rounds it does not have — which for FWD i-Care, whose
+       first round is its first anything, meant an empty list. */
+    markets: (() => {
+      const used = [...new Set(rounds.map((r) => r.market).filter(Boolean))] as string[];
+      return used.length ? used : ALL_MARKETS;
+    })(),
     // A suggestion, not a decision — checkRound is what actually rules.
     suggested: suggestNextCode(rounds, today),
   });

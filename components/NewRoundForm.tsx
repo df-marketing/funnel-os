@@ -77,7 +77,7 @@ export function NewRoundForm({ client }: { client: string }) {
       if (cancelled || !data?.ok) { setProblem("Could not read this client's rounds."); return; }
       setRounds(data.rounds ?? []);
       setProducts(data.products ?? []);
-      setMarkets(data.markets?.length ? data.markets : ["SG"]);
+      setMarkets(data.markets ?? []);
       setCode(data.suggested ?? "");
       if (data.products?.length === 1) setProduct(data.products[0].product_id);
       if (data.markets?.length === 1) setMarket(data.markets[0]);
