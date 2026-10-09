@@ -50,7 +50,20 @@ insert into journey_metrics (metric, metric_key, label, source, event_type, prod
   ('submit_declaration', 'declaration','Submit Declaration',          'ads', null, null, false, 44, array['Submit Declaration'],          'icare'),
   ('checkouts_started',  'checkout',   'Checkouts Initiated',         'ads', null, null, false, 45, array['Checkouts initiated'],         'icare'),
   ('icare_purchase',     'icareBuy',   'Purchase',                    'ads', null, null, false, 46, array['Purchase'],                    'icare')
-on conflict (metric) do update
+/* ON CONFLICT must name the INDEX EXPRESSION, not the column.
+   
+   `metric` was the primary key until 20260909072902 dropped it: a measure can
+   now be global (client_id null) or scoped to one client, so the name alone
+   stopped being unique. What replaced it is a unique index on an expression —
+   
+       create unique index journey_metrics_client_metric_unique
+         on journey_metrics (metric, coalesce(client_id, ''));
+   
+   — because PostgreSQL treats NULLs as distinct, and the coalesce makes the
+   global namespace a real, unique member. `on conflict (metric)` matches no
+   constraint and raises 42P10; so does `(metric, client_id)`, because the index
+   is not on that column, it is on coalesce of it. */
+on conflict (metric, coalesce(client_id, '')) do update
   set aliases = excluded.aliases, label = excluded.label, seq = excluded.seq;
 
 -- ── 2 · THE CLIENT ─────────────────────────────────────────────────────────
