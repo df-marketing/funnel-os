@@ -189,7 +189,7 @@ console.log("\nAttribution");
   eq("no utm falls back to date window", [win.roundId, win.method], ["0526-02", "date_window"]);
 
   const gap = attributeLead("2026-05-21T09:00:00Z", null, rounds, runs);
-  eq("between rounds attributes to the last open one, still date_window", [gap.roundId, gap.method], ["0526-02", "date_window"]);
+  eq("between rounds no longer infers an earlier destination", [gap.roundId, gap.method], [null, null]);
 
   eq("close round is the most recent attendance before purchase",
     closeRoundFor("2026-05-27T22:00:00Z", [
@@ -573,15 +573,23 @@ console.log("\nPipeline — a parked row says why it was parked");
 {
   const db = fakeDb({ rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [] });
 
+  try {
+    await planImport(db, {
+      source: "leads", clientId: "shely", fileName: "leads.csv",
+      text: "Email,Created\ndated@example.sg,2026-05-14\nnodate@example.sg,",
+    });
+    eq("a file with a lead missing its date cannot be staged", true, false);
+  } catch (e) {
+    eq("the whole Leads file is now refused", e instanceof ImportError, true);
+    eq("the incomplete row says what is missing", (e as ImportError).detail?.[0]?.includes("missing or invalid opt-in date"), true);
+  }
   const leads = await planImport(db, {
     source: "leads", clientId: "shely", fileName: "leads.csv",
-    text: ["Email,Created", "dated@example.sg,2026-05-14", "nodate@example.sg,", ",2026-05-14"].join("\n"),
+    text: "Email,Created\ndated@example.sg,2026-05-14\n,2026-05-14",
   });
   const by = (reason: string) => leads.ops.unmatched.filter((u) => u.reason === reason);
-  eq("an email with no date is an incomplete row", by("incomplete_row").length, 1);
-  eq("...and it is NOT filed as having no contact detail", by("name_only").length, 1);
+  eq("the valid dated row with no contact detail still parks", by("name_only").length, 1);
   eq("the row with no contact detail still is", by("name_only")[0].guess_method, null);
-  eq("the incomplete row says what is missing", by("incomplete_row")[0].guess_method, "no usable opt-in date");
 
   // A stranger in an attendance file is a stranger, not a buyer. matchRow used
   // to call every unmatched-but-contactable row "bought_without_lead" whatever
@@ -909,8 +917,6 @@ console.log("\nPipeline — the list a lead was on beats a guess about dates");
       "0526-03,early@example.sg,2026-05-14,Organic,",
       // A UTM still wins: a click on a round's ad is evidence about that ad.
       "0526-03,clicked@example.sg,2026-05-14,Paid Ads,Cold_Broad",
-      // A round this client does not have is ignored, not trusted.
-      "9999-99,typo@example.sg,2026-05-14,Organic,",
     ].join("\n"),
   });
   const by = (e: string) => plan.ops.events.find((x) => x.event_date && plan.ops.contacts.some(
@@ -923,8 +929,18 @@ console.log("\nPipeline — the list a lead was on beats a guess about dates");
   // registered for a later round's webinar.
   eq("the named round outranks even a utm", by("clicked@example.sg").round_id, "0526-03");
   eq("but the ad they clicked is still recorded", by("clicked@example.sg").ad_set, "Cold_Broad");
-  eq("an unknown round falls back instead of inventing one", by("typo@example.sg").round_id, "0526-02");
-  eq("and the import says so", plan.warnings.some((w) => w.includes("9999-99")), true);
+  eq("preview counts the two explicitly placed earlier opt-ins", plan.leadRoundGuard?.destinations,
+     [{ roundId: "0526-03", label: "0526-03", count: 2, declaredOutsideWindow: 2 }]);
+  try {
+    await planImport(db, {
+      source: "leads", clientId: "shely", fileName: "leads.csv",
+      text: "Round,Email,Created\n9999-99,typo@example.sg,2026-05-14",
+    });
+    eq("an unknown round never falls back", true, false);
+  } catch (e) {
+    eq("an unknown round blocks even inside a real date window", e instanceof ImportError, true);
+    eq("the import identifies the row, not its contact", (e as ImportError).detail?.[0]?.startsWith("Data row 1:"), true);
+  }
 }
 
 console.log("\nPipeline — a lead dated after the sale did not produce the sale");
@@ -1199,7 +1215,7 @@ console.log("\nPipeline — import order");
   });
   eq("no ads committed: nothing attributes by ad set", leads.attribution.utm, 0);
   eq("no ads committed: everything falls to the date window", leads.attribution.dateWindow, 2);
-  ok("no ads committed: leads name the missing file", !!leads.prerequisite?.includes("ads file"));
+  ok("no ads committed: leads can still specify a round explicitly", !!leads.prerequisite?.includes("explicit Round"));
 
   const att = await planImport(empty(), {
     source: "attendance", clientId: "shely", fileName: "3-attendance.csv",
@@ -1524,7 +1540,7 @@ console.log("\nAds — channel");
 }
 
 // ── the queue must not double-count a re-import ─────────────────────────────
-console.log("\nCommit — re-importing a source retires the batch it replaces");
+console.log("\nCommit — re-importing a source preserves waiting rows once");
 {
   const SALES = "event_date,email,phone,product,amount\n2026-05-20,,+6591234567,preview,297\n";
   const held = (t: Tables) =>
@@ -1551,8 +1567,8 @@ console.log("\nCommit — re-importing a source retires the batch it replaces");
   await run(t, "b2", SALES);
   eq("re-importing the same file does not park them twice", waiting(t), 1);
   eq("so revenue held stays put instead of doubling", held(t), 297);
-  eq("the row moves onto the batch that re-asserted it",
-     (t.unmatched_rows ?? []).filter((r) => r.import_batch_id === "b2" && !r.resolved_at).length, 1);
+  eq("the row retains its original batch",
+     (t.unmatched_rows ?? []).filter((r) => r.import_batch_id === "b1" && !r.resolved_at).length, 1);
 
   /**
    * The case that actually bit: the file was EDITED between uploads. A changed
@@ -1565,8 +1581,8 @@ console.log("\nCommit — re-importing a source retires the batch it replaces");
   await run(t3, "d2", "event_date,email,phone,product,amount,evidence\n2026-05-20,,+6591234567,preview,297,supervisor confirmed\n");
   eq("an edited re-upload does not leave its predecessor behind", waiting(t3), 1);
   eq("and the money is held once, not twice", held(t3), 297);
-  eq("the replaced row says why it left",
-     (t3.unmatched_rows ?? []).find((r) => r.import_batch_id === "d1")?.resolved_by, "restated");
+  eq("changed non-identity evidence does not resolve the original queue row",
+     (t3.unmatched_rows ?? []).find((r) => r.import_batch_id === "d1")?.resolved_by ?? null, null);
 
   // A later period says nothing about an earlier one, so it must not retire it.
   const t2: Tables = { rounds: ROUNDS, contacts: [], events: [], ads_performance: [], v_column_map: [], unmatched_rows: [], import_batches: [] };
@@ -2341,11 +2357,9 @@ console.log("\nUnidentified — counted as a headcount, attached to nobody");
       "Judy Weng,,,2026-05-15,Organic,",
       "Nisa de Souza,,,2026-05-15,AOAI,",
       "Ghost,,,2026-05-15,,Cold_Broad",           // an ad set but still no address
-      "Undated,,,,Organic,",                       // no date: cannot be placed
     ].join("\n"),
   });
   eq("named organic leads are counted", leads.counts.unidentified, 3);
-  eq("an undated row still parks", leads.counts.parked, 1);
   eq("the export's own source is kept", leads.ops.events[1].source, "AOAI");
   eq("a bare ad set does not make someone paid", leads.ops.events[2].source, "Organic");
   ok("no contact is invented for any of them", leads.ops.contacts.length === 0);
@@ -2840,7 +2854,7 @@ console.log("\nUnidentified — counted as a headcount, attached to nobody");
     events: existing.map((e) => ({ ...e, answers: {} })), ads_performance: [], v_column_map: [],
   }), {
     source: "leads", clientId: "shely", fileName: "ghl.csv",
-    text: "Email,Created\na@b.com,2026-09-02",
+    text: "Email,Created\na@b.com,2026-05-14",
   });
   eq("a duplicate carrying nothing queues nothing", bare.ops.answerUpdates.length, 0);
 }

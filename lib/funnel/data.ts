@@ -1,3 +1,8 @@
+import { isReportingPreviewClient, isReportingPreviewView } from "./reporting-preview";
+import { previewCadencesFor } from "./preview-periods";
+import { buildJourneyStrip, type JourneyVocabulary } from "./journey-strip";
+import { keepsSpend } from "./filters";
+import { comparisonStage, isComparisonAddress, isFixedReportingView, stageComparison, type StageComparison } from "./stage-comparison";
 import { unstable_cache } from "next/cache";
 import { createReadClient, FUNNEL_TAG } from "@/lib/supabase/read";
 import { cadencesFor, resolveSpine, type Cadence } from "./cadence";
@@ -38,16 +43,8 @@ export type Stage = {
   stage_rate_label: string | null;
 };
 
-/**
- * One journey card. `m` is the whole metric object, so the card is derived from
- * exactly the same numbers — and the same channel blanking — as every table.
- * `value`/`rate` are the view's older flat columns and are not read.
- */
-export type StripCard = Stage & {
-  value: string | null;
-  rate: string | null;
-  m?: Metrics | null;
-};
+/** One card based on a scoped stage and filter-aware reporting totals. */
+export type StripCard = Stage & { value: number | null; rate: number | null };
 
 export type Cut = {
   cut_key: string;
@@ -227,9 +224,24 @@ export type SourceOption = { bucket: string; ord: number; note: string | null; l
  * the views don't exist yet, and the page should say so plainly instead of
  * showing a 500.
  */
+type RoundSchedule = { round_id: string; code: string | null; start_date: string; end_date: string };
+
 export type Dashboard = {
+  reportingPreview?: {
+    vocabulary: JourneyVocabulary | null;
+    analysis?: {
+      stages: Stage[];
+      vocabulary: JourneyVocabulary | null;
+      roundCuts: Cut[];
+      monthCuts: Cut[];
+      roundSchedule: RoundSchedule[];
+      sourceKeepsSpend: boolean;
+      baseline: Cut | null;
+    };
+  };
   clients: Client[];
   stages: Stage[];
+  comparison: StageComparison | null;
   strip: StripCard[];
   total: Cut | null;
   baseline: Cut | null;
@@ -286,7 +298,7 @@ export type Dashboard = {
 };
 
 const EMPTY: Omit<Dashboard, "error" | "errorHint" | "view"> = {
-  clients: [], stages: [], strip: [], total: null, baseline: null,
+  clients: [], stages: [], comparison: null, strip: [], total: null, baseline: null,
   products: [], channels: [], countries: [], sources: [], audiences: [], periods: [], filter: NO_FILTER, cadences: ["round"],
   byMonth: [], byWeek: [], byRound: [], byAdset: [], bySource: [], byRoundSource: [], byVariant: [], byLanding: [],
   byAd: [], bySession: [], byOffer: [], thisRound: [],
@@ -297,18 +309,6 @@ const EMPTY: Omit<Dashboard, "error" | "errorHint" | "view"> = {
 };
 
 /** Which tabs actually read a metrics table. Everything else is chrome-only. */
-
-/** Tabs that belong to a journey stage, so they only exist for some clients. */
-const STAGE_TABS = ["targeting", "ads", "lp", "class", "preview", "middle", "product", "checkout"];
-
-/**
- * Switching client keeps the tab only if the new client's journey has it —
- * Northsea has no class, so "Attend class" must not survive the switch.
- */
-function resolveView(requested: string, slugs: Set<string>) {
-  return slugs.has(requested) || !STAGE_TABS.includes(requested) ? requested : "round";
-}
-
 
 /**
  * The client list, with the default-client ordering already applied.
@@ -410,62 +410,41 @@ const loadChrome = unstable_cache(
   { tags: [FUNNEL_TAG], revalidate: 3600 },
 );
 
-/**
- * The journey strip, under the active filter.
- *
- * Separate from loadChrome and read through fo_cut, because it is the only part
- * of the chrome that is made of NUMBERS. It used to be fetched straight from
- * PostgREST alongside the stages and the import status, which meant the filter
- * was never set for it and the strip showed 393 leads above a table showing 313.
- * The journey config genuinely doesn't move when you filter; the figures on it
- * do.
- */
-const loadStrip = unstable_cache(
+const reportingScope = (id: string, f: FilterKey) => ({
+  p_client: id, p_product: f.product, p_channel: f.channel, p_country: f.country,
+  p_source: f.source, p_audience: f.audience, p_attribution: f.attribution, p_periods: f.periods,
+});
+
+/** One filtered total for the reporting table and journey strip, not a second
+ * per-stage SQL join. Refresh/import/schema events invalidate the same tag. */
+const loadReportingTotal = unstable_cache(
   async (id: string, f: FilterKey) => {
     const db = createReadClient();
-    const strip = await db.rpc("fo_cut", {
-      p_view: "v_journey_strip",
-      p_client: id, p_product: f.product, p_channel: f.channel, p_country: f.country,
-      p_source: f.source, p_audience: f.audience, p_attribution: f.attribution, p_periods: f.periods,
-    });
-    return (ok(strip, "v_journey_strip") as StripCard[] | null) ?? [];
+    const read = await db.rpc("fo_cut", { p_view: "v_metrics_total", ...reportingScope(id, f) });
+    return (ok(read, "v_metrics_total") as Cut[] | null)?.[0] ?? null;
   },
-  ["funnel-strip"],
-  /*
-   * A FILTER COMBINATION NOBODY OPENED FOR FIVE MINUTES COST A COLD READ.
-   *
-   * The database floor is about 1.5 seconds, and the country path roughly
-   * doubles the journey strip — 1.56s with no country, 3.73s with one. So
-   * switching SG to MY and back paid four seconds every time the five-minute
-   * window lapsed, which, clicking between two countries while reading a table,
-   * it constantly did.
-   *
-   * Thirty minutes instead. Nothing goes stale by waiting: every import and the
-   * Refresh data button call revalidateTag(FUNNEL_TAG), which drops all of
-   * these at once. The window only governs how long an UNCHANGED figure may be
-   * reused, and between imports every figure is unchanged — that is the whole
-   * point of a period that has been closed.
-   *
-   * EIGHTEEN HOURS, from 23 Sep. Six hours was chosen before the warmer
-   * existed, and the warmer changed what the number is for.
-   *
-   * The warmer cannot run during the working day: measured 23 Sep, a live page
-   * loaded in 27.5s while a serial sweep was running, against 3.4s cold. On a
-   * shared-CPU instance even a polite warmer is a competitor. So it runs once,
-   * at 2am, and the window has to outlast a working day or the sweep is pointless
-   * by mid-morning. Eighteen hours covers 2am to 8pm.
-   *
-   * The reasoning above is what makes the length safe, and it has not changed —
-   * the tag is what keeps this fresh, not the clock. Every write path calls it:
-   * import commit, unmatched resolve, meta pull, schema push, rules, heatmap.
-   * The timer only bounds how long a change made OUTSIDE the app — SQL run by
-   * hand in the editor — can go unnoticed. That is what Refresh data is for.
-   *
-   * WHAT THIS DOES NOT DO: make anything faster. A filter combination nobody
-   * has opened is still a cold read at the ~1s-per-query floor. This only stops
-   * a warm one going cold while somebody is still working.
-   */
+  ["funnel-reporting-total"],
   { tags: [FUNNEL_TAG], revalidate: 64800 },
+);
+
+const loadJourneyVocabulary = unstable_cache(
+  async (id: string): Promise<JourneyVocabulary> => {
+    const db = createReadClient();
+    const columns = "metric, metric_key, client_id, source, event_type, is_core";
+    const maximum = 512;
+    const [global, own] = await Promise.all([
+      db.from("journey_metrics").select(columns).is("client_id", null).limit(maximum),
+      db.from("journey_metrics").select(columns).eq("client_id", id).limit(maximum),
+    ]);
+    const globalRows = (ok(global, "global journey measurements") ?? []) as JourneyVocabulary;
+    const clientRows = (ok(own, "client journey measurements") ?? []) as JourneyVocabulary;
+    // Do not cache a partial vocabulary: an unseen conflicting definition
+    // could otherwise make an overwritten key look safe.
+    if (globalRows.length >= maximum || clientRows.length >= maximum) throw new Error("Journey vocabulary exceeds the safe limit.");
+    return [...globalRows, ...clientRows];
+  },
+  ["funnel-journey-vocabulary"],
+  { tags: [FUNNEL_TAG], revalidate: 3600 },
 );
 
 /**
@@ -521,13 +500,9 @@ const VIEW_FOR: Record<Cut2, string> = {
 const loadMetrics = unstable_cache(
   async (id: string, cut: Cut2, f: FilterKey) => {
     const db = createReadClient();
-    const scope = {
-      p_client: id, p_product: f.product, p_channel: f.channel, p_country: f.country,
-      p_source: f.source, p_audience: f.audience, p_attribution: f.attribution, p_periods: f.periods,
-    };
+    const scope = reportingScope(id, f);
 
-    const [total, baseline, columns] = await Promise.all([
-      db.rpc("fo_cut", { p_view: "v_metrics_total", ...scope }),
+    const [baseline, columns] = await Promise.all([
       db.rpc("fo_cut", { p_view: "v_metrics_baseline", ...scope }),
       db.rpc("fo_cut", {
         p_view: VIEW_FOR[cut],
@@ -573,13 +548,12 @@ const loadMetrics = unstable_cache(
     }
 
     return {
-      total: (ok(total, "v_metrics_total") as Cut[] | null)?.[0] ?? null,
       baseline: (ok(baseline, "v_metrics_baseline") as Cut[] | null)?.[0] ?? null,
       columns: cols,
       elsewhere,
     };
   },
-  ["funnel-metrics"],
+  ["funnel-metrics-without-total"],
   // Same window and the same reason as funnel-strip above. This is the one a
   // filter change actually re-reads, so it is the one the wait is felt on —
   // measured 21 Sep at 3.2s to 10.4s cold, and 0.044s warm. Which is the whole
@@ -807,6 +781,19 @@ const loadRoundContext = unstable_cache(
 );
 
 /** The parked queue, only for the tab that shows it. */
+// The preview reads only scoped round metadata; it never loads the old
+// unsafely aggregated asset/candidate readers for This round.
+const loadPreviewRoundSchedule = unstable_cache(
+  async (id: string): Promise<RoundSchedule[]> => {
+    const db = createReadClient();
+    const result = await db.from("rounds").select("round_id,code,start_date,end_date")
+      .eq("client_id", id).order("start_date");
+    return (ok(result, "preview round schedule") ?? []) as RoundSchedule[];
+  },
+  ["funnel-preview-round-schedule"],
+  { tags: [FUNNEL_TAG], revalidate: 3600 },
+);
+
 const loadUnmatchedDetail = unstable_cache(
   async (id: string) => {
     const db = createReadClient();
@@ -873,9 +860,11 @@ export async function getDashboard(
   clientId?: string,
   requested = "round",
   filter: FilterKey = NO_FILTER,
+  allowedClientIds: readonly string[] | null = null,
+  wantsReportingPreview = false,
 ): Promise<Dashboard> {
   try {
-    return await build(clientId, requested, filter);
+    return await build(clientId, requested, filter, allowedClientIds, wantsReportingPreview);
   } catch (e) {
     return explain(e, requested);
   }
@@ -885,8 +874,17 @@ async function build(
   clientId: string | undefined,
   requested: string,
   filter: FilterKey,
+  allowedClientIds: readonly string[] | null,
+  wantsReportingPreview: boolean,
 ): Promise<Dashboard> {
-  const clients = await loadClients();
+  const allClients = await loadClients();
+  const clients = allowedClientIds === null ? allClients
+    : allClients.filter((client) => allowedClientIds.includes(client.client_id));
+  // Do not load another client's journey or comparison on a restricted
+  // account when an explicit/implicit selection is not among its grants.
+  if (allowedClientIds !== null && (!clients.length || (clientId && !clients.some((c) => c.client_id === clientId)))) {
+    return { ...EMPTY, clients, view: requested, error: null, errorHint: null };
+  }
 
   if (!clients.length) {
     return {
@@ -899,34 +897,50 @@ async function build(
 
   const client = clients.find((c) => c.client_id === clientId) ?? clients[0];
   const id = client.client_id;
+  const preview = process.env.NODE_ENV === "development" && wantsReportingPreview
+    && id === clientId && isReportingPreviewClient(id) && isReportingPreviewView(requested);
+  const previewAnalysis = preview && requested === "analysis";
 
   // Chrome and the requested tab's data go out together — one wave, not three.
   // The tab is fetched speculatively: confirming it's valid for this client needs
   // the journey stages, and waiting for those would put the waterfall back.
-  const wanted = cutFor(requested, filter.asset);
-  const [chrome, strip, options, speculative, detail, formAnswers] = await Promise.all([
+  // Any potential known stage can be configured differently for this client.
+  // Only static screens may request a cut before their journey is resolved.
+  const wanted = previewAnalysis ? "round" : isFixedReportingView(requested) ? cutFor(requested, filter.asset) : null;
+  const [chrome, reportingTotal, vocabulary, options, speculative, detail, formAnswers, previewMonths, previewSchedule] = await Promise.all([
     loadChrome(id),
-    loadStrip(id, filter),
+    loadReportingTotal(id, filter),
+    loadJourneyVocabulary(id).catch(() => null),
     loadFilterOptions(id),
     wanted ? loadMetrics(id, wanted, filter) : null,
     NEEDS_UNMATCHED_DETAIL.has(requested) ? loadUnmatchedDetail(id) : null,
     requested === "forms" ? loadFormAnswers(id) : null,
+    previewAnalysis ? loadMetrics(id, "month", filter) : null,
+    previewAnalysis ? loadPreviewRoundSchedule(id) : null,
   ]);
 
   // Only This round asks these questions, so only This round pays for them.
-  const context = NEEDS_THIS_ROUND.has(requested) ? await loadRoundContext(id, filter) : null;
+  const context = !previewAnalysis && NEEDS_THIS_ROUND.has(requested) ? await loadRoundContext(id, filter) : null;
 
-  const cadences = cadencesFor(options.products, filter.product);
+  const cadences = preview ? previewCadencesFor(options.products, filter.product) : cadencesFor(options.products, filter.product);
   const view = resolveSpine(
-    resolveView(requested, new Set(chrome.stages.map((s) => s.stage_slug))),
+    isFixedReportingView(requested) || comparisonStage(chrome.stages, requested) ? requested : "round",
     cadences,
   );
 
   // Only when the guess was wrong — switching to a client whose journey lacks the
   // open tab — does a second fetch happen, and it's usually a cache hit.
-  const settled = cutFor(view, filter.asset);
-  const metrics =
-    view === requested ? speculative : settled ? await loadMetrics(id, settled, filter) : null;
+  const effectiveStage = comparisonStage(chrome.stages, view);
+  const selection = effectiveStage
+    ? stageComparison(effectiveStage, filter.asset, cadences.length === 1 && cadences[0] === "week" ? "week" : "round", preview)
+    : null;
+  const needsFractionalPurchase = filter.attribution === "even_split"
+    && (selection?.legacy === "preview" || selection?.legacy === "middle");
+  const comparison = selection && (isComparisonAddress(view) || needsFractionalPurchase)
+    ? { ...selection, legacy: null } : selection;
+  const settled = previewAnalysis ? "round" : comparison?.cut ?? cutFor(view, filter.asset);
+  const metrics = !settled ? null : view === requested && settled === wanted
+    ? speculative : await loadMetrics(id, settled, filter);
 
   /**
    * The columns every part of this screen shows.
@@ -936,9 +950,28 @@ async function build(
    * stray ?asset= in the URL. group_key rather than the label, because the
    * label is prettified and "(unsplit)" is not "Unsplit spend".
    */
-  const shown = narrowToAsset(metrics?.columns ?? [], view, filter.asset);
+  const metricColumns = metrics?.columns ?? [];
+  const shown = comparison
+    ? comparison.assetCut && filter.asset ? metricColumns.filter((c) => c.group_key === filter.asset) : metricColumns
+    : narrowToAsset(metricColumns, view, filter.asset);
+  const legacyView = comparison ? comparison.legacy : view;
+  const effectiveFilter = comparison && !comparison.assetCut && filter.asset ? { ...filter, asset: null } : filter;
+  const strip = buildJourneyStrip({
+    stages: chrome.stages, clientId: id, total: reportingTotal, vocabulary,
+    sourceKeepsSpend: keepsSpend(filter.source),
+  });
 
   return {
+    ...(preview ? {
+      reportingPreview: {
+        vocabulary,
+        ...(previewAnalysis ? { analysis: {
+          stages: chrome.stages, vocabulary, roundCuts: shown,
+          monthCuts: previewMonths?.columns ?? [], roundSchedule: previewSchedule ?? [],
+          sourceKeepsSpend: keepsSpend(filter.source), baseline: metrics?.baseline ?? null,
+        } } : {}),
+      },
+    } : {}),
     clients,
     products: options.products,
     channels: options.channels,
@@ -946,28 +979,29 @@ async function build(
     sources: options.sources,
     audiences: options.audiences,
     periods: options.periods,
-    filter,
+    filter: effectiveFilter,
     cadences,
     stages: chrome.stages,
+    comparison,
     strip,
     imports: chrome.imports,
     unmatched: chrome.unmatched,
-    total: metrics?.total ?? null,
+    total: metrics ? reportingTotal : null,
     baseline: metrics?.baseline ?? null,
     byMonth: NEEDS_MONTHS.has(view) ? shown : [],
     byWeek: NEEDS_WEEKS.has(view) ? shown : [],
-    byAd: NEEDS_ADS.has(view) ? shown : [],
-    bySession: NEEDS_SESSION.has(view) ? shown : [],
-    byOffer: NEEDS_OFFER.has(view) ? shown : [],
+    byAd: legacyView !== null && NEEDS_ADS.has(legacyView) ? shown : [],
+    bySession: legacyView !== null && NEEDS_SESSION.has(legacyView) ? shown : [],
+    byOffer: legacyView !== null && NEEDS_OFFER.has(legacyView) ? shown : [],
     thisRound: NEEDS_THIS_ROUND.has(view) ? shown : [],
     byRound: NEEDS_ROUNDS.has(view) ? shown : [],
     // Drilled in, the columns are one asset's rounds; the tab renders the same
     // table and the same plot, so the narrowing happens here rather than there.
-    byAdset: NEEDS_ADSETS.has(view) ? shown : [],
+    byAdset: legacyView !== null && NEEDS_ADSETS.has(legacyView) ? shown : [],
     bySource: NEEDS_SOURCES.has(view) ? shown : [],
     byRoundSource: NEEDS_ROUND_SOURCE.has(view) ? shown : [],
-    byVariant: NEEDS_VARIANT.has(view) ? shown : [],
-    byLanding: NEEDS_LANDING.has(view) ? shown : [],
+    byVariant: legacyView !== null && NEEDS_VARIANT.has(legacyView) ? shown : [],
+    byLanding: legacyView !== null && NEEDS_LANDING.has(legacyView) ? shown : [],
     // One slot for both, because the tab already says which asset it is about
     // and the shape is identical either way.
     // The GRAPH reads this and the tables read the lists above. They were two

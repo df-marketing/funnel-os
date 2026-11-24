@@ -261,3 +261,34 @@ export function toTimestamp(v: string | undefined | null, order?: DateOrder): st
   const out = new Date(`${d}T${clock}${LOCAL_OFFSET}`);
   return Number.isNaN(out.getTime()) ? null : out.toISOString();
 }
+
+// Lead placement must not use JavaScript's permissive date fallback: e.g.
+// "November 2026" invents a day and 2026-02-30 rolls into March.
+export function toLeadTimestamp(value: string | null, order: DateOrder): string | null {
+  const s = value?.trim() ?? "";
+  const numeric = /^(?:\d{4}([-\/])\d{1,2}\1\d{1,2}|\d{1,2}[/-]\d{1,2}[/-]\d{4})(?=$|[ T])/i.exec(s);
+  const dayFirst = /^(\d{1,2}) +([a-zA-Z]{3,9}) +(\d{4})(?=$|[ ,T])/.exec(s);
+  const monthFirst = /^([a-zA-Z]{3,9}) +(\d{1,2}),? +(\d{4})(?=$|[ ,T])/.exec(s);
+  const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  let parts = numeric ? ymd(numeric[1] ? numeric[0].replaceAll("/", "-") : numeric[0], order) : null;
+  const named = dayFirst ?? monthFirst;
+  if (!numeric && named) {
+    const name = named[dayFirst ? 2 : 1].toLowerCase();
+    const index = months.findIndex((month) => month.toLowerCase() === name || month.slice(0, 3).toLowerCase() === name || (month === "September" && name === "sept"));
+    if (index >= 0) parts = [named[3], String(index + 1).padStart(2, "0"), named[dayFirst ? 1 : 2].padStart(2, "0")];
+  }
+  if (!parts || parts[0] === "0000") return null;
+  const date = parts.join("-");
+  const utc = new Date(`${date}T00:00:00Z`);
+  if (!Number.isFinite(utc.getTime()) || utc.toISOString().slice(0, 10) !== date) return null;
+  const suffix = s.slice((numeric ?? named)![0].length);
+  if (!suffix) return new Date(`${date}T23:59:59${LOCAL_OFFSET}`).toISOString();
+  const time = /^(?:T|[ ,]+)(\d{1,2}):(\d{2})(?::(\d{2})(\.\d{1,3})?)?(?: *(AM|PM))?(?: *(Z|[+-]\d{2}:?\d{2}))?$/i.exec(suffix);
+  if (!time) return null;
+  const [, hour, minute, second = "00", fraction = "", half, zone = LOCAL_OFFSET] = time;
+  let h = Number(hour);
+  if (h > 23 || Number(minute) > 59 || Number(second) > 59 || (half && (h < 1 || h > 12))) return null;
+  if (half) h = (h % 12) + (half.toUpperCase() === "PM" ? 12 : 0);
+  const instant = new Date(`${date}T${String(h).padStart(2, "0")}:${minute}:${second}${fraction}${zone.toUpperCase()}`);
+  return Number.isFinite(instant.getTime()) ? instant.toISOString() : null;
+}

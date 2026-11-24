@@ -350,6 +350,33 @@ export function mapColumns(
   return { map, missing, broken, unused };
 }
 
+/** Explain a refusal using the same mapping and aliases as the importer. */
+export function columnDiagnostics(
+  spec: SourceSpec,
+  headers: string[],
+  mapping: Pick<ReturnType<typeof mapColumns>, "map" | "missing"> = mapColumns(spec, headers),
+): { error: string; detail: string[] } {
+  const { map, missing } = mapping;
+  const error = spec.key === "sales" && missing.length === 1 && missing[0] === "event_date"
+    ? "Sales CSV is missing a transaction date column (event_date)."
+    : `${spec.label} CSV is missing required columns: ${missing.join(", ")}.`;
+  return {
+    error,
+    detail: [
+      `Recognized mappings (header → field): ${Object.entries(map).map(([field, header]) => `"${header}" → ${field}`).join("; ") || "none"}.`,
+      ...missing.map((field) => {
+        const expected = spec.fields.find((f) => f.field === field)!;
+        const prefixes = expected.prefixes?.length
+          ? `; or a heading starting with ${expected.prefixes.join(", ")}`
+          : "";
+        return `Required field "${field}": use one of these headings: ${expected.aliases.join(", ")}${prefixes}.`;
+      }),
+      "Headings are matched without regard to case, spaces or punctuation. Include the actual field values, then upload again.",
+      `Headers found: ${headers.join(" · ")}`,
+    ],
+  };
+}
+
 /**
  * A source key naming a declared metric rather than one of the five built in.
  *

@@ -30,7 +30,7 @@ export async function POST(request: Request) {
 
     const { data: batch, error } = await db
       .from("import_batches")
-      .select("batch_id, status, staged_payload")
+      .select("batch_id, status, client_id, source, staged_payload")
       .eq("batch_id", batchId)
       .maybeSingle();
 
@@ -51,7 +51,17 @@ export async function POST(request: Request) {
     }
 
     const plan = batch.staged_payload as unknown as Plan;
-    await commitPlan(db, batchId, plan);
+    if (batch.source === "leads" || plan.source === "leads") {
+      if (batch.source !== plan.source || batch.client_id !== plan.clientId) {
+        return NextResponse.json({ error: "The Leads preview does not match this client or source. Upload and preview again." }, { status: 422 });
+      }
+    }
+    const result = await commitPlan(db, batchId, plan);
+    if (!result.changed) {
+      revalidatePath("/");
+      revalidateTag(FUNNEL_TAG);
+      return NextResponse.json({ ok: true, unchanged: true, invalidated: [] });
+    }
 
     /**
      * Any OTHER file still staged was planned against the data as it stood

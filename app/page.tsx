@@ -1,5 +1,11 @@
+import { headers } from "next/headers";
+import { PeriodReporting } from "@/components/PeriodReporting";
+import { ThisRoundPreview } from "@/components/ThisRoundPreview";
+import { allowReportingPreview, isReportingPreviewView, type ReportingViewOpts } from "@/lib/funnel/reporting-preview";
+import { StageComparisonPane } from "@/components/StageComparisonPane";
 import { getDashboard, type FilterKey } from "@/lib/funnel/data";
 import { SpineTable } from "@/components/SpineTable";
+import { RoundJourney } from "@/components/RoundJourney";
 import { FormAnswersPanel } from "@/components/FormAnswersPanel";
 import { SpineChart } from "@/components/SpineChart";
 import { RoundAnalysis } from "@/components/RoundAnalysis";
@@ -14,7 +20,7 @@ import {
 } from "@/lib/funnel/chart";
 import { keepsSpend } from "@/lib/funnel/filters";
 import { notFound } from "next/navigation";
-import { getAccess, mayUseStaffView, visibleClients } from "@/lib/auth/access";
+import { getAccess, mayRead, mayUseStaffView, visibleClients } from "@/lib/auth/access";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +72,8 @@ export default async function Page({
     client?: string; view?: string;
     product?: string; channel?: string; country?: string; source?: string; audience?: string; attribution?: string; periods?: string;
     asset?: string;
-    mode?: string; objective?: string; vs?: string;
+    mode?: string; objective?: string; vs?: string; roundMetric?: string;
+    reporting?: string; analysisRound?: string; analysisMetric?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -105,12 +112,14 @@ export default async function Page({
       if (v) q.set(k, v);
     }
     if (a) q.set("asset", a);
+    if (data.reportingPreview) q.set("reporting", "preview");
     return `/?${q}`;
   };
 
   /** Table or graph, and what the graph is about. Same rule: the URL is the state. */
-  const opts: ViewOpts = {
+  const legacyOpts: ViewOpts = {
     mode: params.mode === "graph" ? "graph" : "table",
+    roundMetric: params.roundMetric,
     objective: isObjective(params.objective) ? params.objective : DEFAULT_OPTS.objective,
     vs: isVs(params.vs) ? params.vs : defaultVsFor(params.view ?? ""),
   };
@@ -136,9 +145,15 @@ export default async function Page({
   const access = await getAccess();
   const requestedView = params.view ?? "round";
 
-  if (!mayUseStaffView(access, requestedView)) notFound();
+  if (!mayUseStaffView(access, requestedView) || (params.client && access.clientIds?.length !== 0 && !mayRead(access, params.client))) notFound();
 
-  const data = await getDashboard(params.client, requestedView, filter);
+  const previewRequested = process.env.NODE_ENV === "development" && params.reporting === "preview"
+    && isReportingPreviewView(requestedView)
+    && allowReportingPreview({
+      mode: process.env.NODE_ENV, host: (await headers()).get("host"),
+      client: params.client, reporting: params.reporting,
+    });
+  const data = await getDashboard(params.client, requestedView, filter, access.clientIds, previewRequested);
 
   if (data.error) {
     return (
@@ -218,6 +233,16 @@ export default async function Page({
 
   const current = allowed.find((c) => c.client_id === params.client) ?? allowed[0];
   const view = data.view;
+  const reportingPreview = data.reportingPreview;
+  const opts: ReportingViewOpts = reportingPreview ? {
+    ...legacyOpts, reportingPreview: true, previewVs: params.vs,
+    analysisRound: params.analysisRound, analysisMetric: params.analysisMetric,
+  } : legacyOpts;
+  const previewPeriod = reportingPreview && (view === "month" || view === "week" || view === "source" || view === "roundsource") ? view : null;
+  const previewAnalysis = reportingPreview?.analysis;
+  // Drop a spoofed flag from shared links even if a legacy component copies
+  // unknown query parameters verbatim.
+  const routeParams = reportingPreview ? params : { ...params, reporting: undefined };
   /**
    * Only the AcqOS tab pays for the wire's bookkeeping — it is three reads that
    * every other tab would make and throw away. Fetched after getDashboard rather
@@ -247,7 +272,9 @@ export default async function Page({
    * — "Targeted views" was never a bad description of an audience breakdown, it
    * was only a bad name for the Ad Impressions stage.
    */
-  const stage = data.stages.find((s) => s.stage_slug === view) ?? null;
+  const stage = data.comparison?.stage ?? null;
+  const genericComparison = data.comparison && !data.comparison.legacy ? data.comparison : null;
+  const legacyView = data.comparison ? data.comparison.legacy : view;
   const [fallbackTitle, blurb] = TITLES[view] ?? [view, ""];
   const title = stage?.stage_name ?? fallbackTitle;
   /**
@@ -256,7 +283,8 @@ export default async function Page({
    * authoritative, and the answer would have to be "neither, they're the same",
    * which nobody believes about a chart and a table that disagree by a rounding.
    */
-  const showGraph = opts.mode === "graph" && GRAPHABLE.has(view) && WIRED.has(view);
+  const showGraph = !previewPeriod && legacyView !== null && view !== "round"
+    && opts.mode === "graph" && GRAPHABLE.has(legacyView) && WIRED.has(legacyView);
   /**
    * Did choosing this channel actually blank anything?
    *
@@ -310,7 +338,8 @@ export default async function Page({
         />
 
         <main className="main">
-          <PaneControls client={current.client_id} view={view} filter={data.filter} opts={opts} />
+          {reportingPreview ? <p className="dim" data-reporting-preview>Reporting preview</p> : null}
+          {view !== "round" && !genericComparison && !previewPeriod && !previewAnalysis ? <PaneControls client={current.client_id} view={view} filter={data.filter} opts={opts} /> : null}
 
           {/*
             Every tab that can be drilled into gets this, not just the two it was
@@ -322,7 +351,7 @@ export default async function Page({
             written after them and rendered after them too, so the only way
             out of a drilled-in tab sat below a screenful of numbers.
           */}
-          {DRILLABLE.has(view) && filter.asset ? (
+          {!genericComparison && DRILLABLE.has(view) && filter.asset ? (
             <div className="notice info" style={{ marginBottom: 12 }}>
               <span className="ico">→</span>
               <div>
@@ -341,7 +370,7 @@ export default async function Page({
             emptied by the period looks exactly like a broken one unless it says
             where the rows actually are.
           */}
-          {!showGraph && !data.columns.length && data.elsewhere ? (
+          {!genericComparison && !previewPeriod && !previewAnalysis && !showGraph && !data.columns.length && data.elsewhere ? (
             <div className="notice info" style={{ marginBottom: 12 }}>
               <span className="ico">?</span>
               <div>
@@ -352,6 +381,9 @@ export default async function Page({
               </div>
             </div>
           ) : null}
+
+          {genericComparison ? <StageComparisonPane comparison={genericComparison} data={data}
+            clientId={current.client_id} currency={current.currency} params={routeParams} reportingPreview={!!reportingPreview} /> : null}
 
           {showGraph ? (
             <>
@@ -412,7 +444,10 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "month" && !showGraph ? (
+          {previewPeriod ? <PeriodReporting data={data} view={previewPeriod} clientId={current.client_id}
+            currency={current.currency} mode={opts.mode} requestedMetric={opts.previewVs} /> : null}
+
+          {view === "month" && !showGraph && !previewPeriod ? (
             <>
               <div className="pane-head">
                 <h1>{title}</h1>
@@ -450,7 +485,7 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "week" && !showGraph ? (
+          {view === "week" && !showGraph && !previewPeriod ? (
             <>
               <div className="pane-head">
                 <h1>{title}</h1>
@@ -485,41 +520,10 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "round" && !showGraph ? (
-            <>
-              <div className="pane-head">
-                <h1>{title}</h1>
-                <p>{blurb}</p>
-              </div>
-              <SpineTable
-                currency={current.currency}
-                title="Round comparison"
-                sub="one column per round · adding 0826-02 adds a column, not a formula"
-                baseline={data.baseline}
-                total={data.total}
-                cuts={data.byRound}
-                notice={
-                  <>
-                    <b>A round keeps the revenue its own spend produced.</b> When a lead skips its own
-                    class, attends a later one and buys there, the sale carries both references — the
-                    spend is credited via <span className="num">lead_round_id</span>, and the later
-                    class&rsquo;s closing rate still counts only people who actually attended it. Both
-                    true, and they add to the same total exactly once.
-                  </>
-                }
-                note={
-                  <>
-                    Adding a round adds a column, never a formula. Every rate is derived from the two
-                    numbers above it in its own column, so a round with no spend shows &ldquo;—&rdquo;
-                    for CPL rather than a zero nobody measured. Roll these columns up a level and you
-                    get <b>By month</b>, from the same rows.
-                  </>
-                }
-              />
-            </>
-          ) : null}
+          {view === "round" ? <RoundJourney data={data} clientId={current.client_id}
+            currency={current.currency} params={routeParams} reportingPreview={!!reportingPreview} /> : null}
 
-          {view === "source" && !showGraph ? (
+          {view === "source" && !showGraph && !previewPeriod ? (
             <>
               <div className="pane-head">
                 <h1>{title}</h1>
@@ -552,7 +556,7 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "lp" && !showGraph ? (
+          {legacyView === "lp" && !showGraph ? (
             <>
               <div className="pane-head">
                 <h1>{title}</h1>
@@ -588,7 +592,7 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "class" && !showGraph ? (
+          {legacyView === "class" && !showGraph ? (
             <>
               <div className="pane-head">
                 <h1>{title}</h1>
@@ -620,7 +624,7 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "roundsource" && !showGraph ? (
+          {view === "roundsource" && !showGraph && !previewPeriod ? (
             <>
               <div className="pane-head">
                 <h1>{title}</h1>
@@ -659,7 +663,7 @@ export default async function Page({
             undo.
           */}
 
-          {view === "targeting" && !showGraph ? (
+          {legacyView === "targeting" && !showGraph ? (
             <>
               <div className="pane-head">
                 <h1>{title}</h1>
@@ -696,7 +700,7 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "ads" && !showGraph ? (
+          {legacyView === "ads" && !showGraph ? (
             <>
               <div className="pane-head">
                 <h1>{title}</h1>
@@ -750,7 +754,7 @@ export default async function Page({
           ) : null}
 
 
-          {(view === "preview" || view === "middle") && !showGraph ? (
+          {(legacyView === "preview" || legacyView === "middle") && !showGraph ? (
             <>
               <div className="pane-head">
                 <h1>{title}</h1>
@@ -783,7 +787,11 @@ export default async function Page({
             </>
           ) : null}
 
-          {view === "analysis" ? (
+          {view === "analysis" && previewAnalysis ? <ThisRoundPreview
+            data={previewAnalysis} clientId={current.client_id} currency={current.currency} params={routeParams}
+            today={new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Singapore" })}
+          /> : null}
+          {view === "analysis" && !previewAnalysis ? (
             <RoundAnalysis
               staff={access.staff}
               currency={current.currency}
@@ -797,16 +805,18 @@ export default async function Page({
             />
           ) : null}
 
-          {!WIRED.has(view) ? (
+          {!genericComparison && !WIRED.has(view) ? (
             <NotWired title={title} blurb={blurb} reason={NOT_WIRED_REASON[view] ?? ""} />
           ) : null}
         </main>
       </div>
 
       <footer>
-        <b>Funnel OS.</b> Shely&rsquo;s figures are the master-sheet numbers, in the sheet&rsquo;s own
-        metric order and grouping. Blank means absent, not zero — a rate with no denominator shows
-        &ldquo;—&rdquo; and never <span className="num">#DIV/0!</span>.
+        {reportingPreview ? <><b>Funnel OS.</b> Local reporting preview. A dash means unavailable, not zero.</> : <>
+          <b>Funnel OS.</b> Shely&rsquo;s figures are the master-sheet numbers, in the sheet&rsquo;s own
+          metric order and grouping. Blank means absent, not zero — a rate with no denominator shows
+          &ldquo;—&rdquo; and never <span className="num">#DIV/0!</span>.
+        </>}
       </footer>
     </>
   );

@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAll } from "@/lib/supabase/admin";
-import { parseCsv, toNumber, toDate, toTimestamp, localDay, inferDateOrder, type Row, type DateOrder } from "./csv";
-import { SOURCES, mapColumns, stageMetricOf, stageSpec, type ImportSourceKey, type SourceKey, type SourceSpec } from "./sources";
+import { parseCsv, toNumber, toDate, toTimestamp, toLeadTimestamp, localDay, inferDateOrder, type Row, type DateOrder } from "./csv";
+import { SOURCES, mapColumns, columnDiagnostics, stageMetricOf, stageSpec, type ImportSourceKey, type SourceKey, type SourceSpec } from "./sources";
 import { buildIndex, matchRow, normEmail, normPhone, type KnownContact, type ParkReason } from "./identity";
-import { attributeLead, closeRoundFor, resolveRoundRef, resolveProduct, roundFromCampaign, roundOwningCampaign, type Round, type AdSetRun } from "./attribute";
+import { declaredLeadRound, leadAttributor, leadDateInRound, closeRoundFor, resolveRoundRef, resolveProduct, roundFromCampaign, roundOwningCampaign, type Round, type AdSetRun } from "./attribute";
+import { normalizeProfileDate, type MappingProfile, type ProfileDateRule } from "./mapping-profile";
 import { parseClarityScroll, ClarityError, sessionsFrom, pageKeyOf } from "./clarity";
 
 /**
@@ -20,11 +22,22 @@ import { parseClarityScroll, ClarityError, sessionsFrom, pageKeyOf } from "./cla
  * gets applied — not a re-parse that might differ.
  */
 
+export type LeadDestination = { roundId: string; label: string; count: number; declaredOutsideWindow: number };
+const LEAD_ROUND_GUARD_VERSION = 1;
+
 export type Plan = {
   source: ImportSourceKey;
   clientId: string;
   fileName: string;
   columnMap: Record<string, string>;
+  review?: {
+    worksheet?: string;
+    stageSlug?: string | null;
+    binding?: string;
+    dateOrder?: ProfileDateRule;
+    profile?: { id: string; revision: number; name: string };
+  };
+  leadRoundGuard?: { version: typeof LEAD_ROUND_GUARD_VERSION; destinations: LeadDestination[] };
   unusedColumns: string[];
   rowCount: number;
   coverage: { start: string | null; end: string | null };
@@ -99,8 +112,8 @@ export type Plan = {
     /**
      * Parked rows this import has seen again and still cannot match.
      *
-     * They keep their place in the queue and move onto this batch, so the
-     * batch they came from can be retired whole without taking them with it.
+     * They keep their place in the original queue. Kept in the preview
+     * payload for the reviewed-mapping restriction, not rewritten on commit.
      */
     adoptedParked: string[];
     /**
@@ -126,6 +139,39 @@ export class ImportError extends Error {
 }
 
 const uuid = () => crypto.randomUUID();
+// UUIDv8 for new upload rows only. Same client + persisted business identity
+// trips the primary key even if two requests both planned before either wrote.
+// Do not use this for opaque person/name identities.
+function uploadedAdId(clientId: string, key: string): string {
+  const bytes = createHash("sha256").update(JSON.stringify(["funnel-os:ads-upload:v1", clientId, key])).digest();
+  bytes[6] = (bytes[6] & 0x0f) | 0x80;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.subarray(0, 16).toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+const adsMeasureFields = ["spend", "impressions", "reach", "clicks"] as const;
+type AdsIdentity = {round_id: string; date: string; campaign: string | null; ad_set: string | null; ad: string | null; channel?: string | null; ad_id?: string | null};
+type AdsComparable = AdsIdentity & Partial<Record<typeof adsMeasureFields[number], number | string | null>> & {
+  measures?: Record<string, number | string | null> | null;
+};
+function adsKey(r: AdsIdentity): string {
+  return JSON.stringify([r.round_id, r.date, r.channel ?? ASSUMED_CHANNEL, r.campaign || null, r.ad_set || null, r.ad || null]);
+}
+function comparableMetric(field: string, value: string | number): number {
+  const n = Number(value);
+  return field === "spend" || field === "amount" ? Math.round(n * 100) : n;
+}
+function adSeriesKey(r: AdsIdentity): string {
+  return JSON.stringify([r.round_id, r.channel ?? ASSUMED_CHANNEL, r.campaign || null, r.ad_set || null, r.ad || null]);
+}
+function changedAdMeasurement(old: AdsComparable, current: AdsComparable): boolean {
+  if (old.ad_id && current.ad_id && old.ad_id !== current.ad_id) return true;
+  return adsMeasureFields.some((k) => current[k] != null &&
+    (old[k] == null || comparableMetric(k, old[k]!) !== comparableMetric(k, current[k]!))) ||
+    Object.entries(current.measures ?? {}).some(([k, v]) => v != null &&
+      (old.measures?.[k] == null || Number(old.measures[k]) !== Number(v)));
+}
+
 /** Round a count, but keep "the export didn't say" distinct from "zero". */
 const round0 = (n: number | null) => (n === null ? null : Math.round(n));
 /** For a plain date column — rounds carry local calendar dates already. */
@@ -291,7 +337,7 @@ async function loadRounds(db: SupabaseClient, clientId: string): Promise<Round[]
     list.push(s.session_date);
     sessionsByRound.set(s.round_id, list);
   }
-  const rounds: Round[] = roundRows.map((r) => ({
+  const rounds: Round[] = roundRows.filter((r) => r.client_id === clientId).map((r) => ({
     round_id: r.round_id, client_id: r.client_id,
     start_date: r.start_date, end_date: r.end_date,
     country: r.country,
@@ -303,6 +349,37 @@ async function loadRounds(db: SupabaseClient, clientId: string): Promise<Round[]
   }));
   if (!rounds.length) throw new ImportError("This client has no rounds yet — create a round before importing.");
   return rounds;
+}
+
+async function loadLeadAdRuns(db: SupabaseClient, rounds: Round[]) {
+  return fetchAll<AdSetRun>(db, "ads_performance", "ad_set, round_id, date",
+    (q) => q.in("round_id", rounds.map((round) => round.round_id)).not("ad_set", "is", null));
+}
+
+function verifiedLeadDestinations(events: Plan["ops"]["events"], rounds: Round[], adRuns: AdSetRun[]): LeadDestination[] {
+  const inferRound = leadAttributor(rounds, adRuns);
+  const byId = new Map(rounds.map((round) => [round.round_id, round]));
+  const destinations = new Map<string, LeadDestination>();
+  for (const event of events) {
+    const id = typeof event.round_id === "string" ? event.round_id : "";
+    const round = byId.get(id);
+    const method = event.attribution_method;
+    const when = typeof event.event_date === "string" ? event.event_date : "";
+    const stale = () => new ImportError("A lead destination is no longer valid. Upload and preview the Leads file again before committing.");
+    if (event.event_type !== "lead" || id !== event.lead_round_id || !round || !when
+        || toLeadTimestamp(when, "dmy") !== when) throw stale();
+    if (method !== "declared") {
+      const inferred = inferRound(when, typeof event.ad_set === "string" ? event.ad_set : null);
+      if (inferred.roundId !== id || inferred.method !== method) throw stale();
+    }
+    const market = round.market ?? round.country;
+    const label = (round.code || round.round_id) + (market ? ` · ${market}` : "");
+    const destination = destinations.get(id) ?? { roundId: id, label, count: 0, declaredOutsideWindow: 0 };
+    destination.count++;
+    if (method === "declared" && !leadDateInRound(when, round)) destination.declaredOutsideWindow++;
+    destinations.set(id, destination);
+  }
+  return [...destinations.values()].sort((a, b) => a.roundId.localeCompare(b.roundId));
 }
 
 /**
@@ -483,7 +560,7 @@ async function planScroll(
 
 export async function planImport(
   db: SupabaseClient,
-  { source, clientId, fileName, text, asContactId }: {
+  { source, clientId, fileName, text, asContactId, reviewed }: {
     source: ImportSourceKey; clientId: string; fileName: string; text: string;
     /**
      * Resolving a parked row: the human has said who this is, so skip matching
@@ -496,6 +573,11 @@ export async function planImport(
      * import path, which is why the queue can't drift away from the importer.
      */
     asContactId?: string;
+    /** Server-resolved, after checking the active client's current journey. */
+    reviewed?: {
+      spec: SourceSpec; customAdMetrics: string[]; stageSlug?: string | null; binding?: string;
+      profile?: MappingProfile; selected?: { id: string; revision: number };
+    };
   },
 ): Promise<Plan> {
   /**
@@ -507,8 +589,8 @@ export async function planImport(
    * writing events carrying an event_type the database will refuse.
    */
   const declaredMetric = stageMetricOf(source);
-  let spec: SourceSpec | undefined = declaredMetric ? undefined : SOURCES[source as SourceKey];
-  if (declaredMetric) {
+  let spec: SourceSpec | undefined = reviewed?.spec ?? (declaredMetric ? undefined : SOURCES[source as SourceKey]);
+  if (declaredMetric && !reviewed) {
     const { data: jm, error: jmError } = await db
       .from("journey_metrics")
       .select("metric, label, event_type, is_core")
@@ -538,22 +620,25 @@ export async function planImport(
   const { headers, rows } = parseCsv(text);
   if (!rows.length) throw new ImportError("That file has no data rows.");
 
-  const { data: remembered } = await db
+  const explicit = reviewed?.profile;
+  const { data: remembered } = explicit && source !== "leads" ? { data: null } : await db
     .from("v_column_map").select("column_map").eq("client_id", clientId).eq("source", source).maybeSingle();
 
-  const { map, missing, broken, unused } = mapColumns(spec, headers, remembered?.column_map ?? null);
+  const automatic = mapColumns(spec, headers, remembered?.column_map ?? null);
+  const { map, missing, broken, unused } = explicit ? {
+    map: { ...explicit.mapping }, missing: [], broken: [],
+    unused: headers.filter((header) => !Object.values(explicit.mapping).includes(header)),
+  } : automatic;
 
   if (missing.length) {
-    throw new ImportError(
-      `The column mapping for ${spec.label} is broken — refusing to import rather than write blanks.`,
-      [
-        ...missing.map((m) => `Required field "${m}" has no matching column.`),
-        `Headers found: ${headers.join(" · ")}`,
-      ],
-    );
+    const diagnostic = columnDiagnostics(spec, headers, { map, missing });
+    throw new ImportError(diagnostic.error, diagnostic.detail);
   }
 
   const warnings: string[] = [];
+  if (explicit && source === "leads" && unused.length) {
+    warnings.push("Reviewed mappings do not import additional columns as Form Answers. Use automatic mapping for a supported Form Answers export.");
+  }
   if (broken.length) warnings.push(`Column mapping changed since the last import — ${broken.join("; ")}`);
 
   /**
@@ -567,7 +652,9 @@ export async function planImport(
   const val = (r: Row, field: string) => {
     const raw = map[field] ? r[map[field]] : undefined;
     const s = raw?.trim();
-    return s ? s : null;
+    if (!s) return null;
+    return explicit && ["date", "date_end", "event_date", "refund_date"].includes(field)
+      ? normalizeProfileDate(s, explicit.rules.dateOrder) : s;
   };
 
   /**
@@ -602,7 +689,12 @@ export async function planImport(
   // only this client's declarations (plus global ones), persist the exact
   // header mapping, and leave an omitted declared measure absent rather than 0.
   const adMeasures = new Map<string, string>();
-  if (source === "ads") {
+  if (source === "ads" && explicit) {
+    for (const metric of reviewed?.customAdMetrics ?? []) {
+      const header = map[`ad_measure:${metric}`];
+      if (header) adMeasures.set(metric, header);
+    }
+  } else if (source === "ads") {
     const { data, error } = await db.from("journey_metrics")
       .select("metric, aliases, client_id").eq("source", "ads");
     if (error) throw new ImportError(`Could not read declared ads measures: ${error.message}`);
@@ -640,7 +732,7 @@ export async function planImport(
    */
   const CRM_FIELD =
     /^(contact\s*id|full\s*name|first\s*name|last\s*name|business\s*name|company(\s*name)?|tags?|last\s*activity|date\s*(created|updated|added)|created(\s*(on|at))?|updated(\s*(on|at))?|assigned\s*user|followers|time\s*zone|timezone|dnd|additional\s*(emails?|phones?))$/i;
-  const answerHeaders = source === "leads"
+  const answerHeaders = source === "leads" && !explicit
     ? unused.filter((h) => !CRM_FIELD.test(h))
     : [];
   const answersFor = (r: Row) => Object.fromEntries(
@@ -671,6 +763,19 @@ export async function planImport(
    * no way to attribute anything. It came for the answers, not for the leads.
    */
   const ATTRIBUTION_FIELDS = ["round_id", "utm_campaign", "ad_set", "ad", "source"] as const;
+  if (source === "leads" && explicit) {
+    const couldBeAnswers = (columns: string[]) => columns.some((h) => !CRM_FIELD.test(h));
+    const baselineEnrichment = automatic.missing.length === 0 && couldBeAnswers(automatic.unused)
+      && ATTRIBUTION_FIELDS.every((f) => !(f in automatic.map));
+    const unclearAttribution = couldBeAnswers(unused)
+      && rows.some((row) => ATTRIBUTION_FIELDS.every((f) => !val(row, f)));
+    if (baselineEnrichment || unclearAttribution) {
+      throw new ImportError(
+        "This looks like a contacts or Form Answers export. Use automatic mapping so it cannot create new leads.",
+        ["Reviewed lead mappings with extra columns need clear attribution for every row."],
+      );
+    }
+  }
   const enrichOnly = source === "leads"
     && answerHeaders.length > 0
     && ATTRIBUTION_FIELDS.every((f) => !(f in map));
@@ -690,6 +795,10 @@ export async function planImport(
 
   const plan: Plan = {
     source, clientId, fileName, columnMap: map, unusedColumns: unused,
+    ...(explicit ? { review: {
+      stageSlug: reviewed?.stageSlug, binding: reviewed?.binding, dateOrder: explicit.rules.dateOrder,
+      ...(reviewed?.selected ? { profile: { ...reviewed.selected, name: explicit.name } } : {}),
+    } } : {}),
     rowCount: rows.length,
     coverage: { start: null, end: null },
     counts: { matchedExact: 0, matchedAuto: 0, newContacts: 0, parked: 0, duplicates: 0, unidentified: 0 },
@@ -720,11 +829,53 @@ export async function planImport(
      * spend as 0.00 — a wrong number arrived at through a code path whose whole
      * job is to stop the same row being counted twice.
      */
-    const existing = await fetchAll<{ round_id: string; date: string; campaign: string | null; ad_set: string | null; ad: string | null }>(
-      db, "ads_performance", "round_id, date, campaign, ad_set, ad", (q) => q.in("round_id", roundIds));
-    const adsKey = (roundId: string, date: string, campaign: string | null, adSet: string | null, ad: string | null) =>
-      `${roundId}|${date}|${campaign ?? ""}|${adSet ?? ""}|${ad ?? ""}`;
-    const seen = new Set(existing.map((e) => adsKey(e.round_id, e.date, e.campaign, e.ad_set, e.ad)));
+    const existing = await fetchAll<AdsComparable>(db, "ads_performance",
+      "round_id, date, campaign, ad_set, ad, ad_id, channel, spend, impressions, reach, clicks, measures",
+      (q) => q.in("round_id", roundIds));
+    const byKey = new Map<string, AdsComparable[]>();
+    const stable = new Map<string, AdsComparable>();
+    const idKey = (r: AdsIdentity) => JSON.stringify([r.round_id, r.date, r.channel ?? ASSUMED_CHANNEL, r.ad_id]);
+    function remember(row: AdsComparable) {
+      const key = adsKey(row);
+      const matches = byKey.get(key) ?? [];
+      matches.push(row);
+      byKey.set(key, matches);
+      if (row.ad_id) stable.set(idKey(row), row);
+    }
+    const priorStarts = new Map<string, Set<string>>();
+    const earliestPriorStart = new Map<string, string>();
+    const windows = new Map<string, Map<string, string>>();
+    const grains = new Map<string, { campaign: boolean; sets: Set<string>; creativeSets: Set<string> }>();
+    const additive = (r: AdsComparable) =>
+      r.spend != null && Number(r.spend) !== 0 || r.impressions != null && Number(r.impressions) !== 0 ||
+      r.clicks != null && Number(r.clicks) !== 0 ||
+      Object.values(r.measures ?? {}).some((m) => m != null && Number(m) !== 0);
+    function trackGrain(row: AdsComparable, incoming: boolean) {
+      // A separate reach-only row is an intentional Meta pull measurement.
+      if (!row.campaign || !additive(row)) return;
+      const key = JSON.stringify([row.round_id, row.date, row.channel ?? ASSUMED_CHANNEL, row.campaign]);
+      const g = grains.get(key) ?? { campaign: false, sets: new Set<string>(), creativeSets: new Set<string>() };
+      const isCampaign = !row.ad_set && !row.ad;
+      const set = row.ad_set ?? "";
+      if (incoming && (isCampaign ? g.sets.size > 0 || g.creativeSets.size > 0
+        : g.campaign || (row.ad ? g.sets.has(set) : g.creativeSets.has(set)))) {
+        throw new ImportError("This ads export mixes totals and breakdown rows for the same campaign, round and reporting start. Export only the breakdown level already stored, or reconcile the existing totals before importing.");
+      }
+      if (isCampaign) g.campaign = true;
+      else (row.ad ? g.creativeSets : g.sets).add(set);
+      grains.set(key, g);
+    }
+    for (const row of existing) {
+      remember(row);
+      trackGrain(row, false);
+      const series = adSeriesKey(row);
+      const starts = priorStarts.get(series) ?? new Set<string>();
+      starts.add(row.date);
+      priorStarts.set(series, starts);
+      if (!earliestPriorStart.has(series) || row.date < earliestPriorStart.get(series)!) {
+        earliestPriorStart.set(series, row.date);
+      }
+    }
 
     for (const r of rows) {
       const date = toDate(val(r, "date"), dateOrder);
@@ -732,7 +883,10 @@ export async function planImport(
       track(date);
       // a period-level export's window ends later than its start date, and the
       // batch's coverage should say so
-      track(toDate(val(r, "date_end"), dateOrder));
+      const dateEndRaw = val(r, "date_end");
+      const dateEnd = toDate(dateEndRaw, dateOrder);
+      if (dateEndRaw && (!dateEnd || dateEnd < date)) throw new ImportError("An ads row has an invalid reporting end date. Re-export with valid dates.");
+      track(dateEnd);
 
       const adSet = normAsset(val(r, "ad_set"));
       const ad = normAsset(val(r, "ad"));
@@ -802,19 +956,8 @@ export async function planImport(
         unusable++;
         continue;
       }
-      const key = adsKey(round.round_id, date, campaign, adSet, ad);
-      if (seen.has(key)) { plan.counts.duplicates++; continue; }
-      seen.add(key);
-
-      plan.ops.ads.push({
-        id: uuid(), round_id: round.round_id, date,
-        campaign, ad_set: adSet, ad,
-        /* Carried, not keyed on. ad_id is functionally determined by
-           (round, date, campaign, ad_set, ad) — adsKey above — so it changes
-           nothing about which rows are distinct. Adding it to the key would
-           change something that matters: every row stored before this column
-           existed has a NULL id, so a re-import carrying ids would match none
-           of them and duplicate the lot. */
+      const incoming = {
+        round_id: round.round_id, date, campaign, ad_set: adSet, ad,
         ad_id: val(r, "ad_id") || null,
         // spend is required, and Meta writes an explicit 0 for a day that spent
         // nothing — so 0 there is a measurement. The other three are optional:
@@ -832,8 +975,49 @@ export async function planImport(
           const measured = toNumber(r[header]?.trim() || null);
           return measured === null ? [] : [[metric, measured]];
         })),
-      });
+      };
+      const key = adsKey(incoming);
+      const series = adSeriesKey(incoming);
+      const starts = windows.get(series) ?? new Map<string, string>();
+      const end = dateEnd ?? date;
+      if (starts.has(date) && starts.get(date) !== end) {
+        throw new ImportError("This file reports different date windows for the same ads row. Re-export at one consistent daily breakdown.");
+      }
+      starts.set(date, end);
+      windows.set(series, starts);
+      const prior = byKey.get(key) ?? [];
+      const sameId = incoming.ad_id ? stable.get(idKey(incoming)) : undefined;
+      if (sameId && adsKey(sameId) !== key) {
+        throw new ImportError("This ad ID is already stored for this round and day under different names. Verify the rename against the existing data before importing.");
+      }
+      if (prior.length) {
+        if (prior.some((old) => changedAdMeasurement(old, incoming))) {
+          throw new ImportError("This ads file changes a measurement already stored for the same round, reporting start and asset. Review the original export and use a separately reviewed correction; this upload did not change the existing row.");
+        }
+        plan.counts.duplicates++;
+        continue;
+      }
+      const earlier = earliestPriorStart.get(series);
+      if (earlier && earlier < date) {
+        warnings.push("This file adds later rows for an ads series already stored. Earlier rows have no stored reporting end, so GT cannot rule out overlap with a historical period total. Before committing, verify the prior export used daily rows or reconcile it against the original reporting window.");
+      }
+      trackGrain(incoming, true);
+      remember(incoming);
+      plan.ops.ads.push({ id: uploadedAdId(clientId, key), ...incoming });
       plan.diff.newRows++;
+    }
+
+    for (const [series, starts] of windows) {
+      const known = [...(priorStarts.get(series) ?? [])].sort();
+      let endOfPriorIncoming = "", next = 0;
+      for (const [start, end] of [...starts].sort(([a], [b]) => a.localeCompare(b))) {
+        // A historical row only stores its start. Never fabricate its end.
+        while (next < known.length && known[next] <= start) next++;
+        if (start <= endOfPriorIncoming || (next < known.length && known[next] <= end)) {
+          throw new ImportError("An ads reporting window overlaps another row for the same round and asset. Re-export with daily rows, or reconcile the existing window before importing.");
+        }
+        if (end > endOfPriorIncoming) endOfPriorIncoming = end;
+      }
     }
 
     /**
@@ -862,17 +1046,48 @@ export async function planImport(
 
   const events = await fetchAll<{
     event_id: string; contact_id: string | null; round_id: string | null; event_type: string;
-    event_date: string; product: string | null; amount: string | null; refund_amount: string | null;
+    event_date: string; product: string | null; amount: string | null; refund_amount: string | null; refund_date?: string | null;
     lead_round_id: string | null; source: string | null;
     anon_key: string | null;
     utm_campaign: string | null;
     answers: Record<string, string> | null;
   }>(db, "events",
-    "event_id, contact_id, round_id, event_type, event_date, product, amount, refund_amount, lead_round_id, source, anon_key, utm_campaign, answers",
+    "event_id, contact_id, round_id, event_type, event_date, product, amount, refund_amount, refund_date, lead_round_id, source, anon_key, utm_campaign, answers",
     (q) => q.in("round_id", roundIds));
 
-  const adRuns = await fetchAll<AdSetRun>(db, "ads_performance", "ad_set, round_id, date",
-    (q) => q.in("round_id", roundIds).not("ad_set", "is", null));
+  const adRuns = source === "leads" ? await loadLeadAdRuns(db, rounds) : [];
+  type LeadPlacement = { when: string; roundId: string; method: "declared" | "utm" | "date_window" };
+  const placements: Array<LeadPlacement | null> = [];
+  if (source === "leads") {
+    const inferRound = leadAttributor(rounds, adRuns);
+    const details: string[] = [];
+    let blocked = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const when = toLeadTimestamp(val(row, "event_date"), dateOrder);
+      const declared = val(row, "round_id");
+      const exact = declared ? declaredLeadRound(declared, rounds) : null;
+      const inferred = !declared && when ? inferRound(when, normAsset(val(row, "ad_set"))) : null;
+      const roundId = exact?.round_id ?? inferred?.roundId;
+      const method = exact ? "declared" : inferred?.method;
+      placements[i] = when && roundId && method ? { when, roundId, method } : null;
+      // Contacts/Form Answers enrichment never stages a new lead. A row
+      // without enough evidence cannot enrich an existing lead either.
+      if (!placements[i] && !enrichOnly) {
+        blocked++;
+        if (details.length < 8) {
+          const why = !when ? "missing or invalid opt-in date; use a real date such as YYYY-MM-DD."
+            : declared ? "the listed Round is not a unique round for this client; use its exact ID or unique code."
+            : "no unique round covers this opt-in date; check the date or add the correct Round ID or code.";
+          details.push(`Data row ${i + 1}: ${why}`);
+        }
+      }
+    }
+    if (blocked) throw new ImportError(
+      `Leads import blocked: ${blocked} ${blocked === 1 ? "row needs" : "rows need"} a valid opt-in date and a confirmed round. Correct the file and preview again.`,
+      details,
+    );
+  }
 
   // ── Was the file this one depends on actually committed? ─────────────────
   // Skipped for the unmatched-queue replay, which imports one already-known
@@ -880,10 +1095,8 @@ export async function planImport(
   if (!asContactId) {
     if (source === "leads" && !adRuns.length) {
       plan.prerequisite =
-        "No ads have been committed yet, so there are no ad sets to match a lead against. " +
-        "Every row here will be attributed by date window — the round whose dates happen to " +
-        "contain the opt-in — which is a guess, and Targeted views will be empty. " +
-        "Commit the ads file first, then drop this one again.";
+        "No committed ad sets are available to help match leads. A valid explicit Round still works; " +
+        "otherwise the opt-in date must identify one eligible round. Targeted views may have no delivery data.";
     } else if ((source === "attendance" || source === "sales") && !contacts.length) {
       plan.prerequisite =
         "No people exist yet. " +
@@ -1008,6 +1221,17 @@ export async function planImport(
     return true;
   };
 
+  const stagedSales = new Map<string, { amount: number; providedRefund: number | null; refundDate: string | null }>();
+  const salesByKey = new Map<string, typeof events>();
+  const salesKey = (contactId: string, when: string, product: string) => JSON.stringify([contactId, sgDayOf(when), product]);
+  for (const e of events) {
+    if (e.event_type !== "sale" || !e.contact_id || !e.product) continue;
+    const key = salesKey(e.contact_id, e.event_date, e.product);
+    const matching = salesByKey.get(key) ?? [];
+    matching.push(e);
+    salesByKey.set(key, matching);
+  }
+
   // newly created contacts are matchable by later rows in the SAME file
   const addContact = (email: string | null, phone: string | null) => {
     const id = uuid();
@@ -1028,10 +1252,50 @@ export async function planImport(
   );
   const parkedRowIds = new Map(stillParked.map((u) => [parkKey(u.raw_data), u.row_id]));
   const parked = new Set(parkedRowIds.keys());
+  // Sales export metadata can change while transaction evidence is identical.
+  // Do not create a second held amount just because an unused note changed.
+  // No identity/date/product/amount means there is no safe semantic key.
+  function heldSaleEvidence(raw: Row, read: typeof val, order: DateOrder) {
+    if (source !== "sales" || explicit) return null;
+    const email = normEmail(read(raw, "email")), phone = normPhone(read(raw, "phone"));
+    const when = toTimestamp(read(raw, "event_date"), order);
+    const product = resolveProduct(read(raw, "product") ?? "");
+    const amount = toNumber(read(raw, "amount"));
+    if ((!email && !phone) || !when || !product || amount === null) return null;
+    // Full explicit identity tuple: never guess the person from a name, partial
+    // phone or a single shared address when the other evidence disagrees.
+    return {
+      key: JSON.stringify([email, phone, sgDayOf(when), product]),
+      value: JSON.stringify([comparableMetric("amount", amount), toNumber(read(raw, "refund_amount")), toDate(read(raw, "refund_date"), order)]),
+    };
+  }
+  const heldSaleRows = new Map<string, { row_id: string | null; value: string }[]>();
+  for (const old of stillParked) {
+    if (!old.raw_data || typeof old.raw_data !== "object") continue;
+    const raw = old.raw_data as Row;
+    const priorMap = mapColumns(spec, Object.keys(raw), null).map;
+    const read = (r: Row, f: string) => String(r[priorMap[f]] ?? "").trim() || null;
+    const order = inferDateOrder([read(raw, "event_date"), read(raw, "refund_date")]);
+    // No upload-level date-order evidence remains in this old raw row.
+    if (order === "ambiguous" && /^\d{1,2}[/-]\d{1,2}[/-]/.test(read(raw, "event_date") ?? "")) continue;
+    const evidence = heldSaleEvidence(raw, read, order);
+    if (!evidence) continue;
+    const before = heldSaleRows.get(evidence.key) ?? [];
+    before.push({ row_id: old.row_id, value: evidence.value });
+    heldSaleRows.set(evidence.key, before);
+  }
+  function heldEvidenceMatch(raw: Row) {
+    const evidence = heldSaleEvidence(raw, val, dateOrder);
+    const prior = evidence ? heldSaleRows.get(evidence.key) : undefined;
+    if (prior?.length && (prior.length > 1 || prior[0].value !== evidence!.value)) {
+      throw new ImportError("This sale conflicts with a waiting row for the same buyer, local day and product. Reconcile it in Unmatched before uploading; the file has no transaction ID to distinguish them.");
+    }
+    return { prior: prior?.[0], evidence };
+  }
 
   /** This exact row is in the queue, and this import can finally count it. */
   const supersede = (raw: Row, contactId: string) => {
-    const rowId = parkedRowIds.get(parkKey(raw));
+    const rowId = parkedRowIds.get(parkKey(raw)) ?? heldEvidenceMatch(raw).prior?.row_id;
     if (rowId) plan.ops.supersededParked.push({ row_id: rowId, contact_id: contactId });
   };
 
@@ -1039,14 +1303,19 @@ export async function planImport(
     const key = parkKey(raw);
     if (parked.has(key)) {
       plan.counts.duplicates++;
-      // Still in the queue and still unmatched, so this import re-asserts it
-      // rather than adding a second copy. Moving it onto this batch is what
-      // lets commitPlan retire the batch it replaces without dropping a row
-      // that only survives in the older one.
+      // It is already waiting. Preserve the original queue row and record
+      // that the preview encountered it (including for mapping review).
       const existing = parkedRowIds.get(key);
       if (existing) plan.ops.adoptedParked.push(existing);
       return;
     }
+    const { prior, evidence } = heldEvidenceMatch(raw);
+    if (prior) {
+      plan.counts.duplicates++;
+      if (prior.row_id) plan.ops.adoptedParked.push(prior.row_id);
+      return;
+    }
+    if (evidence) heldSaleRows.set(evidence.key, [{ row_id: null, value: evidence.value }]);
     parked.add(key);
     plan.ops.unmatched.push({
       row_id: uuid(), source, client_id: clientId, raw_data: raw,
@@ -1056,7 +1325,9 @@ export async function planImport(
     plan.counts.parked++;
   };
 
-  for (const r of rows) {
+  for (const [rowIndex, r] of rows.entries()) {
+    const placement = placements[rowIndex];
+    if (source === "leads" && !placement) { plan.counts.duplicates++; continue; }
     const email = normEmail(val(r, "email"));
     const phone = normPhone(val(r, "phone"));
     /**
@@ -1094,7 +1365,7 @@ export async function planImport(
 
     // ── LEADS ──────────────────────────────────────────────────────────────
     if (source === "leads") {
-      const when = toTimestamp(val(r, "event_date"), dateOrder);
+      const { when, roundId, method } = placement!;
       if (!contactId) {
         /**
          * WE DON'T KNOW WHO IS NOT THE SAME AS WE DON'T KNOW IF.
@@ -1126,20 +1397,14 @@ export async function planImport(
          */
         const nameOnly = outcome.kind === "park" && outcome.reason === "name_only";
         const anon = nameOnly ? anonKey(val(r, "name")) : null;
-        if (!anon || !when) {
+        if (!anon) {
           park(outcome.kind === "park" ? outcome.reason : "name_only", r, null, null, "none");
           continue;
         }
         const anonSet = normAsset(val(r, "ad_set"));
-        const anonAttr = attributeLead(when, anonSet, rounds, adRuns);
-        if (!anonAttr.roundId) {
-          park("no_matching_round", r, null, "no round covers this opt-in date", "none");
-          continue;
-        }
-        if (anonAttr.method === "utm") plan.attribution.utm++;
-        else if (anonAttr.method === "date_window") plan.attribution.dateWindow++;
-        else plan.attribution.none++;
-        const key = eventKey("lead", anon, anonAttr.roundId, when);
+        if (method === "utm") plan.attribution.utm++;
+        else if (method === "date_window") plan.attribution.dateWindow++;
+        const key = eventKey("lead", anon, roundId, when);
         if (seenEvents.has(key)) {
           if (enrich(key, answersFor(r))) plan.diff.changedRows++;
           plan.counts.duplicates++;
@@ -1150,8 +1415,8 @@ export async function planImport(
         seenEvents.add(key);
         track(sgDayOf(when));
         plan.ops.events.push({
-          event_id: uuid(), contact_id: null, round_id: anonAttr.roundId, event_type: "lead", anon_key: anon,
-          event_date: when, lead_round_id: anonAttr.roundId, attribution_method: anonAttr.method,
+          event_id: uuid(), contact_id: null, round_id: roundId, event_type: "lead", anon_key: anon,
+          event_date: when, lead_round_id: roundId, attribution_method: method,
           utm_campaign: val(r, "utm_campaign") || null,
           ad_set: anonSet, ad: normAsset(val(r, "ad")),
           // Never "Paid Ads" by inference. A row the ads could have produced
@@ -1165,42 +1430,12 @@ export async function planImport(
         plan.diff.newRows++;
         continue;
       }
-      if (!when) { park("incomplete_row", r, null, "no usable opt-in date", "none"); continue; }
       track(sgDayOf(when));
-
-      // The audience is what bridges a person to spend, so it is what decides
-      // the round. utm_campaign names the round's campaign, not an ad set.
       const adSet = normAsset(val(r, "ad_set"));
       const adName = normAsset(val(r, "ad"));
       const utm = val(r, "utm_campaign");
-      /**
-       * A named round is not a hint, it is the file saying which of its lists
-       * this row was on, and nothing outranks it.
-       *
-       * The UTM did, briefly, on the reasoning that a click on a round's ad is
-       * evidence about that ad. It is — about the AD, which this row still
-       * records in ad_set and ad, and which every audience and creative figure
-       * is built from. It is not evidence about WHICH CLASS THEY SIGNED UP FOR.
-       * Somebody can click June's ad and register for July's webinar, and 90 of
-       * Shely's leads did exactly that: the UTM moved them to the round whose
-       * ad they clicked and off the list they were actually on.
-       *
-       * A name that matches no round is ignored rather than trusted, so a typo
-       * cannot invent an attribution.
-       */
-      const declared = val(r, "round_id");
-      const stated = declared ? resolveRoundRef(declared, rounds) : null;
-      const guess = attributeLead(when, adSet, rounds, adRuns);
-      const roundId = stated ?? guess.roundId;
-      const method = stated ? "declared" : guess.method;
-      if (declared && !stated) {
-        warnings.push(`Round "${declared}" isn't a round for this client — that row was attributed the usual way.`);
-      }
       if (method === "utm") plan.attribution.utm++;
       else if (method === "date_window") plan.attribution.dateWindow++;
-      else if (method !== "declared") plan.attribution.none++;
-
-      if (!roundId) { park("no_matching_round", r, null, "no round covers this opt-in date", "none"); continue; }
 
       const key = eventKey("lead", contactId, roundId, when);
       if (seenEvents.has(key)) {
@@ -1347,7 +1582,8 @@ export async function planImport(
       const amount = toNumber(val(r, "amount"));
       const productRaw = val(r, "product") ?? "";
       const product = resolveProduct(productRaw);
-      const refund = toNumber(val(r, "refund_amount")) ?? 0;
+      const providedRefund = toNumber(val(r, "refund_amount"));
+      const refund = providedRefund ?? 0;
       const refundDate = toDate(val(r, "refund_date"), dateOrder);
 
       if (!when || amount === null) { park("incomplete_row", r, null, "missing date or amount", "none"); continue; }
@@ -1380,14 +1616,32 @@ export async function planImport(
 
       if (!purchaseRound) { park("bought_without_lead", r, null, "no round covers this purchase", "none", amount); continue; }
 
-      // RESTATEMENT: this sale already exists and the file changes it.
-      const prior = events.find(
-        (e) => e.event_type === "sale" && e.contact_id === contactId &&
-               e.product === product && sgDayOf(e.event_date) === sgDayOf(when),
-      );
+      // No transaction ID exists. Use the current coarse business rule, but
+      // refuse conflicting amounts or multiple possible stored targets.
+      const saleIdentity = salesKey(contactId, when, product);
+      const earlier = stagedSales.get(saleIdentity);
+      if (earlier) {
+        if (comparableMetric("amount", earlier.amount) !== comparableMetric("amount", amount) ||
+            earlier.providedRefund !== providedRefund || earlier.refundDate !== refundDate) {
+          throw new ImportError("This file has conflicting sales for the same person, local day and product. The export has no transaction IDs to resolve them; check the source transactions.");
+        }
+        plan.counts.duplicates++;
+        continue;
+      }
+      stagedSales.set(saleIdentity, { amount, providedRefund, refundDate });
+      const matches = salesByKey.get(saleIdentity) ?? [];
+      if (matches.length > 1) throw new ImportError("More than one stored sale matches this person, local day and product. Reconcile the source transactions before importing.");
+      const prior = matches[0];
       if (prior) {
+        if (prior.amount != null && comparableMetric("amount", prior.amount) !== comparableMetric("amount", amount)) {
+          throw new ImportError("This sale differs in amount from a stored sale for the same person, local day and product. The export has no transaction ID to tell a correction from a second sale. Reconcile the original transaction before importing.");
+        }
         const priorRefund = Number(prior.refund_amount ?? 0);
-        if (refund !== priorRefund) {
+        if (refundDate && (providedRefund === null || providedRefund === priorRefund) &&
+            refundDate !== (prior.refund_date ?? null)) {
+          throw new ImportError("This sale supplies a different refund date without a different refund amount. Reconcile the existing refund before importing; the file does not identify a separate refund.");
+        }
+        if (providedRefund !== null && refund !== priorRefund) {
           plan.ops.refundUpdates.push({ event_id: prior.event_id, refund_amount: refund, refund_date: refundDate });
           plan.diff.changedRows++;
           plan.diff.restatements.push(
@@ -1396,6 +1650,7 @@ export async function planImport(
         } else {
           plan.counts.duplicates++;
         }
+        supersede(r, contactId);
         continue;
       }
 
@@ -1433,20 +1688,72 @@ export async function planImport(
   plan.coverage = { start: sorted[0] ?? null, end: sorted[sorted.length - 1] ?? null };
   plan.warnings = [...new Set(plan.warnings)];
   plan.diff.restatements = [...new Set(plan.diff.restatements)];
+  if (source === "leads") plan.leadRoundGuard = {
+    version: LEAD_ROUND_GUARD_VERSION,
+    destinations: verifiedLeadDestinations(plan.ops.events, rounds, adRuns),
+  };
   return plan;
 }
 
+export function hasImportWrites(plan: Plan): boolean {
+  const ops = plan.ops;
+  return Boolean(ops.contacts.length || ops.ads.length || ops.events.length ||
+    ops.unmatched.length || ops.refundUpdates.length || ops.answerUpdates.length ||
+    ops.supersededParked.length || ops.scroll);
+}
+
 /** Step 5 — writes the approved plan. Nothing before this touches the data. */
-export async function commitPlan(db: SupabaseClient, batchId: string, plan: Plan) {
+export async function commitPlan(db: SupabaseClient, batchId: string, plan: Plan): Promise<{ changed: boolean }> {
+  if (plan.source === "leads") {
+    const guard = plan.leadRoundGuard;
+    if (guard?.version !== LEAD_ROUND_GUARD_VERSION || !Array.isArray(guard.destinations)) {
+      throw new ImportError("This Leads preview predates round validation. Upload and preview the file again before committing.");
+    }
+    const rounds = plan.ops.events.length ? await loadRounds(db, plan.clientId) : [];
+    const needsAds = plan.ops.events.some((event) => event.attribution_method !== "declared" && event.ad_set);
+    const current = verifiedLeadDestinations(plan.ops.events, rounds, needsAds ? await loadLeadAdRuns(db, rounds) : []);
+    // JSONB normalizes object key order; compare structured values explicitly.
+    if (current.length !== guard.destinations.length || current.some((row, i) => {
+      const saved = guard.destinations[i];
+      return !saved || row.roundId !== saved.roundId || row.label !== saved.label
+        || row.count !== saved.count || row.declaredOutsideWindow !== saved.declaredOutsideWindow;
+    })) {
+      throw new ImportError("Lead round destinations changed since preview. Upload and preview the file again before committing.");
+    }
+  }
+  if (!hasImportWrites(plan)) {
+    const { error } = await db.from("import_batches")
+      .update({ status: "discarded", staged_payload: null }).eq("batch_id", batchId).eq("status", "staged");
+    if (error) throw new ImportError(`Closing the unchanged preview failed: ${error.message}`);
+    return { changed: false };
+  }
   const chunk = <T,>(a: T[], n = 500) =>
     Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
 
+  if (plan.ops.ads.length) {
+    // Preview and Commit are separate requests. If another writer (including
+    // direct Meta pull) landed these exact names meanwhile, do not quietly
+    // commit a different diff. The UUID primary key also closes the exact-key
+    // upload race in the remaining check-to-insert window.
+    const ads = plan.ops.ads as unknown as (AdsIdentity & { id: string })[];
+    if (ads.some((r) => r.id !== uploadedAdId(plan.clientId, adsKey(r)))) {
+      throw new ImportError("This ads preview predates duplicate protection. Upload the file again before committing.");
+    }
+    const keys = new Set(ads.map(adsKey));
+    const roundIds = [...new Set(ads.map((r) => r.round_id))];
+    const stored = await fetchAll<AdsIdentity>(db, "ads_performance",
+      "round_id, date, campaign, ad_set, ad, channel", (q) => q.in("round_id", roundIds));
+    if (stored.some((r) => keys.has(adsKey(r)))) {
+      throw new ImportError("Ads data changed since this preview. Upload the file again to review what is already stored.");
+    }
+  }
   for (const part of chunk(plan.ops.contacts)) {
     const { error } = await db.from("contacts").insert(part);
     if (error) throw new ImportError(`Writing contacts failed: ${error.message}`);
   }
   for (const part of chunk(plan.ops.ads.map((a) => ({ ...a, import_batch_id: batchId })))) {
     const { error } = await db.from("ads_performance").insert(part);
+    if (error?.code === "23505") throw new ImportError("An ads row was committed by another request. Upload again to review what is already stored.");
     if (error) throw new ImportError(`Writing ads_performance failed: ${error.message}`);
   }
   for (const part of chunk(plan.ops.events.map((e) => ({ ...e, import_batch_id: batchId })))) {
@@ -1539,70 +1846,10 @@ export async function commitPlan(db: SupabaseClient, batchId: string, plan: Plan
     if (error) throw new ImportError(`Clearing a superseded parked row failed: ${error.message}`);
   }
 
-  /**
-   * The other half of the same problem: a row that parked before and parks
-   * again.
-   *
-   * The loop above retires a parked row that this import has just made
-   * countable. It cannot see the row that still doesn't match — that one is
-   * inserted fresh above, and the copy from the previous upload of the same
-   * file stays in the queue beside it. Re-uploading sales once took the queue
-   * to 17 rows holding SGD 8,649 when the file described 9 rows holding 4,473:
-   * the same eight people counted twice, and "understated by exactly this
-   * queue, never overstated" quietly became false in the direction it promises
-   * is impossible.
-   *
-   * A re-import is the authority for the period it covers, so its predecessors
-   * for that period are spent. Containment, not overlap, is the test: importing
-   * June sales must not retire May's parked rows, because the June file says
-   * nothing about them. A narrower re-import leaves the wider batch alone for
-   * the same reason — keeping a row a human can dismiss beats dropping one
-   * silently.
-   *
-   * resolved_by records 'restated' rather than 'superseded' so the two cases
-   * stay distinguishable in the audit trail: one was answered, this one was
-   * replaced.
-   */
-  // Rows this import saw again and still cannot match move onto this batch
-  // first, so the sweep below retires only what is genuinely spent.
-  if (plan.ops.adoptedParked.length) {
-    const { error } = await db
-      .from("unmatched_rows")
-      .update({ import_batch_id: batchId })
-      .in("row_id", plan.ops.adoptedParked)
-      .is("resolved_at", null);
-    if (error) throw new ImportError(`Re-asserting a parked row failed: ${error.message}`);
-  }
-
-  if (plan.coverage.start && plan.coverage.end) {
-    const { data: prior, error: e } = await db
-      .from("import_batches")
-      .select("batch_id, coverage_start, coverage_end")
-      .eq("client_id", plan.clientId)
-      .eq("source", plan.source)
-      .eq("status", "committed")
-      .neq("batch_id", batchId);
-    if (e) throw new ImportError(`Reading earlier batches failed: ${e.message}`);
-
-    const spent = (prior ?? [])
-      .filter(
-        (b) =>
-          b.coverage_start &&
-          b.coverage_end &&
-          b.coverage_start >= plan.coverage.start! &&
-          b.coverage_end <= plan.coverage.end!,
-      )
-      .map((b) => b.batch_id);
-
-    if (spent.length) {
-      const { error: e2 } = await db
-        .from("unmatched_rows")
-        .update({ resolved_at: new Date().toISOString(), resolved_by: "restated" })
-        .in("import_batch_id", spent)
-        .is("resolved_at", null);
-      if (e2) throw new ImportError(`Retiring replaced parked rows failed: ${e2.message}`);
-    }
-  }
+  // An upload may be a subset even if its min/max dates cover an older batch.
+  // Exact repeats are already deduped at preview; absence from an upload is
+  // not proof a waiting row was resolved. Only superseding a match above can
+  // retire it. Keep unchanged parked rows attached to their original batch.
 
   const { error } = await db.from("import_batches").update({
     status: "committed",
@@ -1641,4 +1888,5 @@ export async function commitPlan(db: SupabaseClient, batchId: string, plan: Plan
       `press Refresh data, or run: select fo_refresh_lookups();`,
     );
   }
+  return { changed: true };
 }

@@ -144,6 +144,14 @@ export const VS_OPTIONS: VsOption[] = [
   { key: "attPct",  metric: "attPct",  short: "Show rate",           label: "Attendance %",              fmt: "p",  kind: "efficiency", betterWhen: "higher" },
 ];
 
+/** An enabled preview choice reads a key from the same projected table cut. */
+export type PreviewVsMetric = { metric: string; label: string; fmt: Fmt };
+export type PreviewVsOption = Omit<VsOption, "key" | "metric"> & PreviewVsMetric & {
+  key: string;
+  companion?: PreviewVsMetric;
+};
+export type ChartPreviewOptions = { reportingPreview: true; option?: PreviewVsOption };
+
 /**
  * THE AMOUNT AN EFFICIENCY IS AN EFFICIENCY OF.
  *
@@ -174,7 +182,7 @@ export const isVs = (v: string | null | undefined): v is VsKey =>
   !!v && VS_OPTIONS.some((o) => o.key === v);
 
 export type ViewMode = "table" | "graph";
-export type ViewOpts = { mode: ViewMode; objective: ObjectiveKey; vs: VsKey };
+export type ViewOpts = { mode: ViewMode; objective: ObjectiveKey; vs: VsKey; roundMetric?: string };
 
 /**
  * Attendance, because that is the objective the brief named: "let's say client
@@ -265,6 +273,8 @@ export type Series = {
   points: Point[];
   /** Axis ceiling. Always > 0, so dividing by it is always safe. */
   max: number;
+  /** Only the reporting preview populates a potentially signed floor. */
+  min?: number;
   /** Every value is absent — said in words rather than drawn as a flat zero. */
   empty: boolean;
 };
@@ -282,7 +292,9 @@ export type ChartModel = {
   left: Series;
   right: Series;
   columns: { key: string; label: string; sub: string | null }[];
-  vs: VsOption;
+  vs: VsOption | PreviewVsOption;
+  /** Explicit provenance; the renderer still requires its own opt-in. */
+  reportingPreview?: true;
   /** Cuts that carried nothing on either line. Named under the chart, not hidden. */
   blanks: string[];
 };
@@ -316,7 +328,8 @@ function seriesFor(
  * The Total column is deliberately not passed in by the caller: a total is not
  * a point on a time axis.
  */
-export function chartModel(cuts: Cut[], vs: VsKey): ChartModel {
+export function chartModel(cuts: Cut[], vs: VsKey, preview?: ChartPreviewOptions): ChartModel {
+  if (preview?.reportingPreview === true) return previewChartModel(cuts, preview.option ?? vsOption(vs));
   const opt = vsOption(vs);
   const left = seriesFor("input", "left", "Ads Spent", "spend", "m", cuts);
   const right = seriesFor("against", "right", opt.label, opt.metric, opt.fmt, cuts);
@@ -344,6 +357,66 @@ export function chartModel(cuts: Cut[], vs: VsKey): ChartModel {
     vs: opt,
     blanks,
   };
+}
+
+function previewChartModel(cuts: Cut[], option: PreviewVsOption): ChartModel {
+  const series = (role: Series["role"], axis: Series["axis"], metric: PreviewVsMetric): Series => {
+    const points = cuts.map((c) => {
+      const source = (c.m as Record<string, unknown> | null | undefined)?.[metric.metric];
+      const value = typeof source === "number" || (typeof source === "string" && source.trim())
+        ? num(source) : null;
+      return { key: c.cut_key, label: c.cut_label ?? c.cut_key, sub: c.cut_sub ?? null, value };
+    });
+    let max = 0, empty = true;
+    for (const p of points) {
+      if (p.value === null) continue;
+      empty = false;
+      max = Math.max(max, p.value);
+    }
+    return { role, axis, label: metric.label, fmt: metric.fmt, points, max: axisMax(max, metric.fmt), empty };
+  };
+
+  const left = series("input", "left", { metric: "spend", label: "Ads Spent", fmt: "m" });
+  const right = series("against", "right", option);
+  const standard = isVs(option.key) ? vsOption(option.key) : undefined;
+  const of = option.kind === "efficiency"
+    ? (option.companion ?? (standard?.metric === option.metric ? AMOUNT_OF[standard.key] : undefined))
+    : undefined;
+  const amount = of ? series("input", "left", of) : null;
+  const leftSeries = amount ? [left, amount] : [left];
+  const allSeries = [...leftSeries, right];
+  const signed = allSeries.some(s => s.points.some(p => p.value !== null && p.value < 0));
+  for (const axis of [leftSeries, [right]]) {
+    let magnitude = 0;
+    let allIntegers = true;
+    for (const s of axis) for (const p of s.points) {
+      if (p.value === null) continue;
+      magnitude = Math.max(magnitude, Math.abs(p.value));
+      allIntegers &&= Number.isInteger(p.value);
+    }
+    // Symmetric scaled domains give both independently measured axes the
+    // same physical zero line. Whichever side is negative still has room.
+    const upper = axisMax(magnitude, axis.every(s => s.fmt === "i") && allIntegers ? "i" : "d2");
+    for (const s of axis) { s.min = signed ? -upper : 0; s.max = upper; }
+  }
+  const columns = cuts.map(c => ({ key: c.cut_key, label: c.cut_label ?? c.cut_key, sub: c.cut_sub ?? null }));
+  const blanks = columns.filter((_, i) => allSeries.every(s => s.points[i].value === null)).map(c => c.label);
+  return { left, right, amount, columns, vs: option, blanks, reportingPreview: true };
+}
+
+/** Keep weighted counts fractional in preview, even if the row looks integer. */
+export function previewCell(v: number | null, f: Fmt): string {
+  if (v === null) return "—";
+  if (f === "i" && !Number.isInteger(v)) return precise(v);
+  const rounded = fmt(v, f);
+  if (v !== 0 && rounded !== null && Number(rounded.replace(/[,%]/g, "")) === 0) {
+    return precise(v) + (f === "p" ? "%" : "");
+  }
+  return rounded ?? "—";
+}
+function precise(v: number): string {
+  const result = v.toLocaleString("en-SG", { maximumFractionDigits: 6 });
+  return Number(result.replace(/,/g, "")) === 0 && v !== 0 ? v.toExponential(3) : result;
 }
 
 /** Cell text, or the same em dash the table uses. One idea of absent. */
@@ -432,12 +505,12 @@ export const clipLabel = (label: string, max: number) =>
 export const floorY = () => GEO.padT + GEO.plotH;
 
 /** Where a value sits vertically on its own axis. */
-export const valueY = (value: number, max: number) =>
-  floorY() - Math.max(0, Math.min(1, value / max)) * GEO.plotH;
+export const valueY = (value: number, max: number, min = 0) =>
+  floorY() - Math.max(0, Math.min(1, (value - min) / (max - min))) * GEO.plotH;
 
 /** Gridline values for one axis, floor to ceiling. */
-export const ticksFor = (max: number) =>
-  Array.from({ length: TICKS }, (_, i) => (max * i) / (TICKS - 1));
+export const ticksFor = (max: number, min = 0) =>
+  Array.from({ length: TICKS }, (_, i) => min + ((max - min) * i) / (TICKS - 1));
 
 /**
  * The polyline for one series, split wherever a value is missing.
@@ -447,7 +520,7 @@ export const ticksFor = (max: number) =>
  * the one thing this app refuses everywhere else. Looker draws through the gap;
  * this doesn't, because the gap is a fact.
  */
-export function lineRuns(points: Point[], max: number): Array<Array<[number, number]>> {
+export function lineRuns(points: Point[], max: number, min = 0): Array<Array<[number, number]>> {
   const runs: Array<Array<[number, number]>> = [];
   let run: Array<[number, number]> = [];
   const n = points.length;
@@ -457,7 +530,7 @@ export function lineRuns(points: Point[], max: number): Array<Array<[number, num
       run = [];
       return;
     }
-    run.push([colX(i, n), valueY(p.value, max)]);
+    run.push([colX(i, n), valueY(p.value, max, min)]);
   });
   if (run.length) runs.push(run);
   return runs;

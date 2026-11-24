@@ -1,8 +1,8 @@
 import type { Cut } from "@/lib/funnel/data";
 import {
   chartModel, chartWidth, chartHeight, colX, valueY, floorY, lineRuns, ticksFor, cell,
-  labelChars, wrapLabel, clipLabel, GEO,
-  type VsKey, type Series,
+  labelChars, wrapLabel, clipLabel, previewCell, GEO,
+  type VsKey, type Series, type ChartModel,
 } from "@/lib/funnel/chart";
 import { labelOf } from "@/lib/funnel/spine";
 
@@ -35,8 +35,11 @@ import { labelOf } from "@/lib/funnel/spine";
  * that rule costs nothing visible and changes what the chart says.
  */
 export function SpineChart({
-  title, sub, cuts, vs, elsewhere, notice, note, currency,
+  title, sub, cuts, vs, elsewhere, notice, note, currency, model: suppliedModel, reportingPreview = false,
 }: {
+  model?: ChartModel;
+  /** Only the gated development preview passes this. */
+  reportingPreview?: boolean;
   title: string;
   sub: string;
   /** The client's currency. Only the money series carry it. */
@@ -51,7 +54,11 @@ export function SpineChart({
   notice?: React.ReactNode;
   note?: React.ReactNode;
 }) {
-  const model = chartModel(cuts, vs);
+  const usableSuppliedModel = suppliedModel && Boolean(suppliedModel.reportingPreview) === reportingPreview ? suppliedModel : undefined;
+  const model = usableSuppliedModel ?? chartModel(cuts, vs, reportingPreview ? { reportingPreview: true } : undefined);
+  const format = reportingPreview ? previewCell : cell;
+  const lower = (series: Series) => reportingPreview ? series.min ?? 0 : 0;
+  const plotY = (value: number, series: Series) => valueY(value, series.max, lower(series));
   const n = cuts.length;
   const W = chartWidth(n);
   const H = chartHeight();
@@ -113,28 +120,34 @@ export function SpineChart({
     const span = Math.min(GEO.minCol * 0.52, (chartWidth(n) - GEO.padL - GEO.padR) / n * 0.52);
     const w = span / slots;
     return (
-      <g className={`s-${s.axis} bar-${slot}`}>
-        {s.points.map((p, i) =>
-          p.value === null ? null : (
+      <g key={reportingPreview ? slot : undefined} className={`s-${s.axis} bar-${slot}`} data-series-role={reportingPreview ? (slot === 0 ? "left" : "companion") : undefined}>
+        {s.points.map((p, i) => {
+          if (p.value === null) return null;
+          const y = plotY(p.value, s);
+          const zero = reportingPreview ? plotY(0, s) : floor;
+          const markedZero = reportingPreview && p.value === 0;
+          return (
             <g key={p.key}>
               <rect
                 className={`chart-bar chart-bar-${slot}`}
                 x={colX(i, s.points.length) - span / 2 + slot * w}
-                y={valueY(p.value, s.max)}
+                y={markedZero ? zero - 2 : Math.min(zero, y)}
                 width={Math.max(w - 2, 2)}
-                height={Math.max(floor - valueY(p.value, s.max), 0)}
+                height={markedZero ? 2 : Math.abs(zero - y)}
+                data-value={reportingPreview ? p.value : undefined}
+                data-column={reportingPreview ? p.key : undefined}
               />
               <text
                 className="chart-value"
                 x={colX(i, s.points.length) - span / 2 + slot * w + Math.max(w - 2, 2) / 2}
-                y={Math.max(valueY(p.value, s.max) - 5, GEO.padT + 9)}
+                y={reportingPreview ? labelY(y, p.value >= 0) : Math.max(y - 5, GEO.padT + 9)}
                 textAnchor="middle"
               >
-                {cell(p.value, s.fmt)}
+                {format(p.value, s.fmt)}
               </text>
             </g>
-          ),
-        )}
+          );
+        })}
       </g>
     );
   };
@@ -142,21 +155,22 @@ export function SpineChart({
   /** One series' line, its points, and its value labels. */
   const draw = (s: Series, labelAbove: boolean) =>
     s.empty ? null : (
-      <g className={`s-${s.axis}`}>
-        {lineRuns(s.points, s.max).map((run, i) => (
+      <g className={`s-${s.axis}`} data-series-role={reportingPreview ? "right" : undefined}>
+        {lineRuns(s.points, s.max, lower(s)).map((run, i) => (
           <polyline key={i} className="chart-line" points={run.map(([x, y]) => `${x},${y}`).join(" ")} />
         ))}
         {s.points.map((p, i) =>
           p.value === null ? null : (
             <g key={p.key}>
-              <circle className="chart-dot" cx={colX(i, s.points.length)} cy={valueY(p.value, s.max)} r={4.5} />
+              <circle className="chart-dot" cx={colX(i, s.points.length)} cy={plotY(p.value, s)} r={4.5}
+                data-value={reportingPreview ? p.value : undefined} data-column={reportingPreview ? p.key : undefined} />
               <text
                 className="chart-value"
                 x={colX(i, s.points.length)}
-                y={labelY(valueY(p.value, s.max), labelAbove)}
+                y={labelY(plotY(p.value, s), labelAbove)}
                 textAnchor="middle"
               >
-                {cell(p.value, s.fmt)}
+                {format(p.value, s.fmt)}
               </text>
             </g>
           ),
@@ -209,20 +223,22 @@ export function SpineChart({
             // width its own labels need
             style={{ minWidth: W }}
             role="img"
+            data-reporting-preview={reportingPreview ? "true" : undefined}
+            data-zero-y={reportingPreview ? plotY(0, model.left) : undefined}
             aria-label={`${labelOf(model.left, currency)}${model.amount ? ` and ${labelOf(model.amount, currency)}` : ""} against ${labelOf(model.right, currency)}, across ${cuts.length} columns.`}
           >
             {/* Gridlines come off the LEFT axis only. Two sets of horizontal
                 rules at different intervals would look like a printing fault. */}
-            {ticksFor(model.left.max).map((t, i) => {
-              const y = valueY(t, model.left.max);
+            {ticksFor(model.left.max, lower(model.left)).map((t, i) => {
+              const y = plotY(t, model.left);
               return (
                 <g key={t}>
                   <line
-                    className={i === 0 ? "chart-axis" : "chart-grid"}
+                    className={(reportingPreview ? t === 0 : i === 0) ? "chart-axis" : "chart-grid"}
                     x1={GEO.padL} x2={W - GEO.padR} y1={y} y2={y}
                   />
                   <text className="chart-tick s-left" x={GEO.padL - 12} y={y + 4} textAnchor="end">
-                    {cell(t, model.left.fmt)}
+                    {format(t, model.left.fmt)}
                   </text>
                 </g>
               );
@@ -230,15 +246,15 @@ export function SpineChart({
 
             {/* The right axis gets labels at the same heights, reading its own
                 scale — which is what makes two units on one plot legible. */}
-            {ticksFor(model.right.max).map((t) => (
+            {ticksFor(model.right.max, lower(model.right)).map((t) => (
               <text
                 key={t}
                 className="chart-tick s-right"
                 x={W - GEO.padR + 12}
-                y={valueY(t, model.right.max) + 4}
+                y={plotY(t, model.right) + 4}
                 textAnchor="start"
               >
-                {cell(t, model.right.fmt)}
+                {format(t, model.right.fmt)}
               </text>
             ))}
 
@@ -251,7 +267,8 @@ export function SpineChart({
                 the axis. Dropping it would close the gap and shorten the run. */}
             {model.columns.map((c, i) => {
               const blank =
-                model.left.points[i]?.value === null && model.right.points[i]?.value === null;
+                model.left.points[i]?.value === null && model.right.points[i]?.value === null &&
+                (!reportingPreview || !model.amount || model.amount.points[i]?.value === null);
               return (
                 <g key={c.key}>
                   {blank ? (
@@ -292,8 +309,9 @@ export function SpineChart({
           <span className="ico">?</span>
           <div>
             <b>{(model.left.empty ? model.left : model.right).label} has no measurement on this
-            cut</b>, so that line is absent rather than drawn along the floor. A flat line at
-            zero would claim a number that was never recorded.
+            cut</b>{reportingPreview
+              ? ", so that series is absent rather than drawn at zero. A flat line at zero would claim a number that was never recorded."
+              : ", so that line is absent rather than drawn along the floor. A flat line at zero would claim a number that was never recorded."}
           </div>
         </div>
       ) : null}
@@ -305,10 +323,10 @@ export function SpineChart({
           ? model.vs.betterWhen === "lower"
             ? "On this reading, spend rising while the right line falls is the shape you want."
             : "On this reading, spend rising while the right line rises with it is the shape you want."
+          : reportingPreview ? "That is the selected measurement."
+          : usableSuppliedModel ? "That is the configured stage count."
           : "That is the outcome itself — pick a row below it to see what a unit of it cost."}{" "}
-        Each line has its own axis — sharing one would flatten the smaller of the two into
-        the floor. A column with no measurement is a gap, and the line breaks across it
-        rather than drawing a trend through a number nobody has.
+        {reportingPreview ? "Each axis has its own scale. Measured zero stays visible; missing values do not get a mark, and the line breaks across gaps." : "Each line has its own axis — sharing one would flatten the smaller of the two into the floor. A column with no measurement is a gap, and the line breaks across it rather than drawing a trend through a number nobody has."}
         {model.blanks.length ? (
           <>
             {" "}

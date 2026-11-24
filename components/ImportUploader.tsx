@@ -2,9 +2,14 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
+import { ImportMappingReview, type ConfirmedReview, type ImportMappingView } from "./ImportMappingReview";
+import { LeadRoundEvidence } from "./LeadRoundEvidence";
+import type { LeadDestination, RoundTagEvidence } from "@/lib/import/lead-round-evidence";
 
 type Summary = {
+  unchanged?: boolean;
   source: string; fileName: string; rowCount: number;
+  review?: { worksheet?: string; profile?: { name: string; revision: number } };
   coverage: { start: string | null; end: string | null };
   columnMap: Record<string, string>; unusedColumns: string[];
   counts: { matchedExact: number; matchedAuto: number; newContacts: number; parked: number; duplicates: number; unidentified: number };
@@ -12,6 +17,7 @@ type Summary = {
   diff: { newRows: number; changedRows: number; restatements: string[] };
   warnings: string[];
   prerequisite: string | null;
+  leadDestinations?: LeadDestination[];
   willWrite: { contacts: number; events: number; ads: number; unmatched: number; refunds: number; answers: number };
   scroll: {
     round: string; device: string; sessions: number;
@@ -27,51 +33,82 @@ type Summary = {
  */
 const joinParts = (parts: string[]) => parts.filter(Boolean).join(" · ");
 
+type ChosenFile = { file: File; source: string; sheet?: { id: string; name: string } };
+type Inspection =
+  | { kind: "worksheets"; sheets: { id: string; name: string; selectable: boolean }[] }
+  | { kind: "source"; message: string; detail?: string[]; roundTagEvidence?: RoundTagEvidence | null; candidates: { source: string; label: string; why?: string }[] }
+  | { kind: "legacy"; source: string; profileReason: string }
+  | ImportMappingView;
+
 type State =
   | { phase: "idle" }
   | { phase: "reading" }
-  /* The file could be more than one source and guessing is the expensive
-     outcome, so it asks. The file is held so the answer costs one click rather
-     than another trip to the file picker. */
-  | { phase: "ambiguous"; file: File; message: string; candidates: Array<{ source: string; why: string }> }
+  | { phase: "review"; chosen: ChosenFile; view: Inspection }
   | { phase: "staged"; batchId: string; plan: Summary }
   | { phase: "committing"; batchId: string; plan: Summary }
-  | { phase: "done"; plan: Summary }
+  | { phase: "done"; plan: Summary; unchanged: boolean }
   | { phase: "error"; message: string; detail: string[] };
 
-export function ImportUploader({
-  source, label, kind, client, expects,
-}: {
-  source: string; label: string; kind: string; client: string; expects: string;
-}) {
+type UploaderProps = { source: string; label: string; kind: string; client: string; expects: string };
+
+export function ImportUploader(props: UploaderProps) {
+  return <ImportUploaderForScope key={`${props.client}:${props.source}`} {...props} />;
+}
+
+function ImportUploaderForScope({ source, label, kind, client, expects }: UploaderProps) {
   const [state, setState] = useState<State>({ phase: "idle" });
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
-  async function upload(file: File, override?: string) {
-    setState({ phase: "reading" });
-    const body = new FormData();
-    body.append("file", file);
-    // `auto` asks the server to read the columns and decide. An override is the
-    // operator answering after it said it could not tell.
-    body.append("source", override ?? source);
-    body.append("client", client);
+  const staging = useRef(false);
+  const latestRead = useRef(0);
 
+  function uploadBody(chosen: ChosenFile) {
+    const body = new FormData();
+    body.append("file", chosen.file);
+    body.append("source", chosen.source);
+    body.append("client", client);
+    if (chosen.sheet) body.append("sheet", chosen.sheet.id);
+    return body;
+  }
+
+  async function inspect(chosen: ChosenFile) {
+    const read = ++latestRead.current;
+    setState({ phase: "reading" });
+    try {
+      const response = await fetch("/api/import/inspect", { method: "POST", body: uploadBody(chosen) });
+      const json = await response.json();
+      if (read !== latestRead.current) return;
+      if (!response.ok) {
+        setState({ phase: "error", message: json.error ?? "Could not review the file.", detail: json.detail ?? [] });
+        return;
+      }
+      setState({ phase: "review", chosen, view: json });
+    } catch {
+      if (read === latestRead.current) setState({ phase: "error", message: "Could not reach the server.", detail: [] });
+    }
+  }
+
+  async function upload(chosen: ChosenFile, review?: ConfirmedReview) {
+    if (staging.current) return;
+    staging.current = true;
+    setState({ phase: "reading" });
+    const body = uploadBody(chosen);
+    if (review) body.append("reviewed", JSON.stringify(review));
     try {
       const res = await fetch("/api/import/preview", { method: "POST", body });
       const json = await res.json();
-      if (res.status === 409 && json.ambiguous) {
-        setState({ phase: "ambiguous", file, message: json.error, candidates: json.ambiguous });
-        return;
-      }
       if (!res.ok) {
-        setState({ phase: "error", message: json.error ?? "Import failed.", detail: json.detail ?? [] });
+        const details = (value: unknown): string[] => Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+        setState({ phase: "error", message: json.error ?? "Import failed.", detail: [...new Set([...details(json.detail), ...details(json.hints)])] });
         return;
       }
       setState({ phase: "staged", batchId: json.batchId, plan: json.plan });
     } catch {
       setState({ phase: "error", message: "Could not reach the server.", detail: [] });
+    } finally {
+      staging.current = false;
     }
   }
 
@@ -88,7 +125,7 @@ export function ImportUploader({
         setState({ phase: "error", message: json.error ?? "Commit failed.", detail: [] });
         return;
       }
-      setState({ phase: "done", plan });
+      setState({ phase: "done", plan, unchanged: json.unchanged === true });
       router.refresh();
     } catch {
       setState({ phase: "error", message: "Could not reach the server.", detail: [] });
@@ -114,25 +151,42 @@ export function ImportUploader({
         <span className="kind">{kind}</span>
       </div>
       <div className="src-b">
-        {p === "ambiguous" && (
-          <div className="notice" style={{ marginBottom: 0 }}>
-            <span className="ico">?</span>
-            <div>
-              <b>{state.message}</b>
-              <div className="amb">
-                {state.candidates.map((c) => (
-                  <button key={c.source} type="button" className="amb-pick"
-                    onClick={() => upload(state.file, c.source)}>
-                    {c.source}
-                    <span>{c.why}</span>
-                  </button>
-                ))}
+        {p === "review" && (() => {
+          const { chosen, view } = state;
+          const startOver = () => { latestRead.current++; setState({ phase: "idle" }); };
+          if (view.kind === "mapping") return <ImportMappingReview view={view} client={client} worksheet={chosen.sheet?.name}
+            onStartOver={startOver} onPreview={(review) => void upload({ ...chosen, source: view.source }, review)} />;
+          if (view.kind === "legacy") return (
+            <div className="notice">
+              <div>
+                <b>Ready to preview</b>
+                <p>{view.profileReason}</p>
+                <button className="btn primary" type="button" onClick={() => void upload({ ...chosen, source: view.source })}>Preview import</button>{" "}
+                <button className="linkish" type="button" onClick={startOver}>Choose a different file</button>
               </div>
-              <button type="button" className="linkish"
-                onClick={() => setState({ phase: "idle" })}>Choose a different file</button>
             </div>
-          </div>
-        )}
+          );
+          return (
+            <div className="notice">
+              <span className="ico">?</span>
+              <div>
+                <b>{view.kind === "worksheets" ? "Choose one worksheet" : view.message}</b>
+                {view.kind === "source" && view.detail?.length ? <ul>{view.detail.map((detail) => <li key={detail}>{detail}</li>)}</ul> : null}
+                {view.kind === "source" && view.roundTagEvidence ? <LeadRoundEvidence evidence={view.roundTagEvidence} chooseSource /> : null}
+                <div className="amb">
+                  {view.kind === "worksheets"
+                    ? view.sheets.map((sheet) => <button className="amb-pick" type="button" key={sheet.id} disabled={!sheet.selectable}
+                        onClick={() => void inspect({ ...chosen, sheet })}>{sheet.name}{!sheet.selectable ? " (not importable)" : ""}</button>)
+                    : view.candidates.map((candidate) => <button className="amb-pick" type="button" key={candidate.source}
+                        onClick={() => void inspect({ ...chosen, source: candidate.source })}>
+                        {candidate.label}{candidate.why ? <span>{candidate.why}</span> : null}
+                      </button>)}
+                </div>
+                <button className="linkish" type="button" onClick={startOver}>Choose a different file</button>
+              </div>
+            </div>
+          );
+        })()}
 
         {(p === "idle" || p === "error") && (
           <>
@@ -148,19 +202,19 @@ export function ImportUploader({
                 e.preventDefault();
                 setDragging(false);
                 const f = e.dataTransfer.files?.[0];
-                if (f) upload(f);
+                if (f) void inspect({ file: f, source });
               }}
             >
               <b>{source === "auto" ? "Drop any export" : `Drop the ${label.toLowerCase()} export`}</b>
-              Or click to choose a CSV
+              Or click to choose a CSV or Excel workbook (.xlsx)
               <div className="cols">{expects}</div>
             </div>
             <input
               ref={inputRef}
               type="file"
-              accept=".csv,text/csv"
+              accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               hidden
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ""; }}
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void inspect({ file: f, source }); e.target.value = ""; }}
             />
             {p === "error" && (
               <div className="notice" style={{ marginBottom: 0 }}>
@@ -178,14 +232,16 @@ export function ImportUploader({
           </>
         )}
 
-        {p === "reading" && <div className="drop">Reading, matching and attributing…</div>}
+        {p === "reading" && <div className="drop">Reading the import…</div>}
 
         {(p === "staged" || p === "committing") && <Diff plan={state.plan} />}
 
         {p === "staged" && (
           <div style={{ display: "flex", gap: 8 }}>
             <button className="btn primary" onClick={() => commit(state.batchId, state.plan)}>
-              Commit {state.plan.diff.newRows + state.plan.diff.changedRows} rows
+              {state.plan.unchanged
+                ? "Close unchanged preview"
+                : `Commit ${state.plan.diff.newRows + state.plan.diff.changedRows} rows`}
             </button>
             <button className="btn" onClick={() => discard(state.batchId)}>Discard</button>
           </div>
@@ -198,6 +254,9 @@ export function ImportUploader({
             <div className="notice info" style={{ marginBottom: 8 }}>
               <span className="ico">✓</span>
               <div>
+                {state.unchanged ? (
+                  <b>No changes; nothing added.</b>
+                ) : <>
                 <b>Committed.</b>{" "}
                 {state.plan.scroll
                   ? `A ${state.plan.scroll.points}-point curve on ${state.plan.scroll.sessions} sessions is now attached to ${state.plan.scroll.round}. Read it on This round, step 3.`
@@ -215,6 +274,7 @@ export function ImportUploader({
                         ? `${state.plan.willWrite.unmatched} parked`
                         : "",
                     ]) || "nothing was written"}. This batch is locked — a later import can add rows or flag a restate, never silently change these.`}
+                </>}
               </div>
             </div>
             <button className="btn" onClick={() => setState({ phase: "idle" })}>Import another file</button>
@@ -231,6 +291,8 @@ function Diff({ plan }: { plan: Summary }) {
     <div className="diff">
       <div className="diff-h">
         <b>{plan.fileName}</b>
+        {plan.review?.worksheet ? <span className="dim">Worksheet: {plan.review.worksheet}</span> : null}
+        {plan.review?.profile ? <span className="dim">Profile: {plan.review.profile.name} (v{plan.review.profile.revision})</span> : null}
         <span className="dim">
           {plan.rowCount} rows · {plan.coverage.start ?? "—"} → {plan.coverage.end ?? "—"}
         </span>
@@ -242,7 +304,7 @@ function Diff({ plan }: { plan: Summary }) {
         <div className="notice" style={{ margin: "0 0 8px" }}>
           <span className="ico">!</span>
           <div>
-            <b>Out of order.</b> {plan.prerequisite}
+            <b>{plan.source === "leads" ? "Import context." : "Out of order."}</b> {plan.prerequisite}
           </div>
         </div>
       )}
@@ -275,6 +337,20 @@ function Diff({ plan }: { plan: Summary }) {
             ]) || "nothing new"
           )}
         </dd>
+
+        {plan.source === "leads" && plan.leadDestinations !== undefined ? <>
+          <dt>Destination rounds</dt>
+          <dd>
+            {plan.leadDestinations.length ? <ul aria-label="Planned Leads destination rounds">
+              {plan.leadDestinations.map((round) => <li key={round.roundId}>
+                <b>{round.label}</b>{round.label !== round.roundId ? <> <span className="num">({round.roundId})</span></> : null}
+                {" · "}{round.count} new {round.count === 1 ? "lead" : "leads"}
+                {round.declaredOutsideWindow > 0 ? <> · {round.declaredOutsideWindow} with a verified date outside the explicitly chosen round’s window</> : null}
+              </li>)}
+            </ul> : "No new lead events in this preview."}
+            {plan.leadDestinations.length ? <p className="dim">These counts exclude skipped duplicates and rows held for review. Check the destinations before Commit.</p> : null}
+          </dd>
+        </> : null}
 
         {plan.scroll && (
           <>

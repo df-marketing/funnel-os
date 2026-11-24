@@ -1,5 +1,8 @@
+import { isReportingPreviewClient, isReportingPreviewView, type ReportingViewOpts } from "@/lib/funnel/reporting-preview";
+import { previewPeriodChoices } from "@/lib/funnel/preview-periods";
+import { stageComparisonView } from "@/lib/funnel/stage-comparison";
 import Link from "next/link";
-import { fmtCount, type MetricKey, type Metrics } from "@/lib/funnel/spine";
+import { fmtCount } from "@/lib/funnel/spine";
 import { RefreshButton } from "./RefreshButton";
 import { SignOut } from "./SignOut";
 import { SOURCES, type SourceKey } from "@/lib/import/sources";
@@ -7,7 +10,7 @@ import type {
   Client, Stage, StripCard, ImportStatus, Product, ChannelOption, CountryOption, SourceOption, AudienceOption, FilterKey, Cadence,
 } from "@/lib/funnel/data";
 import {
-  DEFAULT_OPTS, defaultVsFor, OBJECTIVE_KEYS, OBJECTIVES, GRAPHABLE, VS_OPTIONS, type ViewOpts,
+  DEFAULT_OPTS, defaultVsFor, OBJECTIVE_KEYS, OBJECTIVES, GRAPHABLE, VS_OPTIONS,
 } from "@/lib/funnel/chart";
 import { listOf, has, toggle, windowKey, joinOr } from "@/lib/funnel/filters";
 
@@ -17,7 +20,7 @@ import { listOf, has, toggle, windowKey, joinOr } from "@/lib/funnel/filters";
  * Empty values are dropped rather than sent as "" — the URL should say what is
  * set, not carry blank filters on every page.
  */
-const href = (client: string, view: string, f?: FilterKey, o?: ViewOpts, from?: string) => {
+const href = (client: string, view: string, f?: FilterKey, o?: ReportingViewOpts, from?: string) => {
   const q = new URLSearchParams({ client, view });
   if (f?.product) q.set("product", f.product);
   if (f?.channel) q.set("channel", f.channel);
@@ -47,7 +50,15 @@ const href = (client: string, view: string, f?: FilterKey, o?: ViewOpts, from?: 
     that tab's own link and the page then read the omission as show rate.
     Clicking "Cost per attendance" there lit up "Show rate".
   */
-  if (o && o.vs !== defaultVsFor(view)) q.set("vs", o.vs);
+  if (o?.reportingPreview && isReportingPreviewClient(client) && isReportingPreviewView(view)) {
+    q.set("reporting", "preview");
+    if (o.previewVs) q.set("vs", o.previewVs);
+    if (view === "analysis") {
+      if (o.analysisRound) q.set("analysisRound", o.analysisRound);
+      if (o.analysisMetric) q.set("analysisMetric", o.analysisMetric);
+    }
+  } else if (o && o.vs !== defaultVsFor(view)) q.set("vs", o.vs);
+  if (view === "round" && o?.roundMetric) q.set("roundMetric", o.roundMetric);
   return `/?${q}`;
 };
 
@@ -80,7 +91,7 @@ export function TopBar({
   current: Client;
   imports: ImportStatus[];
   filter: FilterKey;
-  opts: ViewOpts;
+  opts: ReportingViewOpts;
   /** Signed-in address, or null when login is not being enforced. */
   email?: string | null;
   /** Refresh drops every cache and rebuilds the campaign lookup. That is an
@@ -170,34 +181,6 @@ export function TopBar({
   );
 }
 
-/**
- * Which spine metric each journey stage counts, and which rate goes under it.
- *
- * The same mapping v_journey_strip does in SQL, moved here so the card is read
- * off the metric object fo_cut returns — which is the object that channel
- * blanking is applied to. Reading the view's own flat columns instead would put
- * an unblinded Lead Gen % on the strip directly above a table that blanks it.
- */
-const STAGE_METRIC: Record<string, { value: MetricKey; rate?: MetricKey }> = {
-  impressions:       { value: "impr" },
-  clicks:            { value: "clicks",  rate: "ctr" },
-  leads:             { value: "leads",   rate: "leadgen" },
-  attendance:        { value: "att",     rate: "attPct" },
-  preview_purchases: { value: "prevBuy", rate: "prevPct" },
-  middle_purchases:  { value: "midBuy",  rate: "midPct" },
-};
-
-const cardNumbers = (s: StripCard) => {
-  const map = s.stage_metric ? STAGE_METRIC[s.stage_metric] : undefined;
-  const m = (s.m ?? null) as Metrics | null;
-  // Falls back to the view's flat columns for a database that hasn't run 0031.
-  if (!map || !m) return { value: s.value, rate: s.rate };
-  return {
-    value: (m[map.value] ?? null) as string | number | null,
-    rate: map.rate ? ((m[map.rate] ?? null) as string | number | null) : null,
-  };
-};
-
 export function JourneyStrip({
   strip, client, view, filter, opts,
 }: {
@@ -205,7 +188,7 @@ export function JourneyStrip({
   client: string;
   view: string;
   filter: FilterKey;
-  opts: ViewOpts;
+  opts: ReportingViewOpts;
 }) {
   return (
     <section className="journey">
@@ -215,14 +198,14 @@ export function JourneyStrip({
       </div>
       <div className="stages">
         {strip.map((s) => {
-          const { value, rate } = cardNumbers(s);
+          const { value, rate } = s;
           return (
             <Link
               className="stage"
               key={s.stage_slug}
               // a strip card jumps to another stage, so it is leaving this tab
-              href={href(client, s.stage_slug, filter, opts, view)}
-              aria-current={view === s.stage_slug}
+              href={href(client, stageComparisonView(s.stage_slug), filter, opts, view)}
+              aria-current={view === stageComparisonView(s.stage_slug)}
             >
               <span className="sname">{s.stage_name}</span>
               <span className="sval">{fmtCount(value)}</span>
@@ -267,7 +250,7 @@ function FilterBar({
   client: string;
   view: string;
   filter: FilterKey;
-  opts: ViewOpts;
+  opts: ReportingViewOpts;
   products: Product[];
   channels: ChannelOption[];
   countries: CountryOption[];
@@ -435,14 +418,17 @@ function FilterBar({
           { key: null, label: "All time" },
           // A period's identity is its own dates, so the selection reaches the
           // database as windows it can test directly, with no lookup.
-          ...periods
-            .filter((p) => p.from && p.to)
-            .map((p) => ({ key: windowKey(p.from ?? "", p.to ?? ""), label: p.label })),
+          ...(opts.reportingPreview ? previewPeriodChoices(periods)
+            : periods.filter((p) => p.from && p.to)
+                .map((p) => ({ key: windowKey(p.from ?? "", p.to ?? ""), label: p.label }))),
         ],
         filter.periods,
         (periods) => ({ ...filter, periods }),
         true,
       )}
+      {opts.reportingPreview && previewPeriodChoices(periods).some((option) => option.label.includes("rounds share this date")) ? (
+        <p className="filter-note">A shared date selects all rounds anchored to it; this filter cannot isolate one of those rounds.</p>
+      ) : null}
       {/*
         Said only while a channel is chosen, and the second half only when
         something actually went blank. The old version explained the blanking
@@ -521,7 +507,7 @@ export function SideNav({
   periods: { key: string; label: string; from: string | null; to: string | null }[];
   /** Which of By week and By round this selection has something to put in. */
   cadences: Cadence[];
-  opts: ViewOpts;
+  opts: ReportingViewOpts;
   channelBlanked: boolean;
   countryBlanked: boolean;
   sourceBlanked: boolean;
@@ -612,7 +598,7 @@ export function SideNav({
       <div className="nav-group">
         Compare <span className="derived">one per journey stage</span>
       </div>
-      {stages.map((s) => item(s.stage_slug, s.stage_name))}
+      {stages.map((s) => item(stageComparisonView(s.stage_slug), s.stage_name))}
 
       <div className="nav-group">Now</div>
       {item("analysis", "This round")}
@@ -636,7 +622,7 @@ export function PaneControls({
   client: string;
   view: string;
   filter: FilterKey;
-  opts: ViewOpts;
+  opts: ReportingViewOpts;
 }) {
   /**
    * This round has no table/graph switch — it is neither — but it does have an

@@ -57,49 +57,46 @@ export type Attribution = {
 /** Rounds carry local calendar dates, so slicing one is already the local day. */
 const day = (d: string) => d.slice(0, 10);
 
-/**
- * UTM path: the utm_campaign names an ad set. The round is the one that ad set
- * was actually running in on the opt-in date — that's the round whose budget
- * paid for this lead. If the ad set ran in several rounds, the one whose window
- * contains the date wins; failing that, the nearest earlier run.
- */
+/** Only a round active on the Singapore opt-in day can be inferred. A
+ * uniquely matched in-window ad set can resolve overlapping rounds. */
 export function attributeLead(
-  optInDate: string,
-  utmCampaign: string | null,
-  rounds: Round[],
-  adSetRuns: AdSetRun[],
+  optInDate: string, adSet: string | null, rounds: Round[], adSetRuns: AdSetRun[],
 ): Attribution {
-  // The opt-in is an INSTANT; the round window is a pair of local dates. Compare
-  // them on the same clock, or a 4am opt-in falls into the previous round.
-  const d = localDay(optInDate);
+  return leadAttributor(rounds, adSetRuns)(optInDate, adSet);
+}
 
-  if (utmCampaign) {
-    const runs = adSetRuns
-      .filter((r) => r.ad_set === utmCampaign)
-      .sort((a, b) => a.date.localeCompare(b.date));
-
-    if (runs.length) {
-      const inWindow = runs.find((r) => {
-        const round = rounds.find((x) => x.round_id === r.round_id);
-        return round && day(round.start_date) <= d && d <= day(round.end_date);
-      });
-      if (inWindow) return { roundId: inWindow.round_id, method: "utm" };
-
-      const earlier = [...runs].reverse().find((r) => r.date <= d);
-      if (earlier) return { roundId: earlier.round_id, method: "utm" };
-      return { roundId: runs[0].round_id, method: "utm" };
-    }
+export function leadAttributor(rounds: Round[], adSetRuns: AdSetRun[]) {
+  const byId = new Map(rounds.map((round) => [round.round_id, round]));
+  const byAdSet = new Map<string, Set<string>>();
+  for (const run of adSetRuns) {
+    const round = byId.get(run.round_id);
+    if (!round || day(round.start_date) > day(run.date) || day(run.date) > day(round.end_date)) continue;
+    const ids = byAdSet.get(run.ad_set) ?? new Set<string>();
+    ids.add(run.round_id);
+    byAdSet.set(run.ad_set, ids);
   }
+  return (optInDate: string, adSet: string | null): Attribution => {
+    const optInDay = localDay(optInDate);
+    const eligible = rounds.filter((round) => day(round.start_date) <= optInDay && optInDay <= day(round.end_date));
+    const matching = adSet ? eligible.filter((round) => byAdSet.get(adSet)?.has(round.round_id)) : [];
+    if (matching.length === 1) return { roundId: matching[0].round_id, method: "utm" };
+    return eligible.length === 1 ? { roundId: eligible[0].round_id, method: "date_window" } : { roundId: null, method: null };
+  };
+}
 
-  // Date-window fallback — weaker, and recorded as such.
-  const containing = rounds.find((r) => day(r.start_date) <= d && d <= day(r.end_date));
-  if (containing) return { roundId: containing.round_id, method: "date_window" };
+export function leadDateInRound(when: string, round: Round): boolean {
+  const optInDay = localDay(when);
+  return day(round.start_date) <= optInDay && optInDay <= day(round.end_date);
+}
 
-  // Outside every window: the most recent round that had already opened.
-  const prior = [...rounds]
-    .filter((r) => day(r.start_date) <= d)
-    .sort((a, b) => b.start_date.localeCompare(a.start_date))[0];
-  return prior ? { roundId: prior.round_id, method: "date_window" } : { roundId: null, method: null };
+/** A Leads Round is an exact ID or one uniquely matching code, not a
+ * substring, session date, foreign-client value, or preference among markets. */
+export function declaredLeadRound(ref: string, rounds: Round[]): Round | null {
+  const value = ref.trim().toLowerCase();
+  const ids = rounds.filter((round) => round.round_id.toLowerCase() === value);
+  if (ids.length) return ids.length === 1 ? ids[0] : null;
+  const codes = rounds.filter((round) => round.code?.toLowerCase() === value);
+  return codes.length === 1 ? codes[0] : null;
 }
 
 /**

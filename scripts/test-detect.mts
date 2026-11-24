@@ -15,7 +15,7 @@
  */
 import { detectSource } from "../lib/import/detect";
 import { buildTemplate } from "../lib/import/template";
-import { SOURCES, mapColumns, type SourceKey } from "../lib/import/sources";
+import { SOURCES, mapColumns, columnDiagnostics, type SourceKey } from "../lib/import/sources";
 
 let pass = 0, fail = 0;
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -84,6 +84,36 @@ console.log("\nClarity is found by its own marker, not by its header row");
   eq("header row alone is not enough", of(["Metric", "Value"]), "unknown");
   const d = detectSource(["Metric", "Value"], ["Date range", "Scroll depth", "0%"]);
   eq("the scroll-depth label identifies it", d.kind === "sure" ? d.source : d.kind, "scroll");
+}
+
+console.log("\nmissing columns explain what to fix");
+{
+  const headers = ["email", "product", "amount"];
+  const d = detectSource(headers);
+  eq("missing Sales date stays refused", d.kind, "unknown");
+  eq("missing Sales date is named",
+    d.kind === "unknown" ? d.why : "",
+    "Sales CSV is missing a transaction date column (event_date).");
+  eq("auto and explicit source share diagnostics",
+    d.kind === "unknown" ? d.detail : [],
+    columnDiagnostics(SOURCES.sales, headers).detail);
+  eq("recognized mappings are shown",
+    d.kind === "unknown" && d.detail?.some((s) => s.includes('"product" → product')), true);
+  eq("accepted date headings are shown",
+    d.kind === "unknown" && d.detail?.some((s) => s.includes("event_date, date, created, paid at, charge date")), true);
+  eq("Transaction Date is still not an alias",
+    of([...headers, "Transaction Date"]), "unknown");
+  for (const date of ["event_date", "date", "created", "paid at", "charge date", "PAID-AT"]) {
+    eq(`Sales date alias: ${date}`, of([...headers, date]), "sales");
+  }
+  const ambiguous = detectSource(["product", "minutes_watched"]);
+  eq("tied partial evidence asks", ambiguous.kind, "unsure");
+  eq("partial ambiguity explains missing columns",
+    ambiguous.kind === "unsure" && ambiguous.candidates.every((c) => c.why.includes("missing required columns:")), true);
+  eq("email and date still ask", of(["email", "event_date"]), "unsure");
+  const remembered = mapColumns(SOURCES.sales, [...headers, "Paid at", "date"], { event_date: "Paid at" });
+  eq("remembered date still wins", remembered.map.event_date, "Paid at");
+  eq("remembered mapping stays valid", remembered.missing, []);
 }
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);

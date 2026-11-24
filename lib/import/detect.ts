@@ -1,4 +1,4 @@
-import { SOURCES, type SourceKey } from "./sources";
+import { SOURCES, columnDiagnostics, type SourceKey } from "./sources";
 
 /**
  * WHICH FILE IS THIS?
@@ -39,7 +39,7 @@ import { SOURCES, type SourceKey } from "./sources";
 export type Detection =
   | { kind: "sure"; source: SourceKey; why: string }
   | { kind: "unsure"; candidates: Array<{ source: SourceKey; why: string }> }
-  | { kind: "unknown"; why: string };
+  | { kind: "unknown"; why: string; detail?: string[] };
 
 const canon = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
 
@@ -94,6 +94,7 @@ export function detectSource(headers: string[], firstColumn: string[] = []): Det
 
   const disc = discriminators();
   const scored: Array<{ source: SourceKey; hits: string[]; missing: string[] }> = [];
+  const incomplete: typeof scored = [];
 
   for (const key of ["ads", "leads", "attendance", "sales"] as SourceKey[]) {
     const fields = (SOURCES as Record<string, Spec>)[key].fields ?? [];
@@ -102,15 +103,37 @@ export function detectSource(headers: string[], firstColumn: string[] = []): Det
       if ([...have].some((h) => names(f, h))) matched.set(f.field, f.required);
     }
     const missing = fields.filter((f) => f.required && !matched.has(f.field)).map((f) => f.field);
-    if (missing.length) continue;                      // not a candidate at all
     const hits = [...matched.keys()].filter((f) => disc.get(f) === key);
+    if (missing.length) {
+      if (hits.length) incomplete.push({ source: key, hits, missing });
+      continue;
+    }
     scored.push({ source: key, hits, missing });
   }
 
   if (!scored.length) {
+    // Partial evidence explains a refusal; it never permits an import.
+    // Keep the existing selection rules for every complete candidate.
+    incomplete.sort((a, b) => b.hits.length - a.hits.length);
+    const best = incomplete[0];
+    const tied = best ? incomplete.filter((s) => s.hits.length === best.hits.length) : [];
+    if (tied.length > 1) {
+      return {
+        kind: "unsure",
+        candidates: tied.map((s) => ({
+          source: s.source,
+          why: `has ${s.hits.join(", ")}; missing required columns: ${s.missing.join(", ")}`,
+        })),
+      };
+    }
+    if (best) {
+      const diagnostic = columnDiagnostics(SOURCES[best.source], headers);
+      return { kind: "unknown", why: diagnostic.error, detail: diagnostic.detail };
+    }
     return {
       kind: "unknown",
       why: "no source has all its required columns here. Check the header row — the templates show the shortest version of each file.",
+      detail: [`Headers found: ${headers.join(" · ")}`],
     };
   }
 

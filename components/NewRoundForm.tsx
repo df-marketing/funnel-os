@@ -186,7 +186,7 @@ export function NewRoundForm({ client }: { client: string }) {
 
   if (!open) {
     return (
-      <div className="notice">
+      <div className="notice" id="import-round-setup">
         <span className="ico">0</span>
         <div>
           <b>Rounds are set up once per round.</b> An import is refused outright if the round it
@@ -201,7 +201,7 @@ export function NewRoundForm({ client }: { client: string }) {
   }
 
   return (
-    <div className="newround">
+    <div className="newround" id="import-round-setup">
       <div className="nr-h">
         <b>{editing ? `Edit ${editing}` : "Add a round"}</b>
         <button type="button" className="linkish"
