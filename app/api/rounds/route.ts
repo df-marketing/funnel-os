@@ -248,7 +248,7 @@ export async function POST(request: Request) {
     code: r.code,
     start_date: r.startDate,
     end_date: r.endDate,
-    session_date: r.sessionDate,
+    session_date: r.sessionDate || null,
     session_label: r.sessionLabel,
     product_id: r.productId,
     market: r.market,
